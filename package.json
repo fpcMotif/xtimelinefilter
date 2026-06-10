@@ -1,0 +1,41 @@
+{
+  "name": "lasso-x-list-assigner",
+  "version": "0.1.0",
+  "description": "Assign tweet authors to your X Lists in bulk, from the timeline.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.9.1",
+    "@preact/signals-core": "^1.14.2",
+    "@tailwindcss/vite": "^4.3.0",
+    "preact": "^10.29.2",
+    "tailwindcss": "^4.3.0"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.33",
+    "@playwright/test": "^1.60.0",
+    "@preact/preset-vite": "^2.10.5",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/preact": "^3.2.4",
+    "@types/chrome": "^0.1.43",
+    "happy-dom": "^20.10.2",
+    "oxfmt": "^0.53.0",
+    "oxlint": "^1.68.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
+  }
+}

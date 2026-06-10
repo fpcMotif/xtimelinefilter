@@ -1,0 +1,110 @@
+import { afterEach, describe, expect, it } from "vitest";
+
+import { extractAuthor, getTweetType } from "@/core/tweet-extractor";
+
+function mount(html: string): HTMLElement {
+  const host = document.createElement("div");
+  host.innerHTML = html.trim();
+  document.body.appendChild(host);
+  return host;
+}
+const tweetEl = (html: string) => mount(html).querySelector("article") as Element;
+
+afterEach(() => {
+  document.body.innerHTML = "";
+});
+
+const NORMAL = `
+<article data-testid="tweet" role="article">
+  <div data-testid="User-Name">
+    <div><a href="/jack"><span>Jack 🚀</span></a><svg data-testid="icon-verified"></svg></div>
+    <div><a href="/jack"><span>@jack</span></a>·<a href="/jack/status/123"><time datetime="2024-01-01">1h</time></a></div>
+  </div>
+  <div data-testid="UserAvatar-Container-jack"><img src="https://pbs.twimg.com/profile_images/111/abc_normal.jpg"></div>
+  <div data-testid="tweetText">hello world</div>
+</article>`;
+
+const RETWEET = `
+<article data-testid="tweet" role="article">
+  <div data-testid="socialContext"><a href="/bob"><span>Bob reposted</span></a></div>
+  <div data-testid="User-Name">
+    <div><a href="/jack"><span>Jack</span></a></div>
+    <div><a href="/jack"><span>@jack</span></a>·<a href="/jack/status/123"><time>1h</time></a></div>
+  </div>
+  <div data-testid="UserAvatar-Container-jack"><img src="https://pbs.twimg.com/profile_images/111/abc_normal.jpg"></div>
+</article>`;
+
+const PROMOTED = `
+<div data-testid="placementTracking">
+  <article data-testid="tweet" role="article">
+    <div data-testid="User-Name">
+      <div><a href="/acme"><span>Acme</span></a></div>
+      <div><a href="/acme"><span>@acme</span></a>·<a href="/acme/status/999"><time>1h</time></a></div>
+    </div>
+    <div data-testid="socialContext"><span>Promoted</span></div>
+  </article>
+</div>`;
+
+const QUOTE = `
+<article data-testid="tweet" role="article">
+  <div data-testid="User-Name">
+    <div><a href="/jack"><span>Jack</span></a></div>
+    <div><a href="/jack"><span>@jack</span></a>·<a href="/jack/status/500"><time>1h</time></a></div>
+  </div>
+  <div role="link">
+    <div data-testid="User-Name">
+      <div><a href="/alice"><span>Alice</span></a></div>
+      <div><a href="/alice"><span>@alice</span></a>·<a href="/alice/status/400"><time>2h</time></a></div>
+    </div>
+  </div>
+</article>`;
+
+const AVATAR_ONLY = `
+<article data-testid="tweet" role="article">
+  <div data-testid="UserAvatar-Container-zoe"><img src="https://pbs.twimg.com/profile_images/222/x_normal.jpg"></div>
+</article>`;
+
+describe("extractAuthor", () => {
+  it("extracts handle, tweetId, display name (emoji via alt-free text), avatar from a normal tweet", () => {
+    const a = extractAuthor(tweetEl(NORMAL));
+    expect(a).toMatchObject({
+      screenName: "jack",
+      tweetId: "123",
+      displayName: "Jack 🚀",
+      avatarUrl: "https://pbs.twimg.com/profile_images/111/abc_normal.jpg",
+    });
+    expect(a?.userId).toBeUndefined();
+  });
+
+  it("returns the ORIGINAL author for a retweet (not the reposter)", () => {
+    expect(extractAuthor(tweetEl(RETWEET))).toMatchObject({ screenName: "jack", tweetId: "123" });
+  });
+
+  it("skips promoted tweets (returns null)", () => {
+    expect(extractAuthor(tweetEl(PROMOTED))).toBeNull();
+  });
+
+  it("extracts the OUTER author of a quote tweet, never the quoted account", () => {
+    expect(extractAuthor(tweetEl(QUOTE))).toMatchObject({ screenName: "jack", tweetId: "500" });
+  });
+
+  it("falls back to the avatar-container handle when the name block is absent", () => {
+    const a = extractAuthor(tweetEl(AVATAR_ONLY));
+    expect(a?.screenName).toBe("zoe");
+    expect(a?.tweetId).toBeUndefined();
+  });
+
+  it("returns null for a non-tweet element", () => {
+    const div = mount('<div data-testid="UserCell">who to follow</div>')
+      .firstElementChild as Element;
+    expect(extractAuthor(div)).toBeNull();
+  });
+});
+
+describe("getTweetType", () => {
+  it("classifies a normal tweet, a retweet, and a promoted tweet", () => {
+    expect(getTweetType(tweetEl(NORMAL))).toBe("tweet");
+    expect(getTweetType(tweetEl(RETWEET))).toBe("retweet");
+    expect(getTweetType(tweetEl(PROMOTED))).toBe("promoted");
+  });
+});
