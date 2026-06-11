@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none">
+  <!-- One path: a lasso rope whose open loop closes into a check (the loop IS the check).
+       1.5px stroke on a 20px grid; single-color glyph reads at 16px and 128px. -->
+  <path d="M9.5 17.5c-3.6-.4-6.4-3-6.9-6.3C2 7.6 4.6 4.2 8.4 3.3c3.7-.9 7.4 1.2 8.4 4.7.8 2.8-.5 5.7-3 7.2M6.9 10.2l2.7 2.7L15.2 7"
+        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -2,12 +2,20 @@ import { defineManifest } from "@crxjs/vite-plugin";
 
 // No host_permissions: authenticated x.com calls run in the content script
 // (same-origin) per ADR-0002, so cookies/ct0 attach automatically.
+// Store-listing copy lives in docs/store-listing.md (manifest description is
+// capped at 132 chars).
 export default defineManifest({
   manifest_version: 3,
-  name: "Lasso — X List Assigner",
-  version: "0.1.0",
+  name: "Lasso — add people to your X Lists from the timeline",
+  version: "0.2.0",
   description:
-    "Select tweets and assign their authors to your X Lists, in bulk, from the timeline.",
+    "Select posts as you scroll and file their authors into your X Lists — without leaving the feed. Keyboard-first. Local-only.",
+  icons: {
+    16: "icons/lasso-16.png",
+    32: "icons/lasso-32.png",
+    48: "icons/lasso-48.png",
+    128: "icons/lasso-128.png",
+  },
   permissions: ["storage"],
   content_scripts: [
     {
@@ -20,5 +28,16 @@ export default defineManifest({
     service_worker: "src/background/index.ts",
     type: "module",
   },
-  action: { default_title: "Lasso" },
+  action: {
+    default_title: "Lasso",
+    default_popup: "src/popup/index.html",
+    default_icon: {
+      16: "icons/lasso-16.png",
+      32: "icons/lasso-32.png",
+    },
+  },
+  options_ui: {
+    page: "src/options/index.html",
+    open_in_tab: true,
+  },
 });

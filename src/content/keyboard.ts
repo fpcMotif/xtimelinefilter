@@ -2,9 +2,13 @@ export type CommandId =
   | "mute"
   | "not-interested"
   | "add-to-list"
+  | "add-to-default-list"
   | "block"
   | "toggle-select"
-  | "toggle-select-mode";
+  | "toggle-select-mode"
+  | "help"
+  | "escape"
+  | "undo";
 
 export interface KeyBinding {
   combo: string;
@@ -14,13 +18,19 @@ export interface KeyBinding {
 /**
  * Default bindings (Alt+key per the user's choice). j/k are NOT bound — X's native
  * cursor is reused. Block (Alt+b) is intentionally omitted (destructive, opt-in).
+ * Escape/z/? handlers return false when Lasso has nothing to do, so X's own keys
+ * keep working (see installKeyboardLayer).
  */
 export const DEFAULT_KEYMAP: KeyBinding[] = [
   { combo: "Alt+m", command: "mute" },
   { combo: "Alt+n", command: "not-interested" },
   { combo: "Alt+l", command: "add-to-list" },
+  { combo: "Alt+Shift+l", command: "add-to-default-list" },
   { combo: "x", command: "toggle-select" },
   { combo: "s", command: "toggle-select-mode" },
+  { combo: "?", command: "help" },
+  { combo: "Escape", command: "escape" },
+  { combo: "z", command: "undo" },
 ];
 
 const MOD_ORDER = ["Alt", "Ctrl", "Meta", "Shift"] as const;
@@ -56,6 +66,9 @@ export function eventToCombo(e: KeyboardEvent): string {
   // letter/digit (Windows/Linux Dvorak etc.); fall back to the physical key otherwise.
   const raw = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const key = e.altKey && !/^[a-z0-9]$/.test(raw) ? (keyFromCode(e.code) ?? raw) : raw;
+  // A lone Shift is already encoded in the produced character ("?" is Shift+/),
+  // so "?" binds as "?", while chords like Alt+Shift+l keep their Shift.
+  if (key.length === 1 && mods.length === 1 && mods[0] === "Shift") mods.length = 0;
   return [...mods, key].join("+");
 }
 
@@ -67,7 +80,11 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 
 export interface KeyboardLayerOptions {
   keymap: KeyBinding[];
-  run: (command: CommandId) => void;
+  /**
+   * Returning false means "Lasso had nothing to do" — the event is left for X
+   * (e.g. Esc with no Lasso surface open, z with no undo armed).
+   */
+  run: (command: CommandId) => boolean | void;
   doc?: Document;
 }
 
@@ -88,9 +105,9 @@ export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
     if (isTypingTarget(target)) return;
     const command = table.get(eventToCombo(e));
     if (!command) return;
+    if (opts.run(command) === false) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    opts.run(command);
   };
 
   doc.addEventListener("keydown", handler, true);

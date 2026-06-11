@@ -16,6 +16,10 @@ export interface AssignOptions {
   jitter?: number;
   /** Injectable randomness for jitter. */
   random?: () => number;
+  /** 1-based progress, reported before each attempt ("Adding 2 of 7…"). */
+  onProgress?: (current: number, total: number) => void;
+  /** Checked before each attempt; true aborts the rest (the Stop pill, story beat 7). */
+  shouldStop?: () => boolean;
 }
 
 /**
@@ -35,15 +39,22 @@ export async function assignAuthorsToList(
   const results: AssignResult[] = [];
 
   for (let i = 0; i < authors.length; i++) {
+    if (opts.shouldStop?.()) break; // user hit Stop: un-attempted authors stay selected
     const author = authors[i] as TweetAuthor;
     if (i > 0) await sleep(pace(delayMs, opts)); // pace between adds, not before the first
+    opts.onProgress?.(i + 1, authors.length);
 
     try {
       await api.addMember(list, author);
       results.push({ author, outcome: "added" });
     } catch (e) {
       const outcome = outcomeFromError(e);
-      results.push({ author, outcome, message: e instanceof Error ? e.message : String(e) });
+      results.push({
+        author,
+        outcome,
+        message: e instanceof Error ? e.message : String(e),
+        ...(e instanceof XApiError && e.resetAt !== undefined ? { resetAt: e.resetAt } : {}),
+      });
       if (outcome === "rate-limited") break; // honor backoff, stop the run
     }
   }

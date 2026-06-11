@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   canonicalCombo,
+  DEFAULT_KEYMAP,
   eventToCombo,
   type KeyBinding,
   installKeyboardLayer,
@@ -134,5 +135,57 @@ describe("installKeyboardLayer", () => {
     dispose = installKeyboardLayer({ keymap, run, doc: document });
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true, composed: true }));
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("story beats 5 & 6 — the full keyboard layer", () => {
+  it("? maps to itself (Shift is part of the character, not the combo)", () => {
+    expect(eventToCombo(new KeyboardEvent("keydown", { key: "?", shiftKey: true }))).toBe("?");
+  });
+
+  it("Alt+Shift+L (the default-List chord) keeps Shift in the combo", () => {
+    expect(
+      eventToCombo(
+        new KeyboardEvent("keydown", { key: "L", code: "KeyL", altKey: true, shiftKey: true }),
+      ),
+    ).toBe("Alt+Shift+l");
+    // macOS composes Alt+Shift+L into a symbol — the physical key must win.
+    expect(
+      eventToCombo(
+        new KeyboardEvent("keydown", { key: "Ò", code: "KeyL", altKey: true, shiftKey: true }),
+      ),
+    ).toBe("Alt+Shift+l");
+  });
+
+  it("Escape and z resolve to bindable combos", () => {
+    expect(eventToCombo(new KeyboardEvent("keydown", { key: "Escape" }))).toBe("Escape");
+    expect(eventToCombo(new KeyboardEvent("keydown", { key: "z" }))).toBe("z");
+  });
+
+  it("a run handler returning false leaves the event for X (Esc with nothing open)", () => {
+    const run = vi.fn(() => false);
+    const dispose2 = installKeyboardLayer({
+      keymap: [{ combo: "Escape", command: "escape" }],
+      run,
+      doc: document,
+    });
+    const e = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    document.dispatchEvent(e);
+    expect(run).toHaveBeenCalledWith("escape");
+    expect(e.defaultPrevented).toBe(false);
+    dispose2();
+  });
+
+  it("the default keymap covers the whole product story surface", () => {
+    const commands = Object.fromEntries(DEFAULT_KEYMAP.map((b) => [b.combo, b.command]));
+    expect(commands["Alt+l"]).toBe("add-to-list");
+    expect(commands["Alt+Shift+l"]).toBe("add-to-default-list");
+    expect(commands["Alt+m"]).toBe("mute");
+    expect(commands["Alt+n"]).toBe("not-interested");
+    expect(commands["s"]).toBe("toggle-select-mode");
+    expect(commands["x"]).toBe("toggle-select");
+    expect(commands["?"]).toBe("help");
+    expect(commands["Escape"]).toBe("escape");
+    expect(commands["z"]).toBe("undo");
   });
 });

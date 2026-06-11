@@ -28,13 +28,5 @@ export function summarize(results: AssignResult[]): AssignSummary {
   return s;
 }
 
-/** Human, minimalist one-liner for the Toast; omits zero categories. */
-export function summaryLine(s: AssignSummary): string {
-  const parts: string[] = [];
-  if (s.added) parts.push(`Added ${s.added}`);
-  if (s.alreadyMember) parts.push(`${s.alreadyMember} already in list`);
-  if (s.protected) parts.push(`${s.protected} not allowed`);
-  if (s.failed) parts.push(`${s.failed} failed`);
-  if (s.rateLimited) parts.push("rate limit reached — stopped");
-  return parts.join(" · ") || "Nothing to add";
-}
+// Toast copy lives in assign-feedback.ts (canonical strings) — the old
+// summaryLine ("N not allowed", "already in list") is gone with it.

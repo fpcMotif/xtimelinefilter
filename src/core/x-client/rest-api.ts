@@ -19,8 +19,18 @@ function authHeaders(creds: Credentials): Record<string, string> {
   };
 }
 
+/** Epoch seconds from the x-rate-limit-reset header, if present and numeric. */
+export function rateLimitResetOf(res: Response): number | undefined {
+  const raw = Number(res.headers.get("x-rate-limit-reset"));
+  return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+}
+
 async function ensureOk(res: Response): Promise<unknown> {
-  if (res.status === 429) throw new XApiError("rate-limited", "Rate limited (HTTP 429)");
+  if (res.status === 429) {
+    throw new XApiError("rate-limited", "Rate limited (HTTP 429)", {
+      resetAt: rateLimitResetOf(res),
+    });
+  }
   if (res.status === 401 || res.status === 403) {
     throw new XApiError("auth", `Auth error (HTTP ${res.status})`);
   }
@@ -37,6 +47,12 @@ async function ensureOk(res: Response): Promise<unknown> {
     const codes = errors.map((e) => e.code);
     if (/already a member|already added/i.test(message)) {
       throw new XApiError("already-member", message);
+    }
+    if (codes.includes(104) || /protected|aren't allowed to add this member/i.test(message)) {
+      throw new XApiError("protected", message);
+    }
+    if (codes.includes(88)) {
+      throw new XApiError("rate-limited", message, { resetAt: rateLimitResetOf(res) });
     }
     if (codes.includes(32) || codes.includes(89)) throw new XApiError("auth", message);
     throw new XApiError("unknown", message || "v1.1 error");
@@ -64,6 +80,10 @@ export const removeFromList = (deps: RestDeps, listId: string, screenName: strin
 
 export const muteUser = (deps: RestDeps, screenName: string): Promise<void> =>
   post(deps, "mutes/users/create.json", { screen_name: screenName });
+
+/** Undo verb for "Muted @jane" (story beat 6). */
+export const unmuteUser = (deps: RestDeps, screenName: string): Promise<void> =>
+  post(deps, "mutes/users/destroy.json", { screen_name: screenName });
 
 export const blockUser = (deps: RestDeps, screenName: string): Promise<void> =>
   post(deps, "blocks/create.json", { screen_name: screenName });
