@@ -59,7 +59,7 @@ Keycaps render platform-aware: `Alt` on Windows/Linux, `⌥` on macOS.
 
 **The graduation chord:** once a **Default List** is set in Settings, **`Alt+Shift+L` adds the hovered/focused author straight to it — no picker at all.** Toast: `Added 1 to Design Folks · View List · Undo`. The whole flow collapses to one chord.
 
-**Quick actions report back:** `Alt+M` → toast **Muted @jane · Undo** (`Z`, 10s window). `Alt+N` → **Hidden — not interested**. Failures: **Couldn't mute @jane · Retry**. Nothing is silent anymore; muting the wrong person is now visible and reversible.
+**Quick actions report back:** `Alt+M` → toast **Muted @jane · Undo** (`Z`, 10s window). `Alt+N` → **Hidden — told X you're not interested**. Failures: **Couldn't mute @jane · Retry**. Nothing is silent anymore; muting the wrong person is now visible and reversible.
 
 **What the design does:** Caret-anchoring eliminates the gaze hop on every single assign; the usage-ranked `Recent` group means the right List is usually the first row; `Esc` follows one deterministic grammar everywhere (dialog → picker → review popover → select mode → clear selection).
 

@@ -1,3 +1,5 @@
+import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
+
 export type CommandId =
   | "mute"
   | "not-interested"
@@ -97,6 +99,9 @@ export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
   const table = new Map(opts.keymap.map((b) => [canonicalCombo(b.combo), b.command]));
 
   const handler = (e: KeyboardEvent): void => {
+    // Lasso's own driver synthesizes Escape to dismiss stuck X menus — that is
+    // cleanup aimed at X, not user input for this layer.
+    if ((e as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]) return;
     // composedPath()[0] sees inside open shadow roots (e.g. the ListPicker's filter
     // input), where e.target is retargeted to the shadow host and looks non-editable.
     // No isComposing bail: macOS marks the Option+N dead-key keydown as composing,

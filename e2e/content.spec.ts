@@ -64,18 +64,45 @@ const CHROME_STUB = `(() => {
   };
 })();`;
 
+// Mimics live X's caret menu: opens on caret click, removes itself on an
+// accepted row click, then swaps the tweet article for a testid-less feedback
+// article (the shape verified live 2026-06-12).
+const CARET_MENU_FIXTURE = `(() => {
+  document.querySelector('[data-testid="caret"]').addEventListener('click', () => {
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    menu.innerHTML = '<div role="menuitem">Not interested in this post</div>';
+    menu.querySelector('[role="menuitem"]').addEventListener('click', () => {
+      menu.remove();
+      const cell = document.querySelector('[data-testid="cellInnerDiv"]');
+      cell.querySelector('article').remove();
+      cell.insertAdjacentHTML('beforeend',
+        '<article><button>Undo</button><button>Show fewer from @jack</button><button>This post is not relevant</button></article>');
+      window.__nifeedback = [];
+      for (const b of cell.querySelectorAll('article button')) {
+        b.addEventListener('click', () => window.__nifeedback.push(b.textContent));
+      }
+    });
+    document.body.appendChild(menu);
+  });
+})();`;
+
 function harnessHtml(): string {
   return `<!doctype html><html><head><meta charset="utf-8"></head><body>
   <div data-testid="primaryColumn">
-    <article data-testid="tweet" role="article">
-      <div data-testid="User-Name">
-        <div><a href="/jack"><span>Jack</span></a></div>
-        <div><a href="/jack"><span>@jack</span></a>·<a href="/jack/status/1"><time>1h</time></a></div>
-      </div>
-      <p>hello timeline</p>
-    </article>
+    <div data-testid="cellInnerDiv">
+      <article data-testid="tweet" role="article">
+        <div data-testid="User-Name">
+          <div><a href="/jack"><span>Jack</span></a></div>
+          <div><a href="/jack"><span>@jack</span></a>·<a href="/jack/status/1"><time>1h</time></a></div>
+        </div>
+        <p>hello timeline</p>
+        <button data-testid="caret" aria-label="More"></button>
+      </article>
+    </div>
   </div>
   <script>${CHROME_STUB}</script>
+  <script>${CARET_MENU_FIXTURE}</script>
   <script type="module" src="./${contentBundle()}"></script>
 </body></html>`;
 }
@@ -117,6 +144,24 @@ test.describe("content UI (real bundle, chrome stubbed)", () => {
     await expect(page.getByText(/Lasso never overrides them/)).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByText("Keyboard shortcuts")).toBeHidden();
+  });
+
+  test("Alt+N drives the caret menu and reports verified not-interested feedback", async ({
+    page,
+  }) => {
+    await openHarness(page);
+    await page.getByText("Skip", { exact: true }).click();
+
+    // Hover targets the post (mousemove → hoveredSticky), Alt+N hides it.
+    await page.hover("article");
+    await page.keyboard.press("Alt+n");
+
+    // Success toast only after the verified X-side effect (panel appeared).
+    await expect(page.getByText("Hidden — told X you're not interested")).toBeVisible();
+    // The post-level "not relevant" feedback was clicked — never Undo.
+    await expect
+      .poll(async () => page.evaluate(() => (window as { __nifeedback?: string[] }).__nifeedback))
+      .toEqual(["This post is not relevant"]);
   });
 
   test("select mode: s shows the bar at zero count; post-body clicks toggle", async ({ page }) => {

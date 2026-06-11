@@ -110,7 +110,7 @@ export const addedPartialLine = (added: number, listName: string, failed: number
 
 export const NOTHING_ADDED = "Nothing was added";
 
-export const HIDDEN_LINE = "Hidden — not interested";
+export const HIDDEN_LINE = "Hidden — told X you're not interested";
 export const hideFailedLine = "Couldn't hide that post";
 
 export const removedLine = (n: number, listName: string): string =>

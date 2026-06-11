@@ -256,10 +256,10 @@ describe("quick actions report back (story beat 6)", () => {
     expect(toast?.actions?.[0]?.label).toBe("Retry");
   });
 
-  it("not-interested confirms with Hidden — not interested", async () => {
+  it("not-interested confirms that X received the feedback", async () => {
     const h = harness();
     await h.controller.hideTweet(document.createElement("article"));
-    expect(titles(h)).toEqual(["Hidden — not interested"]);
+    expect(titles(h)).toEqual(["Hidden — told X you're not interested"]);
   });
 });
 

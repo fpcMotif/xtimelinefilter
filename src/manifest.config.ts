@@ -1,5 +1,14 @@
 import { defineManifest } from "@crxjs/vite-plugin";
 
+type ContentScript = NonNullable<chrome.runtime.ManifestV3["content_scripts"]>[number];
+
+const mainWorldContentScript = {
+  matches: ["https://x.com/*", "https://twitter.com/*"],
+  js: ["src/content/main-world.ts"],
+  run_at: "document_start",
+  world: "MAIN",
+} as unknown as ContentScript;
+
 // No host_permissions: authenticated x.com calls run in the content script
 // (same-origin) per ADR-0002, so cookies/ct0 attach automatically.
 // Store-listing copy lives in docs/store-listing.md (manifest description is
@@ -18,6 +27,7 @@ export default defineManifest({
   },
   permissions: ["storage"],
   content_scripts: [
+    mainWorldContentScript,
     {
       matches: ["https://x.com/*", "https://twitter.com/*"],
       js: ["src/content/main.tsx"],

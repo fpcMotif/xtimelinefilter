@@ -131,7 +131,7 @@ describe("derived copy", () => {
   });
 
   it("not-interested confirmation", () => {
-    expect(S.HIDDEN_LINE).toBe("Hidden — not interested");
+    expect(S.HIDDEN_LINE).toBe("Hidden — told X you're not interested");
   });
 
   it("picker footer legend includes the selection count", () => {
