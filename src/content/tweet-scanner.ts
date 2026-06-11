@@ -10,6 +10,11 @@ export interface TweetScanner {
   scanExisting(): void;
 }
 
+export interface TweetScannerOptions {
+  /** Per observer batch: how many mutations fired and how many posts matched (health). */
+  onScan?: (mutations: number, matches: number) => void;
+}
+
 /**
  * Observes a root for tweet articles (virtualized timeline mounts/unmounts them),
  * de-dupes by node, extracts the author, and reports each new tweet once.
@@ -18,6 +23,7 @@ export interface TweetScanner {
 export function createTweetScanner(
   root: Document | Element,
   onTweet: (author: TweetAuthor, article: Element) => void,
+  opts: TweetScannerOptions = {},
 ): TweetScanner {
   const seen = new WeakSet<Element>();
 
@@ -29,17 +35,27 @@ export function createTweetScanner(
   };
 
   const scanExisting = (): void => {
-    for (const el of root.querySelectorAll(Selectors.TWEET)) handle(el);
+    const found = root.querySelectorAll(Selectors.TWEET);
+    for (const el of found) handle(el);
+    opts.onScan?.(0, found.length);
   };
 
   const observer = new MutationObserver((mutations) => {
+    let matches = 0;
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (!(node instanceof Element)) continue;
-        if (node.matches(Selectors.TWEET)) handle(node);
-        for (const el of node.querySelectorAll(Selectors.TWEET)) handle(el);
+        if (node.matches(Selectors.TWEET)) {
+          matches++;
+          handle(node);
+        }
+        for (const el of node.querySelectorAll(Selectors.TWEET)) {
+          matches++;
+          handle(el);
+        }
       }
     }
+    opts.onScan?.(mutations.length, matches);
   });
 
   return {

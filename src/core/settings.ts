@@ -2,6 +2,7 @@
 export interface StorageLike {
   get(keys?: string | string[] | null): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
+  remove?(keys: string | string[]): Promise<void>;
 }
 
 export type BackendStrategy = "rest" | "dom" | "graphql";
@@ -10,21 +11,27 @@ export type BackendStrategy = "rest" | "dom" | "graphql";
 export type Activation = "auto" | "on-demand";
 
 export interface LassoSettings {
-  /** Active backend; DOM is the policy-conservative default (ADR-0001). */
+  /** Active backend; REST v1.1 is the default (ADR-0007). */
   backend: BackendStrategy;
+  /** When set, Alt+Shift+L adds straight to this List — no picker (story beat 6). */
   defaultListId?: string;
   /** Key that toggles multi-select mode. */
   hotkeySelectMode: string;
   /** UI activation mode; "auto" (always-on) by default, switchable to "on-demand". */
   activation: Activation;
+  /** Accessibility: AA-safe darker-blue button fills (story beat 9). */
+  highContrast: boolean;
 }
 
 export const DEFAULT_SETTINGS: LassoSettings = {
   backend: "rest", // X's stable v1.1 REST API (live-verified) — locale/DOM-independent
   hotkeySelectMode: "s",
   activation: "auto",
+  highContrast: false,
 };
 
+// NOTE: must equal STORAGE_KEYS.settings (storage-keys.ts imports our types,
+// so the literal lives here to avoid an import cycle; pinned by tests).
 const KEY = "lasso:settings";
 
 export interface SettingsStore {

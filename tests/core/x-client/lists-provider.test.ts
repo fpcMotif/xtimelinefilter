@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchOwnedLists } from "@/core/x-client/lists-provider";
+import { fetchMembershipListIds, fetchOwnedLists } from "@/core/x-client/lists-provider";
 
 const creds = { csrf: "ct0", bearer: "B" };
 
@@ -46,5 +46,56 @@ describe("fetchOwnedLists", () => {
     await expect(
       fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
     ).rejects.toMatchObject({ kind: "auth" });
+  });
+});
+
+describe("story beat 4 — picker anatomy data", () => {
+  it("marks private Lists so the picker can show lock icons", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        lists: [
+          { id_str: "1", name: "Public", mode: "public" },
+          { id_str: "2", name: "Secret", mode: "private" },
+        ],
+      }),
+    );
+    const lists = await fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds });
+    expect(lists.map((l) => l.isPrivate)).toEqual([false, true]);
+  });
+
+  it("carries the rate-limit reset on 429 so the picker can name a wait time", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("{}", { status: 429, headers: { "x-rate-limit-reset": "1750000123" } }),
+    );
+    await expect(
+      fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+    ).rejects.toMatchObject({ kind: "rate-limited", resetAt: 1750000123 });
+  });
+});
+
+describe("fetchMembershipListIds — the picker's 'already in' blue checks", () => {
+  it("GETs lists/memberships.json filtered to owned lists and returns the ids", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ lists: [{ id_str: "9", name: "Design Folks" }, { id_str: "12" }] }),
+    );
+    const ids = await fetchMembershipListIds(
+      { fetch: fetchMock as unknown as typeof fetch, creds },
+      "jane",
+    );
+    expect(ids).toEqual(["9", "12"]);
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toContain("/i/api/1.1/lists/memberships.json");
+    expect(url).toContain("screen_name=jane");
+    expect(url).toContain("filter_to_owned_lists=true");
+  });
+
+  it("returns [] on failure — checks are progressive enhancement, never a blocker", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}, 500));
+    const ids = await fetchMembershipListIds(
+      { fetch: fetchMock as unknown as typeof fetch, creds },
+      "jane",
+    );
+    expect(ids).toEqual([]);
   });
 });

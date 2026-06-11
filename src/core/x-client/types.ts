@@ -13,6 +13,8 @@ export interface XList {
   id: string;
   name: string;
   memberCount?: number;
+  /** Private Lists get a lock icon in the picker (story beat 4). */
+  isPrivate?: boolean;
 }
 
 export type XApiErrorKind =
@@ -26,10 +28,13 @@ export type XApiErrorKind =
 /** Typed failure from a backend so callers can react without string-matching. */
 export class XApiError extends Error {
   readonly kind: XApiErrorKind;
-  constructor(kind: XApiErrorKind, message: string) {
+  /** Epoch seconds from x-rate-limit-reset, when X provided one (kind "rate-limited"). */
+  readonly resetAt?: number;
+  constructor(kind: XApiErrorKind, message: string, opts: { resetAt?: number } = {}) {
     super(message);
     this.name = "XApiError";
     this.kind = kind;
+    this.resetAt = opts.resetAt;
   }
 }
 
@@ -39,6 +44,8 @@ export interface AssignResult {
   author: TweetAuthor;
   outcome: AssignOutcome;
   message?: string;
+  /** Carried from a rate-limited failure so feedback can say "try again in N min". */
+  resetAt?: number;
 }
 
 /**
