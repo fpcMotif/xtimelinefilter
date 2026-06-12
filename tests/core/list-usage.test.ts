@@ -43,3 +43,30 @@ describe("createListUsage", () => {
     expect((await usage.rank(lists)).map((l) => l.id)).toEqual(["2", "3", "1"]);
   });
 });
+
+describe("recency — the picker's Recent group (story beat 4)", () => {
+  it("returns recently used ids, most recent first, capped by limit", async () => {
+    let t = 1000;
+    const usage = createListUsage(memoryArea(), () => t++);
+    await usage.record("1");
+    await usage.record("3");
+    await usage.record("2");
+    expect(await usage.recentIds(5)).toEqual(["2", "3", "1"]);
+    expect(await usage.recentIds(2)).toEqual(["2", "3"]);
+  });
+
+  it("never-used lists do not appear in recents", async () => {
+    const usage = createListUsage(memoryArea());
+    await usage.record("2");
+    expect(await usage.recentIds(5)).toEqual(["2"]);
+  });
+
+  it("reads legacy plain-number counts without losing rank", async () => {
+    const area = memoryArea();
+    await area.set({ "lasso:list-usage": { "3": 4, "1": 1 } });
+    const usage = createListUsage(area);
+    expect((await usage.rank(lists)).map((l) => l.id)).toEqual(["3", "1", "2"]);
+    await usage.record("3"); // upgrade write keeps the old count
+    expect((await usage.rank(lists)).map((l) => l.id)).toEqual(["3", "1", "2"]);
+  });
+});

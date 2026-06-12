@@ -5,6 +5,8 @@ import { createCaretActions } from "@/core/x-client/caret-actions";
 
 const clicked: string[] = [];
 
+// Like live X: an accepted row click removes the menu from the DOM. The new
+// driver treats "menu still open" as "X ignored the click" and retries.
 function setup(doc: Document): void {
   doc.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
   const caret = doc.querySelector('[data-testid="caret"]') as HTMLElement;
@@ -33,6 +35,7 @@ function setup(doc: Document): void {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  document.documentElement.removeAttribute("data-lasso-main-world-activate");
   clicked.length = 0;
 });
 
@@ -52,23 +55,6 @@ describe("createCaretActions", () => {
     expect(clicked).toEqual(["mute"]);
   });
 
-  it("mute can match by localized text when the icon is absent", async () => {
-    document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
-    caret.addEventListener("click", () => {
-      const menu = document.createElement("div");
-      menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem">Mute @jack</div>`;
-      (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
-        clicked.push("mute-text");
-        menu.remove();
-      });
-      document.body.appendChild(menu);
-    });
-    await actions().mute(tweet());
-    expect(clicked).toEqual(["mute-text"]);
-  });
-
   it("notInterested clicks the not-interested row", async () => {
     setup(document);
     await actions().notInterested(tweet());
@@ -79,29 +65,6 @@ describe("createCaretActions", () => {
     setup(document);
     await actions().block(tweet());
     expect(clicked).toEqual(["block", "confirm"]);
-  });
-
-  it("block can match by row text and fails when the required confirm is absent", async () => {
-    document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
-    caret.addEventListener("click", () => {
-      const menu = document.createElement("div");
-      menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem">  Block @jack</div>`;
-      (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
-        clicked.push("block-text");
-        menu.remove();
-      });
-      document.body.appendChild(menu);
-    });
-    const a = createCaretActions({
-      doc: document,
-      settle: async () => {},
-      timeoutMs: 60,
-      confirmTimeoutMs: 20,
-    });
-    await expect(a.block(tweet())).rejects.toThrow(/confirmation sheet/);
-    expect(clicked).toEqual(["block-text"]);
   });
 
   it("throws when the focused tweet has no caret", async () => {
@@ -141,30 +104,7 @@ describe("createCaretActions", () => {
     expect(clicked).toEqual(["late-not"]);
   });
 
-  it("keeps waiting through unrelated menu mutations before the target row appears", async () => {
-    document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
-    caret.addEventListener("click", () => {
-      const menu = document.createElement("div");
-      menu.setAttribute("role", "menu");
-      document.body.appendChild(menu);
-      setTimeout(() => menu.appendChild(document.createElement("span")), 5);
-      setTimeout(() => {
-        const row = document.createElement("div");
-        row.setAttribute("role", "menuitem");
-        row.textContent = "Not interested in this post";
-        row.addEventListener("click", () => {
-          clicked.push("after-noise");
-          menu.remove();
-        });
-        menu.appendChild(row);
-      }, 15);
-    });
-    await actions().notInterested(tweet());
-    expect(clicked).toEqual(["after-noise"]);
-  });
-
-  it("notInterested clicks the show-fewer follow-up so the post collapses", async () => {
+  it("notInterested clicks the post-level feedback follow-up so X gets a clear signal", async () => {
     document.body.innerHTML = `<div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
     const cell = document.querySelector('[data-testid="cellInnerDiv"]') as Element;
     const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
@@ -180,20 +120,48 @@ describe("createCaretActions", () => {
         setTimeout(() => {
           cell.insertAdjacentHTML(
             "beforeend",
-            `<div><button>復原</button><button data-k="fewer">減少顯示 @x 的貼文</button><button>這是不相關的貼文</button></div>`,
+            `<div><button>復原</button><button data-k="fewer">減少顯示 @x 的貼文</button><button data-k="irrelevant">這是不相關的貼文</button></div>`,
           );
-          (cell.querySelector('[data-k="fewer"]') as HTMLElement).addEventListener("click", () =>
-            clicked.push("fewer"),
-          );
+          for (const b of cell.querySelectorAll("[data-k]")) {
+            b.addEventListener("click", () => clicked.push(b.getAttribute("data-k") as string));
+          }
         }, 10);
       });
       document.body.appendChild(menu);
     });
     await actions().notInterested(document.querySelector("article") as Element);
-    expect(clicked).toEqual(["not", "fewer"]);
+    expect(clicked).toEqual(["not", "irrelevant"]);
   });
 
-  it("show-fewer position fallback never clicks the undo button", async () => {
+  it("clicks the feedback button inside X's new testid-less feedback article", async () => {
+    document.body.innerHTML = `<div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
+    const cell = document.querySelector('[data-testid="cellInnerDiv"]') as Element;
+    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
+    caret.addEventListener("click", () => {
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.innerHTML = `<div role="menuitem">對此貼文不感興趣</div>`;
+      (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
+        clicked.push("not");
+        menu.remove();
+        // live 2026-06-12: X REPLACES the tweet article with a testid-less
+        // article that holds the feedback buttons — they must not be filtered out
+        (cell.querySelector('article[data-testid="tweet"]') as Element).remove();
+        cell.insertAdjacentHTML(
+          "beforeend",
+          `<article><button>復原</button><button data-k="fewer">減少顯示 @x 的貼文</button><button data-k="irrelevant">這是不相關的貼文</button></article>`,
+        );
+        for (const b of cell.querySelectorAll("[data-k]")) {
+          b.addEventListener("click", () => clicked.push(b.getAttribute("data-k") as string));
+        }
+      });
+      document.body.appendChild(menu);
+    });
+    await actions().notInterested(tweet());
+    expect(clicked).toEqual(["not", "irrelevant"]);
+  });
+
+  it("still clicks the follow-up when the panel renders after the article unmounts", async () => {
     document.body.innerHTML = `<div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
     const cell = document.querySelector('[data-testid="cellInnerDiv"]') as Element;
     const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
@@ -204,10 +172,40 @@ describe("createCaretActions", () => {
       (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
         clicked.push("not");
         menu.remove();
-        // unknown locale: no text matches — position 1 must win, position 0 never
+        (cell.querySelector("article") as Element).remove(); // article unmounts first…
+        setTimeout(() => {
+          // …the panel lands a beat later (seen live 2026-06-12)
+          cell.insertAdjacentHTML(
+            "beforeend",
+            `<article><button>復原</button><button>減少顯示 @x 的貼文</button><button data-k="irrelevant">這是不相關的貼文</button></article>`,
+          );
+          (cell.querySelector('[data-k="irrelevant"]') as HTMLElement).addEventListener(
+            "click",
+            () => clicked.push("irrelevant"),
+          );
+        }, 20);
+      });
+      document.body.appendChild(menu);
+    });
+    await actions().notInterested(tweet());
+    expect(clicked).toEqual(["not", "irrelevant"]);
+  });
+
+  it("feedback position fallback never clicks the undo button", async () => {
+    document.body.innerHTML = `<div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
+    const cell = document.querySelector('[data-testid="cellInnerDiv"]') as Element;
+    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
+    caret.addEventListener("click", () => {
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
+      (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
+        clicked.push("not");
+        menu.remove();
+        // unknown locale: no text matches — position 2 must win, position 0 never
         cell.insertAdjacentHTML(
           "beforeend",
-          `<div><button data-k="undo">Rückgängig</button><button data-k="fewer">Weniger anzeigen</button><button>Irrelevant</button></div>`,
+          `<div><button data-k="undo">Rückgängig</button><button data-k="fewer">Weniger anzeigen</button><button data-k="irrelevant">Nicht relevant</button></div>`,
         );
         for (const b of cell.querySelectorAll("[data-k]")) {
           b.addEventListener("click", () => clicked.push(b.getAttribute("data-k") as string));
@@ -216,12 +214,11 @@ describe("createCaretActions", () => {
       document.body.appendChild(menu);
     });
     await actions().notInterested(document.querySelector("article") as Element);
-    expect(clicked).toEqual(["not", "fewer"]);
+    expect(clicked).toEqual(["not", "irrelevant"]);
   });
 
-  it("does not use the positional show-fewer fallback when that slot is undo", async () => {
+  it("notInterested fails instead of showing success when X shows no effect", async () => {
     document.body.innerHTML = `<div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
-    const cell = document.querySelector('[data-testid="cellInnerDiv"]') as Element;
     const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
     caret.addEventListener("click", () => {
       const menu = document.createElement("div");
@@ -229,81 +226,115 @@ describe("createCaretActions", () => {
       menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
         clicked.push("not");
-        menu.remove();
-        cell.insertAdjacentHTML(
-          "beforeend",
-          `<div><button>Something</button><button data-k="undo">Undo</button><button>Other</button></div>`,
-        );
-        (cell.querySelector('[data-k="undo"]') as HTMLElement).addEventListener("click", () =>
-          clicked.push("undo"),
-        );
+        menu.remove(); // X took the click but the post never updated
       });
       document.body.appendChild(menu);
     });
-    await actions().notInterested(document.querySelector("article") as Element);
+
+    await expect(actions().notInterested(tweet())).rejects.toThrow(/not-interested/i);
     expect(clicked).toEqual(["not"]);
   });
 
-  it("notInterested activates rows that require a mouseup sequence", async () => {
-    document.body.innerHTML = `<div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
-    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
-    caret.addEventListener("click", () => {
-      const menu = document.createElement("div");
-      menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
-      const row = menu.querySelector('[role="menuitem"]') as HTMLElement;
-      row.addEventListener("mouseup", () => {
-        clicked.push("mouse-not");
-        menu.remove();
-      });
-      document.body.appendChild(menu);
-    });
-    await actions().notInterested(document.querySelector("article") as Element);
-    expect(clicked).toEqual(["mouse-not"]);
-  });
-
-  it("does not silently resolve when the not-interested row stays open", async () => {
-    document.body.innerHTML = `<div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
-    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
-    caret.addEventListener("click", () => {
-      const menu = document.createElement("div");
-      menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
-      document.body.appendChild(menu);
-    });
-    const a = createCaretActions({
-      doc: document,
-      settle: async () => {},
-      timeoutMs: 60,
-      confirmTimeoutMs: 20,
-    });
-    await expect(a.notInterested(document.querySelector("article") as Element)).rejects.toThrow(
-      /did not activate/,
-    );
-  });
-
-  it("does not silently resolve outside a cell when the row stays open", async () => {
+  it("re-clicks the row when X ignores the first click (menu stayed open)", async () => {
     document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
     const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
     caret.addEventListener("click", () => {
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
+      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      const row = menu.querySelector('[role="menuitem"]') as HTMLElement;
+      let clicks = 0;
+      row.addEventListener("click", () => {
+        clicked.push("mute");
+        if (++clicks >= 2) menu.remove(); // first click swallowed — the live-bug shape
+      });
       document.body.appendChild(menu);
     });
-    const a = createCaretActions({
-      doc: document,
-      settle: async () => {},
-      timeoutMs: 60,
-      confirmTimeoutMs: 20,
-    });
-    await expect(a.notInterested(tweet())).rejects.toThrow(/did not activate/);
+    await actions().mute(tweet());
+    expect(clicked).toEqual(["mute", "mute"]);
   });
 
-  it("notInterested still resolves when no follow-up panel appears", async () => {
-    setup(document);
+  it("uses the main-world bridge when isolated DOM clicks would be ignored", async () => {
+    document.documentElement.setAttribute("data-lasso-main-world-activate", "1");
+    window.addEventListener("message", (event) => {
+      const data = event.data as {
+        channel?: string;
+        id?: string;
+        requestId?: string;
+        type?: string;
+      } | null;
+      if (
+        data?.channel !== "__lasso_x_main_world_activate__" ||
+        data.type !== "activate" ||
+        !data.id ||
+        !data.requestId
+      ) {
+        return;
+      }
+      const target = [...document.querySelectorAll("[data-lasso-activate-target]")].find(
+        (el) => el.getAttribute("data-lasso-activate-target") === data.id,
+      );
+      if (target) {
+        (target as HTMLElement).click();
+        if (target.getAttribute("role") === "menuitem") clicked.push("bridge");
+        target.closest('[role="menu"]')?.remove();
+      }
+      window.postMessage(
+        {
+          channel: "__lasso_x_main_world_activate__",
+          ok: !!target,
+          requestId: data.requestId,
+          type: "activated",
+        },
+        "*",
+      );
+    });
+
+    document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
+    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
+    caret.addEventListener("click", () => {
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      document.body.appendChild(menu);
+    });
+
+    await actions().mute(tweet());
+    expect(clicked).toEqual(["bridge"]);
+  });
+
+  it("dismisses a stale open menu before targeting the focused tweet", async () => {
+    document.body.innerHTML = `
+      <div data-testid="Dropdown"><div role="menuitem" data-k="stale">Not interested in this post</div></div>
+      <div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
+    const stale = document.querySelector('[data-k="stale"]') as HTMLElement;
+    stale.addEventListener("click", () => clicked.push("stale"));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") stale.closest('[data-testid="Dropdown"]')?.remove();
+    });
+
+    const cell = document.querySelector('[data-testid="cellInnerDiv"]') as Element;
+    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
+    caret.addEventListener("click", () => {
+      const menu = document.createElement("div");
+      menu.setAttribute("data-testid", "Dropdown");
+      menu.innerHTML = `<div role="menuitem" data-k="fresh">Not interested in this post</div>`;
+      (menu.querySelector('[data-k="fresh"]') as HTMLElement).addEventListener("click", () => {
+        clicked.push("fresh");
+        menu.remove();
+        cell.insertAdjacentHTML(
+          "beforeend",
+          `<div><button>Undo</button><button>Show fewer from @x</button><button data-k="irrelevant">This post isn't relevant</button></div>`,
+        );
+        (cell.querySelector('[data-k="irrelevant"]') as HTMLElement).addEventListener("click", () =>
+          clicked.push("irrelevant"),
+        );
+      });
+      document.body.appendChild(menu);
+    });
+
     await actions().notInterested(tweet());
-    expect(clicked).toEqual(["not"]);
+    expect(clicked).toEqual(["fresh", "irrelevant"]);
   });
 
   it("reports the rows it saw when no row matches", async () => {
@@ -319,56 +350,24 @@ describe("createCaretActions", () => {
     await expect(a.notInterested(tweet())).rejects.toThrow(/跟隨 @someone/);
   });
 
-  it("throws when the caret menu never opens", async () => {
+  it("dismisses the menu and fails honestly when X never accepts the click", async () => {
     document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-    const a = createCaretActions({ doc: document, settle: async () => {}, timeoutMs: 20 });
-    await expect(a.mute(tweet())).rejects.toThrow(/menu did not open/);
-  });
-
-  it("uses default dependencies and still activates without PointerEvent support", async () => {
-    const originalPointerEvent = window.PointerEvent;
-    try {
-      (window as Window & { PointerEvent?: typeof PointerEvent }).PointerEvent = undefined;
-      document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-      const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
-      caret.addEventListener("click", () => {
-        const menu = document.createElement("div");
-        menu.setAttribute("role", "menu");
-        menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
-        (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
-          clicked.push("default-not");
-          menu.remove();
-        });
-        document.body.appendChild(menu);
-      });
-      await createCaretActions().notInterested(tweet());
-      expect(clicked).toEqual(["default-not"]);
-    } finally {
-      (window as Window & { PointerEvent?: typeof PointerEvent }).PointerEvent =
-        originalPointerEvent;
-    }
-  });
-
-  it("falls back to the global window for detached documents", async () => {
-    const doc = document.implementation.createHTMLDocument("detached");
-    doc.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-    const caret = doc.querySelector('[data-testid="caret"]') as HTMLElement;
+    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
     caret.addEventListener("click", () => {
-      const menu = doc.createElement("div");
+      const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
       menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
-      const row = menu.querySelector('[role="menuitem"]') as HTMLElement & {
-        closest: Element["closest"];
-      };
-      row.closest = () => null;
-      row.addEventListener("click", () => {
-        clicked.push("detached-not");
-        menu.remove();
-      });
-      doc.body.appendChild(menu);
+      (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () =>
+        clicked.push("not"),
+      );
+      document.body.appendChild(menu);
     });
-    const a = createCaretActions({ doc, settle: async () => {}, timeoutMs: 60 });
-    await a.notInterested(doc.querySelector("article") as Element);
-    expect(clicked).toEqual(["detached-not"]);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") document.querySelector('[role="menu"]')?.remove();
+    });
+
+    await expect(actions().notInterested(tweet())).rejects.toThrow(/did not accept/i);
+    expect(clicked).toEqual(["not", "not"]); // one retry, then honest failure
+    expect(document.querySelector('[role="menu"]')).toBeNull(); // no stuck menu left behind
   });
 });

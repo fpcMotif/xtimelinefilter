@@ -104,3 +104,31 @@ describe("createTweetScanner", () => {
     expect(onTweet).not.toHaveBeenCalled();
   });
 });
+
+describe("scan stats — feeds the selector-health watchdog", () => {
+  it("reports mutation batches with their match counts", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const batches: Array<[number, number]> = [];
+    const scanner = createTweetScanner(root, () => {}, {
+      onScan: (mutations, matches) => batches.push([mutations, matches]),
+    });
+    scanner.start();
+
+    const noise = document.createElement("div");
+    noise.innerHTML = "<span>nothing</span>";
+    root.appendChild(noise);
+    await tick();
+
+    const cell = document.createElement("div");
+    cell.innerHTML = tweetHtml("bob", "3");
+    root.appendChild(cell);
+    await tick();
+
+    expect(batches.length).toBe(3); // initial scan + two mutation batches
+    expect(batches[0]).toEqual([0, 0]); // empty timeline at start()
+    expect(batches[1]?.[1]).toBe(0); // noise batch: zero post matches
+    expect(batches[2]?.[1]).toBe(1); // tweet batch: one match
+    scanner.stop();
+  });
+});

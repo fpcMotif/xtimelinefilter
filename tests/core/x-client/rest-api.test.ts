@@ -6,6 +6,7 @@ import {
   muteUser,
   removeFromList,
   RestXListApi,
+  unmuteUser,
 } from "@/core/x-client/rest-api";
 import type { Credentials, XList } from "@/core/x-client/types";
 import { XApiError } from "@/core/x-client/types";
@@ -144,5 +145,40 @@ describe("v1.1 REST writes", () => {
         { screenName: "x" },
       ),
     ).rejects.toBeInstanceOf(XApiError);
+  });
+});
+
+describe("story beats 6 & 8 — typed failure detail", () => {
+  it("carries x-rate-limit-reset on HTTP 429 so the toast can say 'try again in N min'", async () => {
+    const rl = vi.fn(
+      async () =>
+        new Response("{}", { status: 429, headers: { "x-rate-limit-reset": "1750000000" } }),
+    );
+    await expect(
+      addToList({ fetch: rl as unknown as typeof fetch, creds }, "L1", "jack"),
+    ).rejects.toMatchObject({ kind: "rate-limited", resetAt: 1750000000 });
+  });
+
+  it("maps protected-account refusals (code 104) to the protected outcome", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            errors: [{ code: 104, message: "You aren't allowed to add this member to this list." }],
+          }),
+          { status: 200 },
+        ),
+    );
+    await expect(
+      addToList({ fetch: fetchMock as unknown as typeof fetch, creds }, "L1", "jack"),
+    ).rejects.toMatchObject({ kind: "protected" });
+  });
+
+  it("unmuteUser hits mutes/users/destroy.json (the Undo verb for Muted @jane)", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await unmuteUser({ fetch: fetchMock as unknown as typeof fetch, creds }, "jane");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://x.com/i/api/1.1/mutes/users/destroy.json");
+    expect(parseBody(init)).toEqual({ screen_name: "jane" });
   });
 });

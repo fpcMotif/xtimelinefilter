@@ -1,8 +1,9 @@
 import { fuzzyRank } from "@/core/fuzzy";
 import type { StorageLike } from "@/core/settings";
+import { STORAGE_KEYS } from "@/core/storage-keys";
 import type { XList } from "@/core/x-client/types";
 
-const KEY = "lasso:lists";
+const KEY = STORAGE_KEYS.lists;
 
 export interface ListCache {
   /** Cached lists; pass {force:true} to refetch (e.g. when opening the picker). */

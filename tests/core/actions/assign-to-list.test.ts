@@ -142,3 +142,42 @@ describe("assignAuthorsToList", () => {
     expect(highSleeps).toEqual([1250]);
   });
 });
+
+describe("story beat 7 — progress + Stop", () => {
+  it("reports 1-based progress before each attempt", async () => {
+    const api = new FakeApi();
+    const seen: Array<[number, number]> = [];
+    await assignAuthorsToList([a("x"), a("y"), a("z")], LIST, api, {
+      ...noSleep,
+      onProgress: (current, total) => seen.push([current, total]),
+    });
+    expect(seen).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+  });
+
+  it("Stop aborts the remaining calls and leaves un-attempted authors out of the results", async () => {
+    const api = new FakeApi();
+    let stop = false;
+    api.addImpl = async (au) => {
+      if (au.screenName === "y") stop = true; // user hits Stop while y is in flight
+    };
+    const res = await assignAuthorsToList([a("x"), a("y"), a("z")], LIST, api, {
+      ...noSleep,
+      shouldStop: () => stop,
+    });
+    expect(res.map((r) => r.outcome)).toEqual(["added", "added"]);
+    expect(api.added).toEqual(["x", "y"]); // z never attempted
+  });
+
+  it("carries the rate-limit reset time onto the result", async () => {
+    const api = new FakeApi();
+    api.addImpl = async () => {
+      throw new XApiError("rate-limited", "429", { resetAt: 1750000000 });
+    };
+    const res = await assignAuthorsToList([a("x")], LIST, api, noSleep);
+    expect(res[0]).toMatchObject({ outcome: "rate-limited", resetAt: 1750000000 });
+  });
+});
