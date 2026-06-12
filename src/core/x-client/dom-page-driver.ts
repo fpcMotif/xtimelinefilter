@@ -5,6 +5,7 @@ import { extractAuthor } from "@/core/tweet-extractor";
 import type { PageDriver } from "./page-driver";
 
 const click = (el: Element): void => (el as HTMLElement).click();
+const textOf = (el: Element): string => el.textContent as string;
 
 /**
  * Real PageDriver that automates X's sanctioned "Add/remove from Lists" UI
@@ -40,7 +41,7 @@ export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver
   }
 
   function rowByName(name: string): HTMLElement | undefined {
-    return rows().find((r) => (r.textContent ?? "").includes(name));
+    return rows().find((r) => textOf(r).includes(name));
   }
 
   function waitFor(selector: string): Promise<Element> {
@@ -70,7 +71,7 @@ export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver
       click(caret);
       const menu = await waitFor(DriverSelectors.MENU);
       const item = [...menu.querySelectorAll(DriverSelectors.MENUITEM)].find((el) =>
-        ADD_TO_LISTS_TEXT.test(el.textContent ?? ""),
+        ADD_TO_LISTS_TEXT.test(textOf(el)),
       );
       if (!item) throw new Error("Lasso: 'Add/remove from Lists' menu item not found");
       await settle(120);
@@ -79,7 +80,7 @@ export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver
       await settle(120);
     },
     async listNames() {
-      return rows().map((r) => (r.textContent ?? "").trim());
+      return rows().map((r) => textOf(r).trim());
     },
     async isChecked(listName: string) {
       const row = rowByName(listName);

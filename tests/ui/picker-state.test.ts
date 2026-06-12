@@ -48,6 +48,14 @@ describe("createPickerState", () => {
     expect(p.active.value).toBeNull();
   });
 
+  it("keeps an empty picker clamped at zero", () => {
+    const p = createPickerState([]);
+    p.moveDown();
+    p.moveUp();
+    expect(p.activeIndex.value).toBe(0);
+    expect(p.active.value).toBeNull();
+  });
+
   it("reset clears the query and active index", () => {
     const p = createPickerState(LISTS);
     p.setQuery("fo");

@@ -23,6 +23,17 @@ describe("createDocumentAuth", () => {
     expect(createDocumentAuth({ getCookie: () => "ct0=a%20b" }).credentials().csrf).toBe("a b");
   });
 
+  it("reads document.cookie by default and skips empty cookie segments", () => {
+    document.cookie = "ct0=from-document";
+    const auth = createDocumentAuth();
+    expect(auth.credentials().csrf).toBe("from-document");
+  });
+
+  it("handles a cookie segment without an equals sign", () => {
+    const auth = createDocumentAuth({ getCookie: () => "; ct0 ; lang=en" });
+    expect(auth.credentials().csrf).toBe("ct0");
+  });
+
   it("throws a typed auth error when ct0 is absent (logged out)", () => {
     const auth = createDocumentAuth({ getCookie: () => "guest_id=1" });
     expect(() => auth.credentials()).toThrow(XApiError);

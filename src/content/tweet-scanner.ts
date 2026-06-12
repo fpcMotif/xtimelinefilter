@@ -45,7 +45,7 @@ export function createTweetScanner(
   return {
     start() {
       scanExisting();
-      const target = root instanceof Document ? root.body : root;
+      const target = root.nodeType === Node.DOCUMENT_NODE ? (root as Document).body : root;
       observer.observe(target, { childList: true, subtree: true });
     },
     stop() {

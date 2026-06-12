@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalCombo,
   eventToCombo,
+  isTypingTarget,
   type KeyBinding,
   installKeyboardLayer,
 } from "@/content/keyboard";
@@ -17,10 +18,26 @@ describe("combo normalization", () => {
   it("canonicalizes modifier order and key case", () => {
     expect(canonicalCombo("Shift+Alt+L")).toBe("Alt+Shift+l");
     expect(canonicalCombo("x")).toBe("x");
+    expect(canonicalCombo("Ctrl+Enter")).toBe("Ctrl+Enter");
+    expect(canonicalCombo("")).toBe("");
   });
 
   it("derives a canonical combo from a KeyboardEvent", () => {
     expect(eventToCombo(new KeyboardEvent("keydown", { key: "m", altKey: true }))).toBe("Alt+m");
+  });
+
+  it("includes Ctrl, Meta, and Shift modifiers in event order", () => {
+    expect(
+      eventToCombo(
+        new KeyboardEvent("keydown", {
+          key: "K",
+          altKey: true,
+          ctrlKey: true,
+          metaKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe("Alt+Ctrl+Meta+Shift+k");
   });
 
   it("resolves Alt combos from the physical key on macOS (Option composes e.key)", () => {
@@ -46,6 +63,29 @@ describe("combo normalization", () => {
       eventToCombo(new KeyboardEvent("keydown", { key: "n", code: "KeyL", altKey: true })),
     ).toBe("Alt+n");
   });
+
+  it("falls back from Alt symbols to physical digit codes when available", () => {
+    expect(
+      eventToCombo(new KeyboardEvent("keydown", { key: "¡", code: "Digit1", altKey: true })),
+    ).toBe("Alt+1");
+  });
+
+  it("keeps the raw Alt key when the physical code cannot be mapped", () => {
+    expect(
+      eventToCombo(new KeyboardEvent("keydown", { key: "F13", code: "F13", altKey: true })),
+    ).toBe("Alt+F13");
+  });
+});
+
+describe("isTypingTarget", () => {
+  it("recognizes null, contenteditable, textarea, and select targets", () => {
+    expect(isTypingTarget(null)).toBe(false);
+    const editable = document.createElement("div");
+    editable.contentEditable = "true";
+    expect(isTypingTarget(editable)).toBe(true);
+    expect(isTypingTarget(document.createElement("textarea"))).toBe(true);
+    expect(isTypingTarget(document.createElement("select"))).toBe(true);
+  });
 });
 
 describe("installKeyboardLayer", () => {
@@ -63,6 +103,37 @@ describe("installKeyboardLayer", () => {
     document.dispatchEvent(e);
     expect(run).toHaveBeenCalledWith("mute");
     expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("uses the default document when none is passed", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({ keymap, run });
+    const e = new KeyboardEvent("keydown", { key: "x", cancelable: true });
+    document.dispatchEvent(e);
+    expect(run).toHaveBeenCalledWith("toggle-select");
+  });
+
+  it("falls back to event.target when composedPath is unavailable", () => {
+    const run = vi.fn();
+    let handler: ((event: KeyboardEvent) => void) | undefined;
+    const doc = {
+      addEventListener: vi.fn((_type, cb) => {
+        handler = cb as (event: KeyboardEvent) => void;
+      }),
+      removeEventListener: vi.fn(),
+    } as unknown as Document;
+    dispose = installKeyboardLayer({ keymap, run, doc });
+    handler?.({
+      key: "x",
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      target: document.body,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent);
+    expect(run).toHaveBeenCalledWith("toggle-select");
   });
 
   it("fires Alt+n (not-interested) from a macOS dead-key event", () => {

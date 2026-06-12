@@ -50,10 +50,42 @@ describe("ListPicker", () => {
     );
   });
 
+  it("ArrowUp clamps at the first item", async () => {
+    const { input, onPick } = setup();
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ name: "Research" })),
+    );
+  });
+
+  it("does nothing on Enter when no result is active", async () => {
+    const { input, onPick } = setup();
+    fireEvent.input(input, { target: { value: "zzz" } });
+    await waitFor(() => expect(onPick).not.toHaveBeenCalled());
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("picks an option by mouse down without blurring first", () => {
+    const { getByText, onPick } = setup();
+    const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    getByText("Founders").dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ name: "Founders" }));
+  });
+
   it("Escape cancels", () => {
     const { input, onCancel } = setup();
     fireEvent.keyDown(input, { key: "Escape" });
     expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("ignores unrelated keys", () => {
+    const { input, onPick, onCancel } = setup();
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("shows an empty state when nothing matches", async () => {

@@ -10,14 +10,21 @@ const r = (outcome: AssignResult["outcome"]): AssignResult => ({
 
 describe("summarize", () => {
   it("counts each outcome", () => {
-    const s = summarize([r("added"), r("added"), r("already-member"), r("failed")]);
+    const s = summarize([
+      r("added"),
+      r("added"),
+      r("already-member"),
+      r("protected"),
+      r("rate-limited"),
+      r("failed"),
+    ]);
     expect(s).toEqual({
       added: 2,
       alreadyMember: 1,
-      protected: 0,
-      rateLimited: 0,
+      protected: 1,
+      rateLimited: 1,
       failed: 1,
-      total: 4,
+      total: 6,
     });
   });
 });
@@ -33,6 +40,10 @@ describe("summaryLine", () => {
   it("notes when the run stopped on a rate limit", () => {
     const line = summaryLine(summarize([r("added"), r("rate-limited")]));
     expect(line).toBe("Added 1 · rate limit reached — stopped");
+  });
+
+  it("includes protected accounts when present", () => {
+    expect(summaryLine(summarize([r("protected")]))).toBe("1 not allowed");
   });
 
   it("handles an empty run", () => {

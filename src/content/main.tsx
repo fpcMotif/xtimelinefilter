@@ -74,8 +74,8 @@ async function start(): Promise<void> {
     />,
   );
 
-  // Quick actions target the tweet under the mouse (fallback: X's native j/k focus),
-  // so Alt+m / Alt+n work without pressing j first.
+  // Quick actions target X's native selected tweet first (j/k focus), with hover
+  // as the fallback so actions still work before the user has moved the cursor.
   let hovered: Element | null = null;
   document.addEventListener(
     "mousemove",
@@ -91,8 +91,10 @@ async function start(): Promise<void> {
     },
     { capture: true, passive: true },
   );
-  const targetTweet = (): Element | null =>
-    hovered && document.contains(hovered) ? hovered : getFocusedTweet(document);
+  const targetTweet = (): Element | null => {
+    const focused = getFocusedTweet(document);
+    return focused ?? (hovered && document.contains(hovered) ? hovered : null);
+  };
 
   // Vim-style keyboard layer (j/k are X-native and never intercepted).
   installKeyboardLayer({ keymap: DEFAULT_KEYMAP, run: (command) => void runCommand(command) });

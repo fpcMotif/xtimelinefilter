@@ -29,6 +29,20 @@ describe("getFocusedTweet", () => {
     expect(getFocusedTweet(document)?.id).toBe("t1");
   });
 
+  it("resolves the tweet when activedescendant points at a container around it", () => {
+    mount(
+      `<div aria-activedescendant="wrapper">
+        <div id="wrapper"><article id="t1" data-testid="tweet" role="article"></article></div>
+      </div>`,
+    );
+    expect(getFocusedTweet(document)?.id).toBe("t1");
+  });
+
+  it("falls through when activedescendant points at a non-tweet node", () => {
+    mount(`<div aria-activedescendant="not-tweet"><span id="not-tweet">x</span></div>`);
+    expect(getFocusedTweet(document)).toBeNull();
+  });
+
   it("falls back to document.activeElement's closest tweet", () => {
     mount(tweet("t1", "jack"));
     (document.getElementById("t1") as HTMLElement).focus();

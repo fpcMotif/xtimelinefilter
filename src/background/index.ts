@@ -10,3 +10,5 @@ chrome.action.onClicked.addListener((tab) => {
     chrome.tabs.sendMessage(tab.id, { type: "lasso-activate" }).catch(() => {});
   }
 });
+
+export const backgroundModule = true;
