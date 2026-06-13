@@ -13,6 +13,8 @@ export const Selectors = {
   SOCIAL_CONTEXT: '[data-testid="socialContext"]',
   PROMOTED_ANCESTOR: '[data-testid="placementTracking"]',
   TWEET_TEXT: '[data-testid="tweetText"]',
+  // Logged-in Owner's handle: href is `/<screenName>` (verified live 2026-06-13).
+  CURRENT_USER_PROFILE_LINK: 'a[data-testid="AppTabBar_Profile_Link"]',
 } as const;
 
 export const AVATAR_CONTAINER_PREFIX = "UserAvatar-Container-";
