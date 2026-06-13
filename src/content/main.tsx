@@ -6,6 +6,7 @@ import { createAppState } from "@/content/app-state";
 import { createLassoController, type LassoController } from "@/content/controller";
 import { getFocusedTweet } from "@/content/get-focused-tweet";
 import { DEFAULT_KEYMAP, installKeyboardLayer } from "@/content/keyboard";
+import { getCurrentAccount } from "@/content/get-current-account";
 import { createScannerHealth } from "@/content/scanner-health";
 import { DriverSelectors, Selectors } from "@/content/selectors";
 import { createTweetScanner } from "@/content/tweet-scanner";
@@ -13,6 +14,8 @@ import { createCoach } from "@/core/coach";
 import { detectPlatform } from "@/core/keycaps";
 import { createListCache } from "@/core/list-cache";
 import { createListUsage } from "@/core/list-usage";
+import { buildConvexMembershipStore } from "@/core/membership-store/convex-client";
+import { createMembershipStore } from "@/core/membership-store/factory";
 import { createPickerController } from "@/core/picker-controller";
 import {
   createSelectionStore,
@@ -144,6 +147,13 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
   const targetTweet = (): Element | null =>
     hoveredSticky && document.contains(hoveredSticky) ? hoveredSticky : getFocusedTweet(document);
 
+  // Off-to-the-side Mirror (ADR-0009): built only when a device key is configured,
+  // otherwise NullMembershipStore ⇒ the X flow is byte-for-byte unchanged.
+  const membershipStore = createMembershipStore(
+    { convexUrl: settings.convexUrl, convexDeviceKey: settings.convexDeviceKey },
+    buildConvexMembershipStore,
+  );
+
   const creds = () => ({ fetch: pageFetch, creds: auth.credentials() });
   const controller = createLassoController({
     selection,
@@ -155,6 +165,8 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     backend,
     cache: listCache,
     settings: settingsStore,
+    membershipStore,
+    currentOwner: () => getCurrentAccount(),
     usage: listUsage,
     quick: {
       mute: (screenName) => muteUser(creds(), screenName),

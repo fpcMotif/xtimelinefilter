@@ -21,6 +21,10 @@ export interface LassoSettings {
   activation: Activation;
   /** Accessibility: AA-safe darker-blue button fills (story beat 9). */
   highContrast: boolean;
+  /** Convex Mirror deployment URL; unset ⇒ Mirror disabled (ADR-0009). */
+  convexUrl?: string;
+  /** Convex Mirror device key; the one long-lived credential, unset ⇒ Mirror disabled. */
+  convexDeviceKey?: string;
 }
 
 export const DEFAULT_SETTINGS: LassoSettings = {

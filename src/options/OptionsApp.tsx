@@ -162,6 +162,41 @@ export function OptionsApp({
         </label>
       </Section>
 
+      <Section title="Sync across your accounts (Convex)">
+        <p class="text-muted mb-3 text-[13px]">
+          Optional. Mirrors List membership to your own Convex deployment for cross-account
+          history and instant “already in” checks. Leave both blank to keep Lasso fully local.
+        </p>
+        <label class="mb-3 flex flex-col gap-1 text-[13px]">
+          Deployment URL
+          <input
+            type="url"
+            aria-label="Convex deployment URL"
+            placeholder="https://your-app.convex.cloud"
+            defaultValue={current.convexUrl ?? ""}
+            onChange={(e) =>
+              patch({ convexUrl: (e.currentTarget as HTMLInputElement).value.trim() || undefined })
+            }
+            class="border-line bg-surface rounded-lg border px-3 py-2 text-[15px]"
+          />
+        </label>
+        <label class="flex flex-col gap-1 text-[13px]">
+          Device key
+          <input
+            type="password"
+            aria-label="Convex device key"
+            placeholder="matches LASSO_DEVICE_KEY"
+            defaultValue={current.convexDeviceKey ?? ""}
+            onChange={(e) =>
+              patch({
+                convexDeviceKey: (e.currentTarget as HTMLInputElement).value.trim() || undefined,
+              })
+            }
+            class="border-line bg-surface rounded-lg border px-3 py-2 text-[15px]"
+          />
+        </label>
+      </Section>
+
       <Section title="Privacy & data">
         <p class="text-[15px]">{PRIVACY_LINE}</p>
         <div class="mt-3 flex items-center gap-3">
