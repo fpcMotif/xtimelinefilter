@@ -8,3 +8,5 @@ coverage/
 # Playwright
 test-results/
 playwright-report/
+
+.env.local
