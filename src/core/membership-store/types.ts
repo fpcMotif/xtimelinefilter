@@ -1,4 +1,4 @@
-import type { AssignResult, XList } from "@/core/x-client/types";
+import type { XList } from "@/core/x-client/types";
 
 /** One of *your own* X accounts, captured at action time (ADR-0009). The operator
  *  / list owner — distinct from Account/Author (the member). */
@@ -22,7 +22,17 @@ export interface MembershipHit {
 export interface OwnerCatalog {
   owner: Owner;
   lists: XList[];
+  /** Most-recent reconcile across this Owner's Lists — drives the "as of last use" cue. */
   lastReconciledAt?: number;
+}
+
+/** One mirrored membership change — an add run result OR an undo removal. */
+export interface MembershipChange {
+  screenName: string;
+  userId?: string;
+  action: "add" | "remove";
+  /** AssignOutcome for adds ("added"/"already-member"/…); "removed"/"failed" for removes. */
+  outcome: string;
 }
 
 /**
@@ -31,8 +41,8 @@ export interface OwnerCatalog {
  * never the source of truth and a failure here must never break the X flow.
  */
 export interface MembershipStore {
-  /** Mirror the outcomes of one assign/undo run, stamped with the acting Owner. */
-  recordAssign(owner: Owner, list: XList, results: AssignResult[]): Promise<void>;
+  /** Mirror the changes from one assign/undo run, stamped with the acting Owner. */
+  recordAssign(owner: Owner, list: XList, changes: MembershipChange[]): Promise<void>;
   /** Mirror X's truth for one Account: the Owner's Lists that currently contain them. */
   reconcileAuthor(owner: Owner, screenName: string, listIds: string[]): Promise<void>;
   /** Mirror the active Owner's owned-List catalog. */
