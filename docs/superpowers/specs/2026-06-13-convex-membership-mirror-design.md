@@ -16,7 +16,7 @@ The Mirror is **additive and optional**: X stays the source of truth, the existi
 | 2 | Owner identity | Captured **at action time** — the account logged into x.com right then. No registry, no polling. |
 | 3 | Surface | Backing store **+ live-synced "already in"** powered by the snapshot. |
 | 4 | Snapshot source | **Seed + reconcile from X**, done **per-author, lazily** (X's `memberships.json`), not full per-List rosters. |
-| 5 | Cross-account | Picker shows **all Owners' Lists**, grouped by Owner; only the **active Owner**'s Lists are writable; foreign Lists are read-only with a "Switch to @owner" hint. |
+| 5 | Cross-account | Picker shows **all Owners' Lists**; only the **active Owner**'s Lists are writable; foreign Lists are read-only with a "Switch to @owner" hint. UX = **account tabs + search** (prototype verdict below). |
 | 6 | Off-session checks | Cached, shown **"as of last use"**; fresh reconcile only for the active Owner. |
 | 7 | Log scope | **All outcomes**, including failures. Snapshot mutates only on a real membership change. |
 | 8 | Tenancy / auth | **Personal, single-tenant**, one **device key** in `chrome.storage.sync`, validated by every Convex function. |
@@ -73,7 +73,15 @@ Every function takes `deviceKey`, validated first against env `LASSO_DEVICE_KEY`
 - `core/settings.ts` — add `convexUrl?`, `convexDeviceKey?` to `LassoSettings`; Options gets a "Sync (Convex)" section with a test-connection affordance.
 - `content/get-current-account.ts` — `getCurrentAccount(): Promise<Owner | null>` from the `twid` cookie (+ best-effort screenName). **Must be live-verified** (see ADR-0009 / verify-by-effect) — a wrong read mis-attributes every record.
 - `content/controller.ts` — after `runAssign` resolves, `void membershipStore.recordAssign(owner, list, results)`; in `undoAdds`, record the removals. **Failures swallowed/logged** — never touch the toast/undo/selection.
-- `core/picker-controller.ts` — `memberships` becomes Convex-backed `listsContaining` (instant, reactive); still fire X's `memberships.json` for the active Owner to reconcile. Add an Owner-grouped, foreign-read-only view fed by `catalog`.
+- `core/picker-controller.ts` — `memberships` becomes Convex-backed `listsContaining` (instant, reactive); still fire X's `memberships.json` for the active Owner to reconcile. Add an **Owner dimension**: `owners` + `activeOwner` (from `getCurrentAccount`), a `selectedOwner` tab and a `scope` (`account | all`) driving `groups`, and per-row `writable = owner === activeOwner`. Catalog from `catalog()`; active Owner's Lists merged live from X.
+
+## Prototype verdict (2026-06-13)
+
+Three layouts were prototyped (Owner sections / account tabs / unified search). **Winner: account tabs + search (mix of B + C).**
+- **Owner tabs** across the top (avatar + `@handle`, active highlighted, freshness inline: "active" / "as of 2d ago"). Account-first — the multi-account story reads at a glance.
+- A **search** box with a scope: within the selected Owner, or **All accounts**. In "All accounts" scope, rows carry an Owner badge (C's treatment).
+- Active Owner's rows are **writable** (Enter to add); a foreign Owner's view shows an amber **"Switch to @owner on X to add here"** banner and read-only rows.
+- "Already in" ✓: **blue = live** (active Owner, fresh), **grey = cached** (foreign, "as of last use").
 - Manifest — add `https://*.convex.cloud/*` to `host_permissions` + CSP `connect-src`.
 
 ## Tests (TDD order)
@@ -93,7 +101,7 @@ Every function takes `deviceKey`, validated first against env `LASSO_DEVICE_KEY`
 4. getCurrentAccount                       -> verify: unit fixtures green AND live read returns the logged-in handle on x.com
 5. recordAssign wired into controller      -> verify: controller-invariance test green (Mirror failure ⇒ identical UX)
 6. Per-author reconcile + listsContaining  -> verify: opening picker on a known member shows blue check from Convex; matches memberships.json
-7. Cross-account grouped picker            -> verify: foreign Owner's Lists render disabled w/ "switch to @owner"; active Owner writable
+7. Account-tab + search picker             -> verify: tabs per Owner; foreign view shows amber "switch to @owner" + read-only rows; active Owner writable; "All accounts" search shows Owner badges
 8. Full quality gate                        -> verify: lint + typecheck + unit + e2e all green on the branch
 ```
 
