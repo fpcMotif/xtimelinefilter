@@ -5,6 +5,8 @@ import { feedbackFor } from "@/core/assign-feedback";
 import type { Coach } from "@/core/coach";
 import type { ListCache } from "@/core/list-cache";
 import type { ListUsage } from "@/core/list-usage";
+import { NullMembershipStore } from "@/core/membership-store/null";
+import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
 import type { PickerController } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
 import type { SettingsStore } from "@/core/settings";
@@ -63,6 +65,10 @@ export interface ControllerDeps {
   backend: XListApi;
   cache: ListCache;
   settings: SettingsStore;
+  /** Off-to-the-side Mirror (ADR-0009); absent ⇒ NullMembershipStore ⇒ X flow unchanged. */
+  membershipStore?: MembershipStore;
+  /** The Owner logged in at action time; absent/returns null ⇒ the Mirror is skipped. */
+  currentOwner?: () => Owner | null;
   usage?: ListUsage;
   quick: QuickActions;
   target: TargetResolver;
@@ -100,6 +106,8 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const { selection, app, picker, toasts, undo, coach, backend, cache, settings, quick, target } =
     deps;
   const now = deps.now ?? Date.now;
+  const membershipStore = deps.membershipStore ?? new NullMembershipStore();
+  const currentOwner = deps.currentOwner ?? ((): Owner | null => null);
   let stopRequested = false;
   let lastSource: AssignSource = "pointer";
   let individualSelections = 0; // session-scoped, feeds the select-mode nudge
@@ -107,6 +115,18 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const nudge = (): void => {
     toasts.show({ kind: "info", title: NO_TARGET_NUDGE });
   };
+
+  /**
+   * Mirror the changes from a run, stamped with the Owner logged in right now.
+   * Fire-and-forget: the Mirror is off-to-the-side and must never block or break
+   * the X flow — no Owner skips it, and a failure is swallowed (ADR-0009).
+   */
+  function recordToMirror(list: XList, changes: MembershipChange[]): void {
+    if (changes.length === 0) return;
+    const owner = currentOwner();
+    if (!owner) return;
+    void membershipStore.recordAssign(owner, list, changes).catch(() => {});
+  }
 
   function openPicker(source: AssignSource = "pointer"): void {
     lastSource = source;
@@ -118,14 +138,24 @@ export function createLassoController(deps: ControllerDeps): LassoController {
 
   async function undoAdds(authors: TweetAuthor[], list: XList): Promise<void> {
     let n = 0;
+    const changes: MembershipChange[] = [];
     for (const author of authors) {
+      const base: MembershipChange = {
+        screenName: author.screenName,
+        ...(author.userId !== undefined ? { userId: author.userId } : {}),
+        action: "remove",
+        outcome: "removed",
+      };
       try {
         await backend.removeMember(list, author);
         n++;
+        changes.push(base);
       } catch {
         // partial undo still gets reported with the real count
+        changes.push({ ...base, outcome: "failed" });
       }
     }
+    recordToMirror(list, changes);
     toasts.show({ kind: "info", title: removedLine(n, list.name) });
   }
 
@@ -149,6 +179,16 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       shouldStop: () => stopRequested,
     });
     app.running.value = null;
+
+    recordToMirror(
+      list,
+      results.map((r) => ({
+        screenName: r.author.screenName,
+        ...(r.author.userId !== undefined ? { userId: r.author.userId } : {}),
+        action: "add" as const,
+        outcome: r.outcome,
+      })),
+    );
 
     const stopped = stopRequested && results.length < authors.length;
     const fb = feedbackFor(results, list, { selectedCount: authors.length, stopped, nowMs: now() });

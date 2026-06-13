@@ -5,6 +5,7 @@ import { createLassoController, UNDO_WINDOW_MS } from "@/content/controller";
 import { createCoach } from "@/core/coach";
 import type { ListCache } from "@/core/list-cache";
 import { createPickerController } from "@/core/picker-controller";
+import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { createSettings } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
@@ -48,7 +49,14 @@ function fakeCache(lists: XList[]): ListCache {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-function harness(opts: { targetAuthor?: TweetAuthor | null; lists?: XList[] } = {}) {
+function harness(
+  opts: {
+    targetAuthor?: TweetAuthor | null;
+    lists?: XList[];
+    membershipStore?: MembershipStore;
+    currentOwner?: () => Owner | null;
+  } = {},
+) {
   const selection = createSelectionStore();
   const app = createAppState(selection);
   const backend = new FakeApi();
@@ -81,6 +89,8 @@ function harness(opts: { targetAuthor?: TweetAuthor | null; lists?: XList[] } = 
     quick,
     target,
     openUrl,
+    membershipStore: opts.membershipStore,
+    currentOwner: opts.currentOwner,
     assignOpts: { sleep: async () => {}, delayMs: 0 },
     now: () => Date.UTC(2026, 5, 10),
   });
@@ -293,5 +303,85 @@ describe("escape / help / selection coaching", () => {
 
   it("the undo window matches the story's 10 seconds", () => {
     expect(UNDO_WINDOW_MS).toBe(10_000);
+  });
+});
+
+function recordingStore() {
+  const calls: Array<{ owner: Owner; list: XList; changes: MembershipChange[] }> = [];
+  const store: MembershipStore = {
+    recordAssign: async (o, l, c) => {
+      calls.push({ owner: o, list: l, changes: c });
+    },
+    reconcileAuthor: async () => {},
+    reconcileCatalog: async () => {},
+    listsContaining: async () => [],
+    catalog: async () => [],
+  };
+  return { store, calls };
+}
+
+describe("Mirror is off-to-the-side (ADR-0009)", () => {
+  const owner: Owner = { userId: "1", screenName: "me" };
+
+  it("records the assign run to the Mirror with the acting Owner", async () => {
+    const { store, calls } = recordingStore();
+    const h = harness({ membershipStore: store, currentOwner: () => owner });
+    h.selection.add({ screenName: "a", userId: "7" });
+    h.selection.add({ screenName: "b" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.owner).toEqual(owner);
+    expect(calls[0]?.list.id).toBe("L1");
+    expect(calls[0]?.changes).toEqual([
+      { screenName: "a", userId: "7", action: "add", outcome: "added" },
+      { screenName: "b", action: "add", outcome: "added" },
+    ]);
+  });
+
+  it("skips the Mirror when no Owner is logged in (still assigns on X)", async () => {
+    const { store, calls } = recordingStore();
+    const h = harness({ membershipStore: store, currentOwner: () => null });
+    h.selection.add({ screenName: "a" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush();
+    expect(calls).toEqual([]);
+    expect(h.backend.added).toEqual(["a"]);
+  });
+
+  it("a throwing Mirror leaves the assign + undo flow byte-identical", async () => {
+    const store: MembershipStore = {
+      recordAssign: async () => {
+        throw new Error("convex down");
+      },
+      reconcileAuthor: async () => {},
+      reconcileCatalog: async () => {},
+      listsContaining: async () => [],
+      catalog: async () => [],
+    };
+    const h = harness({ membershipStore: store, currentOwner: () => owner });
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush();
+    expect(h.backend.added).toEqual(["a", "b"]);
+    expect(h.selection.count.value).toBe(0);
+    const toast = h.toasts.toasts.value[0];
+    expect(toast?.title).toBe("Added 2 to Design Folks");
+    expect(toast?.actions?.map((a) => a.label)).toEqual(["View List", "Undo"]);
+    expect(h.controller.command("undo")).toBe(true);
+    await flush();
+    expect(h.backend.removed).toEqual(["a", "b"]);
+  });
+
+  it("mirrors undo removals as remove changes", async () => {
+    const { store, calls } = recordingStore();
+    const h = harness({ membershipStore: store, currentOwner: () => owner });
+    h.selection.add({ screenName: "a" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    h.controller.command("undo");
+    await flush();
+    const removal = calls.find((c) => c.changes[0]?.action === "remove");
+    expect(removal?.changes).toEqual([{ screenName: "a", action: "remove", outcome: "removed" }]);
   });
 });
