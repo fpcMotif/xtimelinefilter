@@ -76,7 +76,7 @@ describe("recordAssign", () => {
     });
 
     expect(events).toHaveLength(2);
-    expect(events.map((e) => e.memberScreenName).sort()).toEqual(["alice", "bob"]);
+    expect(events.map((e) => e.memberScreenName).toSorted()).toEqual(["alice", "bob"]);
     for (const e of events) {
       expect(e).toMatchObject({ listId: "L1", ownerUserId: "100", action: "add", at: T0 });
     }
@@ -154,7 +154,7 @@ describe("recordAssign", () => {
 
     expect(members).toHaveLength(0); // snapshot untouched
     expect(events).toHaveLength(3); // every outcome logged
-    expect(events.map((e) => e.outcome).sort()).toEqual([
+    expect(events.map((e) => e.outcome).toSorted()).toEqual([
       "failed",
       "protected",
       "rate-limited",
@@ -277,7 +277,7 @@ describe("catalog", () => {
     const out = await t.query(api.membership.catalog, { deviceKey: DEVICE_KEY });
 
     const byOwner = Object.fromEntries(
-      out.map((g) => [g.owner.userId, g.lists.map((l) => l.listId).sort()]),
+      out.map((g) => [g.owner.userId, g.lists.map((l) => l.listId).toSorted()]),
     );
     expect(byOwner).toEqual({ "100": ["L1", "L2"], "200": ["L3"] });
 
