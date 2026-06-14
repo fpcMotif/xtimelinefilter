@@ -1,7 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
 
+import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import { detectPlatform, keycaps, type Platform } from "@/core/keycaps";
 import { POPUP_ACTIVE, POPUP_ASLEEP } from "@/core/strings";
+import { FilterPanel } from "@/ui/filter-panel";
 
 /** Discoverability for users who never press ? (story beat 9). */
 export const TOP_SHORTCUTS: ReadonlyArray<{ combo: string; label: string }> = [
@@ -19,15 +21,27 @@ export interface PopupDeps {
   wake(): Promise<void>;
   openOptions(): void;
   platform?: Platform;
+  /** Shared filter store, hydrated from storage.sync on mount; injectable for tests. */
+  filter?: FilterStore;
 }
 
-export function PopupApp({ queryState, wake, openOptions, platform }: PopupDeps) {
+export function PopupApp({
+  queryState,
+  wake,
+  openOptions,
+  platform,
+  filter = createFilterStore(),
+}: PopupDeps) {
   const [state, setState] = useState<TabState | null>(null);
   const plat = platform ?? detectPlatform();
 
   useEffect(() => {
     void queryState().then(setState);
   }, [queryState]);
+
+  useEffect(() => {
+    void filter.load();
+  }, [filter]);
 
   return (
     <main class="text-ink flex w-[280px] flex-col gap-3 p-4">
@@ -47,6 +61,8 @@ export function PopupApp({ queryState, wake, openOptions, platform }: PopupDeps)
         </button>
       )}
       {state === "off-x" && <p class="text-muted text-sm">Open x.com to use Lasso</p>}
+
+      <FilterPanel store={filter} />
 
       <ul class="flex flex-col gap-1.5">
         {TOP_SHORTCUTS.map((s) => (
