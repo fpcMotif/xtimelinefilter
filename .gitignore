@@ -10,3 +10,9 @@ test-results/
 playwright-report/
 
 .env.local
+
+# Brainstorming visual-companion artifacts
+.superpowers/
+
+# Brainstorming visual companion
+.superpowers/

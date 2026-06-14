@@ -3,7 +3,7 @@
 The shared vocabulary for this codebase. Keep terms consistent in code, tests, and docs.
 
 ## Domain terms
-- **Tweet** — a post in the x.com timeline; in the DOM an `article[data-testid="tweet"]`. Lasso never "saves a tweet"; it uses the tweet to identify an **Author**.
+- **Tweet** — a post in the x.com timeline; in the DOM an `article[data-testid="tweet"]`. Lasso has two capabilities over a Tweet: the **List-assign** capability never "saves a tweet" — it uses the tweet only to identify an **Author**; the **Filter** capability treats the Tweet itself as the subject, reading its **Facets** to decide whether to show or hide it (no Author involved).
 - **Author / Account** — the user who posted a tweet. The unit added to a List. Identified by **screenName** (handle, no `@`) and, once resolved, a numeric **userId** (`rest_id`). Always the *member*, never the operator — see **Owner**.
 - **Owner** — one of *your own* X accounts: the account logged in **at action time**, which owns the List being operated on and is recorded as the actor on every mirrored change. Distinct from **Account/Author** (the member). Identified by numeric **userId** (read from the `twid` cookie) plus a best-effort **screenName** for display.
 - **List** — an X List: a collection of **accounts** (not tweets). Identified by **listId** + name. Owned by exactly one **Owner**.
@@ -63,6 +63,14 @@ convex/schema + functions  accounts/lists/members/events    convex/auth  device-
 - **Reconcile** — refreshing the Mirror from X's ground truth: per-**Account** on picker open (X's `memberships.json` — which of my Lists contain this person) and per-**Owner** for the List catalog when that Owner is active. X is authoritative; the Mirror mirrors it.
 - **Cross-account catalog** — the union of every known **Owner**'s **Lists**. The picker groups Lists by Owner; only the **active Owner** (the one logged into x.com now) has writable Lists this session — the rest are read-only with cached membership shown "as of last use".
 - **Device key** — the single secret that authorises writes to your personal Mirror; the one long-lived credential the extension holds.
+
+## Filter terms (docs/superpowers/specs/2026-06-14-timeline-content-filter-design.md)
+- **Filter** — Lasso's second capability: a client-side, display-only narrowing of the timeline. Reads each **Tweet**'s **Facets** and decides show/hide. Never calls X, never acts on X, never load-bearing for the List-assign flow (same posture as the **Mirror**).
+- **Facet** — a classifiable property of a Tweet, read purely from its `article`: independent predicates `{hasText, hasPhoto, hasVideo, hasQuote, hasLink}` + `linkDest` (set of hosts) + `role` (repost) + `lang`. Isolated-world-safe, no network. Sibling to the Author that `tweet-extractor` pulls out.
+- **Family** — a group of related criteria the Filter offers: Media kind, Link destination, Post role, Language.
+- **Criterion** — one filterable Facet value the user can switch (e.g. `kind:video`, `linkDest:arxiv`, `lang:ja`).
+- **Filter mode** — the per-Criterion tri-state `off | only | hide`; the UI chip cycles `off → only → hide → off`.
+- **Hidden cell** — a timeline cell (`div[data-testid="cellInnerDiv"]`) the Filter collapses to a thin "· hidden — show" stub. Never removed from the DOM, always restorable; the Filter only ever toggles this. Chosen over full `display:none` to stay gentle on X's height-based virtualization (ADR-0010). A Hidden cell is **inert for List-assign**: no selection overlay, not click-selectable, skipped by select mode — clicking "show" turns it back into a normal, selectable Tweet.
 
 ## Invariants
 - Authenticated x.com calls run in the **content script** (same-origin). The SW holds no X tokens and no long-lived X state; the *only* long-lived credential the extension may hold is the optional Mirror **device key** (ADR-0009).
