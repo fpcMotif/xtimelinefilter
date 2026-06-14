@@ -34,6 +34,24 @@ function fakeSettings(initial: Partial<LassoSettings> = {}): SettingsStore & {
 
 const pillIn = (root: Element) => root.querySelector("[data-funnel-pill-root]");
 const barIn = (root: Element) => root.querySelector('section[aria-label="Timeline filter"]');
+const paletteIn = (root: Element) => root.querySelector('[role="dialog"][aria-label="Filter command palette"]');
+
+/** Dispatch a "mod+shift+f"-style combo as a keydown on the document. */
+function dispatchHotkey(combo: string) {
+  const parts = combo.toLowerCase().split("+");
+  const key = parts[parts.length - 1]!;
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key,
+      ctrlKey: parts.includes("mod") || parts.includes("ctrl"),
+      metaKey: parts.includes("meta") || parts.includes("cmd"),
+      shiftKey: parts.includes("shift"),
+      altKey: parts.includes("alt"),
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
 
 /** Let the manager settle its initial async settings.get(). */
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -97,6 +115,44 @@ describe("mountFilterSurfaces", () => {
     manager.update();
     expect(pillIn(root)).toBeNull();
     expect(barIn(root)).toBeNull();
+
+    manager.unmount();
+  });
+
+  it("opens the palette on the configured hotkey and drops the listener when surfaces.palette is disabled", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    const settings = fakeSettings({
+      surfaces: { pill: false, palette: true, bar: false },
+      paletteHotkey: "mod+shift+f",
+    });
+
+    const manager = mountFilterSurfaces({
+      root,
+      store,
+      settings,
+      hiddenCount: () => 0,
+      inScope: () => true,
+    });
+    await flush();
+
+    // No overlay until the hotkey fires.
+    expect(paletteIn(root)).toBeNull();
+
+    // The configured combo opens the palette overlay.
+    dispatchHotkey("mod+shift+f");
+    expect(paletteIn(root)).toBeTruthy();
+
+    // Escape closes it again (handled by the manager while the palette is open).
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(paletteIn(root)).toBeNull();
+
+    // Disabling the surface tears down the listener: the hotkey no longer opens it.
+    await settings.set({ surfaces: { pill: false, palette: false, bar: false } });
+    manager.update();
+    dispatchHotkey("mod+shift+f");
+    expect(paletteIn(root)).toBeNull();
 
     manager.unmount();
   });

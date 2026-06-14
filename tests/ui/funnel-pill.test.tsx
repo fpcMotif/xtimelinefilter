@@ -1,4 +1,5 @@
 import { fireEvent, render } from "@testing-library/preact";
+import { render as renderPreact } from "preact";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFilterStore } from "@/core/filter-store";
@@ -36,6 +37,32 @@ function setup(opts: {
   );
   const pill = r.getByRole("button", { name: /timeline filter/i });
   return { store, r, pill, onPositionChange };
+}
+
+/**
+ * happy-dom does not implement Shadow DOM event retargeting — it leaves
+ * `e.target` as the in-shadow node — so a plain `fireEvent.mouseDown(chip)`
+ * cannot reproduce the production bug (the test would pass with or without the
+ * fix). Reconstruct the exact event a real browser delivers to a document-level
+ * listener for a click that originated inside an open shadow tree: `target`
+ * retargeted to the shadow `host`, but `composedPath()` still carrying the full
+ * in-shadow path (chip → … → host). The real end-to-end guard is
+ * e2e/filter-surfaces.spec.ts, which runs in an actual browser.
+ */
+function dispatchRetargetedMouseDown(origin: Element, host: Element) {
+  let composed: EventTarget[] = [];
+  const capture = (e: Event) => {
+    composed = e.composedPath();
+  };
+  origin.addEventListener("mousedown", capture);
+  origin.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+  origin.removeEventListener("mousedown", capture);
+
+  const evt = new MouseEvent("mousedown", { bubbles: true, composed: true });
+  Object.defineProperty(evt, "target", { configurable: true, get: () => host });
+  Object.defineProperty(evt, "composedPath", { configurable: true, value: () => composed });
+  // Route through fireEvent so the resulting Preact re-render is flushed (act()).
+  fireEvent(document, evt);
 }
 
 describe("activeCriteriaCount", () => {
@@ -123,6 +150,54 @@ describe("FunnelPill", () => {
     expect(r.queryByRole("dialog")).toBeTruthy();
     fireEvent.mouseDown(document.body);
     expect(r.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the popover open when a chip inside an open Shadow DOM is clicked", () => {
+    // Production mounts the pill inside an open Shadow DOM (createUiRoot). A
+    // mousedown that crosses the shadow boundary retargets e.target to the
+    // shadow host (outside rootRef), so the document-level outside-click handler
+    // must consult composedPath() — otherwise every in-popover click closes it.
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    store.setMode("kind:video", "only");
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const mount = document.createElement("div");
+    shadow.appendChild(mount);
+
+    try {
+      renderPreact(
+        <FunnelPill
+          store={store}
+          hiddenCount={() => 0}
+          position={{ x: 40, y: 60 }}
+          onPositionChange={vi.fn()}
+        />,
+        mount,
+      );
+
+      const pill = shadow.querySelector<HTMLButtonElement>(
+        'button[aria-label="Timeline filter"]',
+      )!;
+      fireEvent.click(pill);
+      expect(shadow.querySelector('[role="dialog"]')).toBeTruthy();
+
+      // A FilterPanel chip lives inside the popover, inside the shadow tree.
+      const chip = Array.from(shadow.querySelectorAll("button")).find(
+        (b) => b.textContent?.trim() === "Video",
+      )!;
+      expect(chip).toBeTruthy();
+
+      dispatchRetargetedMouseDown(chip, host);
+
+      // Bug repro: without composedPath() the retargeted target (the host) is
+      // outside rootRef, so the popover would have closed here.
+      expect(shadow.querySelector('[role="dialog"]')).toBeTruthy();
+    } finally {
+      renderPreact(null, mount);
+      host.remove();
+    }
   });
 
   it("dims the pill and hides the badge when the filter is disabled", () => {

@@ -6,6 +6,7 @@ type AnyVNode = VNode<any>;
 import type { FilterStore } from "@/core/filter-store";
 import type { LassoSettings, SettingsStore } from "@/core/settings";
 import { FilterBar } from "@/ui/filter-bar";
+import { FilterPalette } from "@/ui/filter-palette";
 import { FunnelPill } from "@/ui/funnel-pill";
 
 export interface SurfaceMountDeps {
@@ -37,6 +38,25 @@ interface SurfaceDef {
 }
 
 /**
+ * Match a `KeyboardEvent` against a `"mod+shift+f"`-style combo. `mod` maps to
+ * Ctrl or Meta (so the same setting works on Windows/Linux and macOS); the final
+ * token is the key, compared case-insensitively.
+ */
+function matchesHotkey(e: KeyboardEvent, combo: string): boolean {
+  const parts = combo.toLowerCase().split("+").map((p) => p.trim()).filter(Boolean);
+  const key = parts[parts.length - 1];
+  if (!key || e.key.toLowerCase() !== key) return false;
+  const wantMod = parts.includes("mod");
+  const wantCtrl = parts.includes("ctrl");
+  const wantMeta = parts.includes("meta") || parts.includes("cmd");
+  if (wantMod ? !(e.ctrlKey || e.metaKey) : wantCtrl !== e.ctrlKey || wantMeta !== e.metaKey)
+    return false;
+  if (parts.includes("shift") !== e.shiftKey) return false;
+  if (parts.includes("alt") !== e.altKey) return false;
+  return true;
+}
+
+/**
  * Surface manager (spec §3/§5/§7): reads `settings.surfaces`, mounts each enabled
  * in-page surface (funnel pill / sticky bar) into the Shadow root, persists pill
  * position back to settings, and reconciles on settings change + SPA route change.
@@ -45,6 +65,11 @@ interface SurfaceDef {
  */
 export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
   const { root, store, settings, hiddenCount } = deps;
+
+  // The palette is modal and manager-driven: the configured hotkey toggles this
+  // flag, the registry entry renders <FilterPalette open={…}>, and reconcile()
+  // re-renders so the overlay appears/disappears.
+  let paletteOpen = false;
 
   const registry: Record<string, SurfaceDef> = {
     pill: {
@@ -61,7 +86,18 @@ export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
       enabled: (s) => s.surfaces.bar,
       view: () => createElement(FilterBar, { store, hiddenCount }),
     },
-    // task-012 appends a "palette" entry here.
+    palette: {
+      enabled: (s) => s.surfaces.palette,
+      view: () =>
+        createElement(FilterPalette, {
+          store,
+          open: paletteOpen,
+          onClose: () => {
+            paletteOpen = false;
+            reconcile();
+          },
+        }),
+    },
   };
 
   // One mount node per surface key, created lazily and reused so Preact diffs
@@ -69,6 +105,32 @@ export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
   const mounts = new Map<string, HTMLElement>();
   let current: LassoSettings | null = null;
   let disposed = false;
+  let hotkeyListener: ((e: KeyboardEvent) => void) | null = null;
+
+  function removeHotkey(): void {
+    if (!hotkeyListener) return;
+    document.removeEventListener("keydown", hotkeyListener);
+    hotkeyListener = null;
+  }
+
+  function addHotkey(combo: string): void {
+    if (hotkeyListener) return;
+    hotkeyListener = (e: KeyboardEvent) => {
+      if (matchesHotkey(e, combo)) {
+        e.preventDefault();
+        paletteOpen = !paletteOpen;
+        reconcile();
+        return;
+      }
+      // While open, Escape closes the palette here too, so closing never depends
+      // on the overlay's async-mounted listener (keeps the manager authoritative).
+      if (paletteOpen && e.key === "Escape") {
+        paletteOpen = false;
+        reconcile();
+      }
+    };
+    document.addEventListener("keydown", hotkeyListener);
+  }
 
   function mountNode(key: string): HTMLElement {
     let node = mounts.get(key);
@@ -93,6 +155,17 @@ export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
     if (disposed) return;
     const s = current;
     const show = !!s && deps.inScope();
+
+    // The palette hotkey lives only while the palette surface is active. Adding
+    // it here (and dropping it + the open flag otherwise) means disabling
+    // surfaces.palette or leaving scope removes the listener.
+    const paletteActive = show && !!s && registry.palette!.enabled(s);
+    if (paletteActive) addHotkey(s!.paletteHotkey);
+    else {
+      removeHotkey();
+      paletteOpen = false;
+    }
+
     for (const [key, def] of Object.entries(registry)) {
       if (show && s && def.enabled(s)) render(def.view(deps, s), mountNode(key));
       else teardown(key);
@@ -116,6 +189,7 @@ export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
     unmount() {
       disposed = true;
       unsubscribe();
+      removeHotkey();
       for (const node of mounts.values()) {
         render(null, node);
         node.remove();

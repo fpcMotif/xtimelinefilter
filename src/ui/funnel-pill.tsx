@@ -68,7 +68,17 @@ export function FunnelPill({ store, hiddenCount, position, onPositionChange }: F
       if (e.key === "Escape") setOpen(false);
     };
     const onOutside = (e: Event) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const root = rootRef.current;
+      if (!root) return;
+      // In production the pill lives in a Shadow DOM; a mousedown crossing the
+      // shadow boundary retargets e.target to the shadow host, which is outside
+      // `root`. Use the composed path (which still contains `root`) so clicks on
+      // chips/checkboxes inside the popover are not treated as outside-clicks.
+      const path = (e as Event).composedPath?.() ?? [];
+      const host = (root.getRootNode() as ShadowRoot)?.host as Node | undefined;
+      const inside =
+        path.includes(root) || (!!host && path.includes(host)) || root.contains(e.target as Node);
+      if (path.length > 0 && !inside) setOpen(false);
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onOutside);
