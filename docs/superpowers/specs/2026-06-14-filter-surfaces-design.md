@@ -92,7 +92,7 @@ A preset is a named snapshot of the active filter *selection*.
 - **Flows:**
   - **+ save** snapshots the current chips into a named preset.
   - Clicking a preset pill applies it (replaces active `criteria` + language gate).
-  - Rename / delete from the popover and from the Options page.
+  - Rename / delete from the Options page (the popover/panel presets row stays compact: apply + save only).
 - Presets are first-class searchable entries in the command palette.
 
 ## 7. Secondary surfaces + the surface setting
