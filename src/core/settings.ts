@@ -32,6 +32,11 @@ export const DEFAULT_SETTINGS: LassoSettings = {
   hotkeySelectMode: "s",
   activation: "auto",
   highContrast: false,
+  // Mirror config falls back to the build-time Convex env (.env.local) so a fresh
+  // profile reaches the deployment with no manual setup; the Options page still
+  // overrides both fields, and an absent env keeps the Mirror off (ADR-0009).
+  convexUrl: import.meta.env.VITE_CONVEX_URL || undefined,
+  convexDeviceKey: import.meta.env.VITE_LASSO_DEVICE_KEY || undefined,
 };
 
 // NOTE: must equal STORAGE_KEYS.settings (storage-keys.ts imports our types,
