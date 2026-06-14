@@ -31,6 +31,17 @@ describe("parseGraphqlRequest", () => {
   it("returns null for non-GraphQL urls", () => {
     expect(parseGraphqlRequest("https://x.com/home")).toBeNull();
   });
+
+  it("ignores malformed feature data and non-json bodies", () => {
+    expect(parseGraphqlRequest("https://x.com/i/api/graphql/Q/Op?features={bad")).toEqual({
+      opName: "Op",
+      queryId: "Q",
+    });
+    expect(parseGraphqlRequest("https://x.com/i/api/graphql/Q/Op", "not json")).toEqual({
+      opName: "Op",
+      queryId: "Q",
+    });
+  });
 });
 
 describe("createGraphqlSniffer", () => {
@@ -48,6 +59,7 @@ describe("createGraphqlSniffer", () => {
 
   it("ignores GraphQL ops it does not track", () => {
     const sniffer = createGraphqlSniffer(DEFAULT_GRAPHQL_CONFIG);
+    sniffer.record("https://x.com/home");
     sniffer.record("https://x.com/i/api/graphql/QID/HomeTimeline");
     expect(sniffer.config().ops).toEqual(DEFAULT_GRAPHQL_CONFIG.ops);
   });
@@ -63,5 +75,42 @@ describe("wrapFetchWithSniffer", () => {
 
     expect(original).toHaveBeenCalledTimes(1);
     expect(sniffer.config().ops.ListRemoveMember).toBe("WRAPPED");
+  });
+
+  it("accepts URL and Request inputs, and ignores non-string bodies", async () => {
+    const original = vi.fn(async () => new Response("{}"));
+    const sniffer = createGraphqlSniffer(DEFAULT_GRAPHQL_CONFIG);
+    const wrapped = wrapFetchWithSniffer(original as unknown as typeof fetch, sniffer);
+
+    await wrapped(new URL("https://x.com/i/api/graphql/URLQ/ListAddMember"));
+    await wrapped(new Request("https://x.com/i/api/graphql/REQQ/UserByScreenName"), {
+      body: new URLSearchParams({ features: "{}" }),
+      method: "POST",
+    });
+    await wrapped("https://x.com/i/api/graphql/BODYQ/ListRemoveMember", {
+      body: JSON.stringify({ features: { bodyFeature: true } }),
+      method: "POST",
+    });
+
+    expect(sniffer.config().ops.ListAddMember).toBe("URLQ");
+    expect(sniffer.config().ops.UserByScreenName).toBe("REQQ");
+    expect(sniffer.config().ops.ListRemoveMember).toBe("BODYQ");
+    expect(sniffer.config().features.bodyFeature).toBe(true);
+  });
+
+  it("never lets sniffing failures break the fetch", async () => {
+    const original = vi.fn(async () => new Response("{}"));
+    const sniffer = createGraphqlSniffer(DEFAULT_GRAPHQL_CONFIG);
+    const wrapped = wrapFetchWithSniffer(original as unknown as typeof fetch, sniffer);
+    const badInput = {
+      get url() {
+        throw new Error("broken getter");
+      },
+    } as unknown as Request;
+
+    await expect(wrapped(badInput)).resolves.toBeInstanceOf(Response);
+    expect(original).toHaveBeenCalledTimes(1);
+    const [firstInput] = original.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit?];
+    expect(firstInput).toBe(badInput);
   });
 });

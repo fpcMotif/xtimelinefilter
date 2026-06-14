@@ -45,6 +45,15 @@ const PROMOTED = `
   </article>
 </div>`;
 
+const PROMOTED_SOCIAL_ONLY = `
+<article data-testid="tweet" role="article">
+  <div data-testid="socialContext"><span>Promoted</span></div>
+  <div data-testid="User-Name">
+    <div><a href="/ad"><span>Ad</span></a></div>
+    <div><a href="/ad/status/999"><time>1h</time></a></div>
+  </div>
+</article>`;
+
 const QUOTE = `
 <article data-testid="tweet" role="article">
   <div data-testid="User-Name">
@@ -62,6 +71,20 @@ const QUOTE = `
 const AVATAR_ONLY = `
 <article data-testid="tweet" role="article">
   <div data-testid="UserAvatar-Container-zoe"><img src="https://pbs.twimg.com/profile_images/222/x_normal.jpg"></div>
+</article>`;
+
+const TIME_LINK_ONLY = `
+<article data-testid="tweet" role="article">
+  <a href="/mira/status/888"><time>1h</time></a>
+  <div data-testid="UserAvatar-Container-mira"></div>
+</article>`;
+
+const EMOJI_NAME = `
+<article data-testid="tweet" role="article">
+  <div data-testid="User-Name">
+    <div><a href="/nina"><span>Nina <img alt="✨"></span></a></div>
+    <div><a href="/nina/status/321"><time>1h</time></a></div>
+  </div>
 </article>`;
 
 describe("extractAuthor", () => {
@@ -82,6 +105,7 @@ describe("extractAuthor", () => {
 
   it("skips promoted tweets (returns null)", () => {
     expect(extractAuthor(tweetEl(PROMOTED))).toBeNull();
+    expect(extractAuthor(tweetEl(PROMOTED_SOCIAL_ONLY))).toBeNull();
   });
 
   it("extracts the OUTER author of a quote tweet, never the quoted account", () => {
@@ -92,6 +116,71 @@ describe("extractAuthor", () => {
     const a = extractAuthor(tweetEl(AVATAR_ONLY));
     expect(a?.screenName).toBe("zoe");
     expect(a?.tweetId).toBeUndefined();
+  });
+
+  it("falls back to a time permalink when the name block status link is absent", () => {
+    expect(extractAuthor(tweetEl(TIME_LINK_ONLY))).toMatchObject({
+      screenName: "mira",
+      tweetId: "888",
+    });
+  });
+
+  it("expands emoji image alt text in display names", () => {
+    expect(extractAuthor(tweetEl(EMOJI_NAME))?.displayName).toBe("Nina ✨");
+  });
+
+  it("ignores comment nodes while reading display names", () => {
+    const a = extractAuthor(
+      tweetEl(`
+        <article data-testid="tweet">
+          <div data-testid="User-Name">
+            <a href="/comment"><span>Com<!-- verified badge placeholder -->ment</span></a>
+            <a href="/comment/status/7"><time>1h</time></a>
+          </div>
+        </article>
+      `),
+    );
+    expect(a?.displayName).toBe("Comment");
+  });
+
+  it("returns null when neither permalink nor avatar provides a handle", () => {
+    expect(extractAuthor(tweetEl('<article data-testid="tweet"></article>'))).toBeNull();
+  });
+
+  it("returns undefined display names when visible text is empty", () => {
+    const a = extractAuthor(
+      tweetEl(`
+        <article data-testid="tweet">
+          <div data-testid="User-Name"><a href="/blank"></a></div>
+          <a href="/blank/status/5"><time>1h</time></a>
+        </article>
+      `),
+    );
+    expect(a?.displayName).toBeUndefined();
+  });
+
+  it("ignores malformed permalink hrefs and malformed avatar test ids", () => {
+    const a = extractAuthor(
+      tweetEl(`
+        <article data-testid="tweet">
+          <div data-testid="User-Name"><a href="http://[bad]/status/1"><span>Bad</span></a></div>
+          <div data-testid="UserAvatar-Container-"></div>
+        </article>
+      `),
+    );
+    expect(a).toBeNull();
+  });
+
+  it("handles missing hrefs while reading display names", () => {
+    const a = extractAuthor(
+      tweetEl(`
+        <article data-testid="tweet">
+          <div data-testid="User-Name"><a><span>Fallback Block</span></a></div>
+          <a href="/block/status/6"><time>1h</time></a>
+        </article>
+      `),
+    );
+    expect(a?.displayName).toBe("Fallback Block");
   });
 
   it("returns null for a non-tweet element", () => {
@@ -105,6 +194,15 @@ describe("getTweetType", () => {
   it("classifies a normal tweet, a retweet, and a promoted tweet", () => {
     expect(getTweetType(tweetEl(NORMAL))).toBe("tweet");
     expect(getTweetType(tweetEl(RETWEET))).toBe("retweet");
+    expect(
+      getTweetType(
+        tweetEl(`
+          <article data-testid="tweet">
+            <div data-testid="socialContext"></div>
+          </article>
+        `),
+      ),
+    ).toBe("retweet");
     expect(getTweetType(tweetEl(PROMOTED))).toBe("promoted");
   });
 });

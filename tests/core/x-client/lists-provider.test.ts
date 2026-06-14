@@ -35,10 +35,39 @@ describe("fetchOwnedLists", () => {
 
   it("drops malformed list entries", async () => {
     const fetchMock = vi.fn(async () =>
-      jsonResponse({ lists: [{ id_str: "1", name: "Ok" }, { name: "No id" }, { id_str: "3" }] }),
+      jsonResponse({
+        lists: [
+          { id_str: "1", name: "Ok" },
+          { id: 2, name: "Numeric id" },
+          { name: "No id" },
+          { id_str: "3" },
+        ],
+      }),
     );
     const lists = await fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds });
-    expect(lists).toEqual([{ id: "1", name: "Ok", memberCount: undefined }]);
+    expect(lists).toEqual([
+      { id: "1", name: "Ok", memberCount: undefined },
+      { id: "2", name: "Numeric id", memberCount: undefined },
+    ]);
+  });
+
+  it("returns an empty list when the payload omits lists", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}));
+    await expect(
+      fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+    ).resolves.toEqual([]);
+  });
+
+  it("maps rate limits and other HTTP failures to typed errors", async () => {
+    const rateLimited = vi.fn(async () => jsonResponse({}, 429));
+    await expect(
+      fetchOwnedLists({ fetch: rateLimited as unknown as typeof fetch, creds }),
+    ).rejects.toMatchObject({ kind: "rate-limited" });
+
+    const unknown = vi.fn(async () => jsonResponse({}, 500));
+    await expect(
+      fetchOwnedLists({ fetch: unknown as unknown as typeof fetch, creds }),
+    ).rejects.toMatchObject({ kind: "unknown" });
   });
 
   it("maps auth failures to a typed error", async () => {

@@ -11,6 +11,7 @@ import {
   UNDO_TEXT,
 } from "@/content/selectors";
 
+const textOf = (el: Element): string => el.textContent as string;
 const PAGE_ACTIVATE_CHANNEL = "__lasso_x_main_world_activate__";
 const PAGE_ACTIVATE_REQUEST = "activate";
 const PAGE_ACTIVATE_RESPONSE = "activated";
@@ -131,15 +132,14 @@ const activate = async (el: Element): Promise<void> => {
 };
 
 const muteMatch = (el: Element): boolean =>
-  !!el.querySelector(`svg path[d^="${MUTE_ICON_PATH_PREFIX}"]`) ||
-  MUTE_TEXT.test(el.textContent ?? "");
+  !!el.querySelector(`svg path[d^="${MUTE_ICON_PATH_PREFIX}"]`) || MUTE_TEXT.test(textOf(el));
 const blockMatch = (el: Element): boolean =>
   !!el.querySelector(DriverSelectors.BLOCK) ||
   el.getAttribute("data-testid") === "block" ||
-  /^\s*block/i.test(el.textContent ?? "");
+  /^\s*block/i.test(textOf(el));
 const notInterestedMatch = (el: Element): boolean =>
   !!el.querySelector(`svg path[d^="${NOT_INTERESTED_ICON_PATH_PREFIX}"]`) ||
-  NOT_INTERESTED_TEXT.test(el.textContent ?? "");
+  NOT_INTERESTED_TEXT.test(textOf(el));
 
 export interface CaretActionDeps {
   doc?: Document;
@@ -165,18 +165,17 @@ function waitForEl(
   const existing = find();
   if (existing) return Promise.resolve(existing);
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (el: Element | null): void => {
+      clearTimeout(timer);
       obs.disconnect();
-      resolve(null);
-    }, timeout);
+      resolve(el);
+    };
     const obs = new MutationObserver(() => {
       const el = find();
-      if (el) {
-        clearTimeout(timer);
-        obs.disconnect();
-        resolve(el);
-      }
+      if (el) finish(el);
     });
+    timer = setTimeout(() => finish(find()), timeout);
     obs.observe(root, { childList: true, subtree: true });
   });
 }
@@ -204,6 +203,7 @@ function findNotInterestedFeedback(cellEl: Element): Element | null {
         : null;
   return positional && !UNDO_TEXT.test(positional.textContent ?? "") ? positional : null;
 }
+
 
 /**
  * Drives the tweet "..." caret menu for quick actions on a focused tweet element
@@ -366,8 +366,12 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
   }
 
   return {
-    mute: (t) => run(t, muteMatch, "if-present"),
+    mute: async (t) => {
+      await run(t, muteMatch, "if-present");
+    },
     notInterested,
-    block: (t) => run(t, blockMatch, "always"),
+    block: async (t) => {
+      await run(t, blockMatch, "always");
+    },
   };
 }

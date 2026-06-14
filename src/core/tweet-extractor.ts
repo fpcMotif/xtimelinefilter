@@ -34,9 +34,8 @@ export function extractAuthor(article: Element): TweetAuthor | null {
 export function getTweetType(article: Element): TweetType {
   if (article.closest(Selectors.PROMOTED_ANCESTOR)) return "promoted";
   const social = article.querySelector(Selectors.SOCIAL_CONTEXT);
-  if (social && /promoted/i.test(social.textContent ?? "")) return "promoted";
-  if (social) return "retweet";
-  return "tweet";
+  if (!social) return "tweet";
+  return /promoted/i.test(social.textContent as string) ? "promoted" : "retweet";
 }
 
 function isTweet(el: Element | null): el is Element {
@@ -83,8 +82,8 @@ function readAvatar(article: Element): string | undefined {
 function readText(node: Node): string {
   let out = "";
   node.childNodes.forEach((n) => {
-    if (n.nodeType === 3) out += n.nodeValue ?? "";
-    else if (n.nodeName === "IMG") out += (n as HTMLImageElement).alt ?? "";
+    if (n.nodeType === 3) out += (n as Text).data;
+    else if (n.nodeName === "IMG") out += (n as HTMLImageElement).alt;
     else if (n.nodeType === 1) out += readText(n);
   });
   return out;

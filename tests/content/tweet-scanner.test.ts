@@ -45,6 +45,42 @@ describe("createTweetScanner", () => {
     scanner.stop();
   });
 
+  it("observes document.body and handles direct tweet nodes plus non-elements", async () => {
+    const onTweet = vi.fn();
+    const scanner = createTweetScanner(document, onTweet);
+    scanner.start();
+
+    document.body.appendChild(document.createTextNode("noise"));
+    const cell = document.createElement("div");
+    cell.innerHTML = tweetHtml("direct", "4");
+    const article = cell.firstElementChild as Element;
+    document.body.appendChild(article);
+    await tick();
+
+    expect(onTweet).toHaveBeenCalledWith(
+      expect.objectContaining({ screenName: "direct", tweetId: "4" }),
+      article,
+    );
+    scanner.stop();
+  });
+
+  it("dedupes invalid tweet nodes even when extraction returns null", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const onTweet = vi.fn();
+    const scanner = createTweetScanner(root, onTweet);
+    scanner.start();
+
+    const article = document.createElement("article");
+    article.setAttribute("data-testid", "tweet");
+    root.appendChild(article);
+    await tick();
+    scanner.scanExisting();
+
+    expect(onTweet).not.toHaveBeenCalled();
+    scanner.stop();
+  });
+
   it("does not double-report the same node on a rescan", () => {
     const root = document.createElement("div");
     root.innerHTML = tweetHtml("jack", "1");

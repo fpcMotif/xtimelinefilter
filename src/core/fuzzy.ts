@@ -17,9 +17,16 @@ export function fuzzyScore(query: string, text: string): number | null {
 export function fuzzyRank<T>(query: string, items: readonly T[], key: (item: T) => string): T[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...items];
-  return items
-    .map((item) => ({ item, s: fuzzyScore(q, key(item).toLowerCase()) }))
-    .filter((x): x is { item: T; s: number } => x.s !== null)
-    .toSorted((a, b) => a.s - b.s || key(a.item).localeCompare(key(b.item)))
+  const scored: Array<{ item: T; s: number }> = [];
+  for (const item of items) {
+    const s = fuzzyScore(q, key(item).toLowerCase());
+    if (s !== null) scored.push({ item, s });
+  }
+  return scored
+    .toSorted((a, b) => {
+      const byScore = a.s - b.s;
+      if (byScore !== 0) return byScore;
+      return key(a.item).localeCompare(key(b.item));
+    })
     .map((x) => x.item);
 }
