@@ -68,8 +68,10 @@ convex/schema + functions  accounts/lists/members/events    convex/auth  device-
 - **Filter** — Lasso's second capability: a client-side, display-only narrowing of the timeline. Reads each **Tweet**'s **Facets** and decides show/hide. Never calls X, never acts on X, never load-bearing for the List-assign flow (same posture as the **Mirror**).
 - **Facet** — a classifiable property of a Tweet, read purely from its `article`: independent predicates `{hasText, hasPhoto, hasVideo, hasQuote, hasLink}` + `linkDest` (set of hosts) + `role` (repost) + `lang`. Isolated-world-safe, no network. Sibling to the Author that `tweet-extractor` pulls out.
 - **Family** — a group of related criteria the Filter offers: Media kind, Link destination, Post role, Language.
-- **Criterion** — one filterable Facet value the user can switch (e.g. `kind:video`, `linkDest:arxiv`, `lang:ja`).
+- **Criterion** — one filterable Facet value the user can switch (e.g. `kind:video`, `linkDest:arxiv`).
 - **Filter mode** — the per-Criterion tri-state `off | only | hide`; the UI chip cycles `off → only → hide → off`.
+- **Link rule** — a `host → destination` mapping used to classify a Tweet's outbound links. Built-in defaults cover arxiv/hn/reddit/youtube/github; the user adds more in Options (v1, winning over defaults); any other external host falls back to the generic **Article/Blog** destination.
+- **My languages** — the user's allowlist of BCP-47 codes (default seeded from `navigator.languages`). The Language family is a single **"only my languages"** gate: a post whose detected `lang` is outside the set is hidden; a post with no detectable `lang` is shown (fail-open). Per-language only/hide chips are a v2 facet.
 - **Hidden cell** — a timeline cell (`div[data-testid="cellInnerDiv"]`) the Filter collapses to a thin "· hidden — show" stub. Never removed from the DOM, always restorable; the Filter only ever toggles this. Chosen over full `display:none` to stay gentle on X's height-based virtualization (ADR-0010). A Hidden cell is **inert for List-assign**: no selection overlay, not click-selectable, skipped by select mode — clicking "show" turns it back into a normal, selectable Tweet.
 
 ## Invariants
