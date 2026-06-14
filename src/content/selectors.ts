@@ -20,6 +20,23 @@ export const Selectors = {
 export const AVATAR_CONTAINER_PREFIX = "UserAvatar-Container-";
 
 /**
+ * Hooks for the Filter capability's Facet extraction (tweet-facets.ts). The one
+ * place to fix on an X redesign (ADR-0004). Reuse Selectors.TWEET_TEXT (the lang
+ * attribute lives there), Selectors.SOCIAL_CONTEXT (repost) and Selectors.CELL.
+ *
+ * AMBER — every entry here is an ASSUMPTION until confirmed on live x.com
+ * (verify-filter-dom.md, MISSION.md). QUOTE especially: a quoted post nests a
+ * second tweet article, but the exact hook must be verified live.
+ */
+export const FacetSelectors = {
+  PHOTO: '[data-testid="tweetPhoto"]',
+  VIDEO: '[data-testid="videoPlayer"], [data-testid="videoComponent"]',
+  CARD: '[data-testid="card.wrapper"]',
+  QUOTE: '[data-testid="tweet"] [data-testid="tweet"]', // AMBER — verify live
+  OUTBOUND_LINK: 'a[href^="http"]',
+} as const;
+
+/**
  * Expando set on keyboard events that Lasso itself synthesizes (e.g. the
  * Escape that dismisses a stuck caret menu). The keyboard layer must ignore
  * these — otherwise driver-internal cleanup would exit select mode, clear the
