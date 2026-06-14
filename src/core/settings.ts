@@ -25,6 +25,12 @@ export interface LassoSettings {
   convexUrl?: string;
   /** Convex Mirror device key; the one long-lived credential, unset ⇒ Mirror disabled. */
   convexDeviceKey?: string;
+  /** Independent per-surface toggles for the filter UI (pill / command palette / status bar). */
+  surfaces: { pill: boolean; palette: boolean; bar: boolean };
+  /** Persisted floating-pill position (px offset from X's bottom-right docks). */
+  pillPosition: { x: number; y: number };
+  /** Shortcut that opens the command palette. */
+  paletteHotkey: string;
 }
 
 export const DEFAULT_SETTINGS: LassoSettings = {
@@ -37,6 +43,9 @@ export const DEFAULT_SETTINGS: LassoSettings = {
   // overrides both fields, and an absent env keeps the Mirror off (ADR-0009).
   convexUrl: import.meta.env.VITE_CONVEX_URL || undefined,
   convexDeviceKey: import.meta.env.VITE_LASSO_DEVICE_KEY || undefined,
+  surfaces: { pill: true, palette: false, bar: false },
+  pillPosition: { x: 24, y: 96 },
+  paletteHotkey: "mod+shift+f",
 };
 
 // NOTE: must equal STORAGE_KEYS.settings (storage-keys.ts imports our types,

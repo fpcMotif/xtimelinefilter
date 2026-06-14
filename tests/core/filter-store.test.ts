@@ -23,6 +23,7 @@ describe("createFilterStore", () => {
       onlyMyLanguages: false,
       myLanguages: ["ja", "en"],
       linkRules: [],
+      presets: [],
     });
   });
 
@@ -42,6 +43,7 @@ describe("createFilterStore", () => {
       onlyMyLanguages: true,
       myLanguages: ["ja", "en"],
       linkRules: [{ host: "lemmy.world", dest: "reddit" }],
+      presets: [],
     });
   });
 

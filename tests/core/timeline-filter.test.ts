@@ -21,6 +21,7 @@ const BASE_STATE: FilterState = {
   onlyMyLanguages: false,
   myLanguages: [],
   linkRules: [],
+  presets: [],
 };
 const st = (p: Partial<FilterState>): FilterState => ({ ...BASE_STATE, ...p });
 

@@ -1,6 +1,12 @@
 import { signal, type ReadonlySignal } from "@preact/signals-core";
 
-import type { CriterionId, FilterMode, FilterState, LinkRule } from "@/core/filter-types";
+import type {
+  CriterionId,
+  FilterMode,
+  FilterPreset,
+  FilterState,
+  LinkRule,
+} from "@/core/filter-types";
 import type { StorageLike } from "@/core/settings";
 
 /** storage.sync key for the one global filter (v1). */
@@ -19,6 +25,12 @@ export interface FilterStore {
   setMyLanguages(langs: readonly string[]): void;
   setLinkRules(rules: LinkRule[]): void;
   setEnabled(on: boolean): void;
+  /** Snapshot the active selection (criteria + language gate) as a named preset; returns its id. */
+  savePreset(name: string): string;
+  /** Replace criteria + onlyMyLanguages (+ myLanguages if captured); never touches linkRules. */
+  applyPreset(id: string): void;
+  renamePreset(id: string, name: string): void;
+  deletePreset(id: string): void;
   /** Hydrate from storage.sync, merging over defaults. Never throws. */
   load(): Promise<void>;
 }
@@ -45,6 +57,7 @@ function defaultState(navLanguages: readonly string[]): FilterState {
     onlyMyLanguages: false,
     myLanguages: normalizeLangs(navLanguages),
     linkRules: [],
+    presets: [],
   };
 }
 
@@ -81,6 +94,37 @@ export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
     setMyLanguages: (langs) => update({ myLanguages: normalizeLangs(langs) }),
     setLinkRules: (rules) => update({ linkRules: rules }),
     setEnabled: (on) => update({ enabled: on }),
+    savePreset(name) {
+      const id = crypto.randomUUID();
+      const { criteria, onlyMyLanguages, myLanguages } = state.value;
+      const preset: FilterPreset = {
+        id,
+        name,
+        criteria: { ...criteria },
+        onlyMyLanguages,
+        myLanguages: [...myLanguages],
+      };
+      update({ presets: [...state.value.presets, preset] });
+      return id;
+    },
+    applyPreset(id) {
+      const preset = state.value.presets.find((p) => p.id === id);
+      if (!preset) return;
+      const patch: Partial<FilterState> = {
+        criteria: { ...preset.criteria },
+        onlyMyLanguages: preset.onlyMyLanguages,
+      };
+      if (preset.myLanguages) patch.myLanguages = [...preset.myLanguages];
+      update(patch);
+    },
+    renamePreset(id, name) {
+      update({
+        presets: state.value.presets.map((p) => (p.id === id ? { ...p, name } : p)),
+      });
+    },
+    deletePreset(id) {
+      update({ presets: state.value.presets.filter((p) => p.id !== id) });
+    },
     async load() {
       try {
         const raw = (await area.get(KEY))[KEY] as Partial<FilterState> | undefined;

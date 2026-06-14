@@ -44,6 +44,20 @@ export interface LinkRule {
   dest: LinkDest;
 }
 
+/**
+ * A named snapshot of the active filter *selection*: tri-state criteria plus the
+ * language gate. Deliberately excludes `linkRules` — applying a preset never
+ * touches the user's host→destination mappings. `myLanguages` is optional so a
+ * preset may capture the allowlist or leave it as-is.
+ */
+export interface FilterPreset {
+  id: string;
+  name: string;
+  criteria: Record<CriterionId, FilterMode>;
+  onlyMyLanguages: boolean;
+  myLanguages?: string[];
+}
+
 /** The whole persisted filter configuration (one global filter in v1; storage.sync). */
 export interface FilterState {
   enabled: boolean;
@@ -54,6 +68,8 @@ export interface FilterState {
   myLanguages: string[];
   /** User link rules, win over built-in defaults. */
   linkRules: LinkRule[];
+  /** Named selection snapshots (criteria + language gate; never linkRules). */
+  presets: FilterPreset[];
 }
 
 export type FilterVerdict = "show" | "hide";
