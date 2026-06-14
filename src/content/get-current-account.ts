@@ -33,9 +33,7 @@ function parseTwid(cookie: string): string | null {
 
 function readProfileHref(): string | null {
   if (typeof document === "undefined") return null;
-  return (
-    document.querySelector(Selectors.CURRENT_USER_PROFILE_LINK)?.getAttribute("href") ?? null
-  );
+  return document.querySelector(Selectors.CURRENT_USER_PROFILE_LINK)?.getAttribute("href") ?? null;
 }
 
 /** "/jane_doe" -> "jane_doe"; null/empty -> "". */

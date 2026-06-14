@@ -26,7 +26,11 @@ function safe<T>(fn: () => T, fallback: T): T {
 /** Parse a host out of visible link text (X shows the real domain as the link's text). */
 function hostFromText(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const token = raw.trim().replace(/^https?:\/\//i, "").split(/[/?#\s]/)[0] ?? "";
+  const token =
+    raw
+      .trim()
+      .replace(/^https?:\/\//i, "")
+      .split(/[/?#\s]/)[0] ?? "";
   const host = token.toLowerCase();
   return HOST_RE.test(host) ? host : null;
 }

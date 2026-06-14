@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { FilterState } from "@/core/filter-types";
 import type { FilterStore } from "@/core/filter-store";
+import type { FilterState } from "@/core/filter-types";
 import { FilterPanel } from "@/ui/filter-panel";
 import { useSignalValue } from "@/ui/use-signal-value";
 
@@ -59,7 +59,7 @@ export function FunnelPill({ store, hiddenCount, position, onPositionChange }: F
   const dragging = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
 
   // Keep local position in sync when the caller hands us a new persisted value.
-  useEffect(() => setPos(position), [position.x, position.y]);
+  useEffect(() => setPos({ x: position.x, y: position.y }), [position.x, position.y]);
 
   // Escape + outside-click close the popover.
   useEffect(() => {

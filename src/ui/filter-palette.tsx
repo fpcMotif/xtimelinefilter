@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
-import type { CriterionId, FilterMode, FilterState } from "@/core/filter-types";
 import type { FilterStore } from "@/core/filter-store";
+import type { CriterionId, FilterMode, FilterState } from "@/core/filter-types";
 import { useSignalValue } from "@/ui/use-signal-value";
 
 /**
@@ -114,7 +114,11 @@ export interface FilterPaletteProps {
  * Honors the host's `data-hc` (styling lives in styles.css) and never sets
  * innerHTML from page data (ADR-0003) — labels are static catalog strings.
  */
-export function FilterPalette({ store, open, onClose }: FilterPaletteProps): preact.JSX.Element | null {
+export function FilterPalette({
+  store,
+  open,
+  onClose,
+}: FilterPaletteProps): preact.JSX.Element | null {
   const state = useSignalValue(store.state);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -183,6 +187,7 @@ export function FilterPalette({ store, open, onClose }: FilterPaletteProps): pre
 
   return (
     <div
+      role="presentation"
       class="fixed inset-0 grid place-items-start justify-center pt-[12vh]"
       style={{ zIndex: PALETTE_Z, background: "oklch(0 0 0 / 0.32)" }}
       onMouseDown={(e) => {
@@ -193,12 +198,10 @@ export function FilterPalette({ store, open, onClose }: FilterPaletteProps): pre
         role="dialog"
         aria-label="Filter command palette"
         class="bg-surface text-ink shadow-elevated w-[28rem] max-w-[92vw] overflow-hidden rounded-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
       >
         <input
           ref={inputRef}
           type="text"
-          role="textbox"
           aria-label="Filter command palette"
           placeholder="Filter timeline… (e.g. only video, reading, show all)"
           value={query}
@@ -217,10 +220,14 @@ export function FilterPalette({ store, open, onClose }: FilterPaletteProps): pre
             <li
               key={item.id}
               role="option"
+              tabindex={-1}
               aria-selected={i === active}
               data-active={i === active}
               onMouseEnter={() => setActive(i)}
-              onClick={() => run(item)}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                run(item);
+              }}
               class={`cursor-pointer px-4 py-2 text-[13px] ${
                 i === active ? "bg-accent text-accent-ink" : "text-ink"
               }`}

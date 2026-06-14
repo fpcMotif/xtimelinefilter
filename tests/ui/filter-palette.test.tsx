@@ -86,7 +86,7 @@ describe("FilterPalette", () => {
     type("vid");
     expect(labels()).toContain("Only · video");
     const target = options().find((o) => o.textContent?.includes("Only · video"))!;
-    fireEvent.click(target);
+    fireEvent.mouseDown(target);
     expect(store.state.value.criteria["kind:video"]).toBe("only");
   });
 
@@ -102,7 +102,7 @@ describe("FilterPalette", () => {
     type("read");
     const target = options().find((o) => o.textContent?.includes("Reading"))!;
     expect(target).toBeTruthy();
-    fireEvent.click(target);
+    fireEvent.mouseDown(target);
     expect(applyPreset).toHaveBeenCalledWith(presetId);
   });
 
@@ -112,14 +112,14 @@ describe("FilterPalette", () => {
     type("show all");
     const target = options().find((o) => o.textContent?.includes("Show all hidden"))!;
     expect(target).toBeTruthy();
-    fireEvent.click(target);
+    fireEvent.mouseDown(target);
     expect(store.state.value.enabled).toBe(false);
   });
 
   it("stays open after applying an item for rapid multi-toggle", () => {
     const { store, type, options, input } = setup();
     type("vid");
-    fireEvent.click(options().find((o) => o.textContent?.includes("Only · video"))!);
+    fireEvent.mouseDown(options().find((o) => o.textContent?.includes("Only · video"))!);
     expect(input()).toBeTruthy();
     expect(store.state.value.criteria["kind:video"]).toBe("only");
   });

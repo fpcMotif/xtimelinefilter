@@ -4,7 +4,6 @@ import type { FunctionReference } from "convex/server";
 // convex/_generated lives outside src/ (own tsconfig); the api refs stay opaque
 // to ConvexMembershipStore, so this glue file is the only src/ → convex/ import.
 import { api } from "../../../convex/_generated/api";
-
 import { type ConvexCalls, ConvexMembershipStore } from "./convex";
 import type { MembershipStore } from "./types";
 

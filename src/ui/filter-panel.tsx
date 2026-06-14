@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 
-import type { CriterionId, FilterMode } from "@/core/filter-types";
 import type { FilterStore } from "@/core/filter-store";
+import type { CriterionId, FilterMode } from "@/core/filter-types";
 import { useSignalValue } from "@/ui/use-signal-value";
 
 interface Chip {
@@ -85,7 +85,9 @@ export function FilterPanel({ store, hiddenCount }: FilterPanelProps) {
             type="checkbox"
             aria-label="Only my languages"
             checked={state.onlyMyLanguages}
-            onChange={(e) => store.setOnlyMyLanguages((e.currentTarget as HTMLInputElement).checked)}
+            onChange={(e) =>
+              store.setOnlyMyLanguages((e.currentTarget as HTMLInputElement).checked)
+            }
           />
           Only my languages
         </label>

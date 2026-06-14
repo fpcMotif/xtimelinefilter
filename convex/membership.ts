@@ -105,9 +105,7 @@ async function setSnapshot(
       present: args.present,
       source: args.source,
       lastSeenAt: args.now,
-      ...(args.memberUserId !== undefined
-        ? { memberUserId: args.memberUserId }
-        : {}),
+      ...(args.memberUserId !== undefined ? { memberUserId: args.memberUserId } : {}),
     });
   }
 }
@@ -245,9 +243,7 @@ export const listsContaining = query({
 
     const rows = await ctx.db
       .query("members")
-      .withIndex("by_member", (q) =>
-        q.eq("memberScreenName", args.screenName),
-      )
+      .withIndex("by_member", (q) => q.eq("memberScreenName", args.screenName))
       .collect();
 
     const out: Array<{

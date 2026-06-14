@@ -34,7 +34,8 @@ function fakeSettings(initial: Partial<LassoSettings> = {}): SettingsStore & {
 
 const pillIn = (root: Element) => root.querySelector("[data-funnel-pill-root]");
 const barIn = (root: Element) => root.querySelector('section[aria-label="Timeline filter"]');
-const paletteIn = (root: Element) => root.querySelector('[role="dialog"][aria-label="Filter command palette"]');
+const paletteIn = (root: Element) =>
+  root.querySelector('[role="dialog"][aria-label="Filter command palette"]');
 
 /** Dispatch a "mod+shift+f"-style combo as a keydown on the document. */
 function dispatchHotkey(combo: string) {
@@ -81,9 +82,7 @@ describe("mountFilterSurfaces", () => {
     expect(barIn(root)).toBeNull();
 
     // The pill reports a new position → settings.set called with pillPosition.
-    const onPositionChange = (root.querySelector(
-      "[data-funnel-pill-root] button",
-    ) as HTMLElement)!;
+    const onPositionChange = (root.querySelector("[data-funnel-pill-root] button") as HTMLElement)!;
     expect(onPositionChange).toBeTruthy();
     const pillButton = onPositionChange as HTMLButtonElement;
     pillButton.dispatchEvent(

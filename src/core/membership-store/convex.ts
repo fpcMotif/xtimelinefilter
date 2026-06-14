@@ -1,6 +1,12 @@
 import type { XList } from "@/core/x-client/types";
 
-import type { MembershipChange, MembershipHit, MembershipStore, Owner, OwnerCatalog } from "./types";
+import type {
+  MembershipChange,
+  MembershipHit,
+  MembershipStore,
+  Owner,
+  OwnerCatalog,
+} from "./types";
 
 /** The Convex calls the store needs — the real ConvexClient satisfies this structurally. */
 export interface ConvexCalls {

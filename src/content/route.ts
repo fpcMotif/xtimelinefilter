@@ -18,7 +18,10 @@ function ensurePatched(): void {
   patched = true;
   for (const name of ["pushState", "replaceState"] as const) {
     const original = history[name];
-    history[name] = function patchedHistory(this: History, ...args: Parameters<History["pushState"]>) {
+    history[name] = function patchedHistory(
+      this: History,
+      ...args: Parameters<History["pushState"]>
+    ) {
       const result = original.apply(this, args);
       for (const cb of listeners) cb();
       return result;

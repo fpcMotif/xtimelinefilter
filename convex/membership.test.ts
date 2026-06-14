@@ -122,9 +122,7 @@ describe("recordAssign", () => {
     const row = await t.run((ctx) =>
       ctx.db
         .query("members")
-        .withIndex("by_list_member", (q) =>
-          q.eq("listId", "L1").eq("memberScreenName", "alice"),
-        )
+        .withIndex("by_list_member", (q) => q.eq("listId", "L1").eq("memberScreenName", "alice"))
         .unique(),
     );
     expect(row).toMatchObject({ present: false, source: "extension" });
@@ -228,9 +226,7 @@ describe("listsContaining", () => {
       screenName: "alice",
     });
 
-    expect(out).toEqual([
-      { listId: "L1", ownerUserId: "100", present: true, lastSeenAt: T0 },
-    ]);
+    expect(out).toEqual([{ listId: "L1", ownerUserId: "100", present: true, lastSeenAt: T0 }]);
   });
 
   test("skips snapshot rows whose List is unknown (join miss)", async () => {
@@ -328,8 +324,7 @@ describe("device-key gate", () => {
     },
     {
       name: "catalog",
-      run: (key) =>
-        convexTest(schema, modules).query(api.membership.catalog, { deviceKey: key }),
+      run: (key) => convexTest(schema, modules).query(api.membership.catalog, { deviceKey: key }),
     },
   ];
 

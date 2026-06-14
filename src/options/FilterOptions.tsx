@@ -46,7 +46,9 @@ export function MyLanguagesEditor({ store }: { store: FilterStore }) {
             </button>
           </span>
         ))}
-        {myLanguages.length === 0 && <span class="text-muted text-[13px]">No languages — gate shows everything.</span>}
+        {myLanguages.length === 0 && (
+          <span class="text-muted text-[13px]">No languages — gate shows everything.</span>
+        )}
       </div>
       <div class="flex gap-2">
         <input

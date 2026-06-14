@@ -43,7 +43,11 @@ interface SurfaceDef {
  * token is the key, compared case-insensitively.
  */
 function matchesHotkey(e: KeyboardEvent, combo: string): boolean {
-  const parts = combo.toLowerCase().split("+").map((p) => p.trim()).filter(Boolean);
+  const parts = combo
+    .toLowerCase()
+    .split("+")
+    .map((p) => p.trim())
+    .filter(Boolean);
   const key = parts[parts.length - 1];
   if (!key || e.key.toLowerCase() !== key) return false;
   const wantMod = parts.includes("mod");

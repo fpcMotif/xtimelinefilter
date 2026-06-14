@@ -43,7 +43,9 @@ describe("extractFacets", () => {
 
   it("reads a link card's vanity domain, not the t.co href", () => {
     const f = extractFacets(
-      article(`${text("en", "paper")}<div data-testid="card.wrapper"><a href="https://t.co/abc">arxiv.org</a></div>`),
+      article(
+        `${text("en", "paper")}<div data-testid="card.wrapper"><a href="https://t.co/abc">arxiv.org</a></div>`,
+      ),
     );
     expect(f.hasLink).toBe(true);
     expect(f.linkHosts).toContain("arxiv.org");
@@ -52,7 +54,9 @@ describe("extractFacets", () => {
 
   it("reads the host from an inline t.co link's visible text", () => {
     const f = extractFacets(
-      article(`<div data-testid="tweetText" lang="en">see <a href="https://t.co/xyz">github.com/a/b</a></div>`),
+      article(
+        `<div data-testid="tweetText" lang="en">see <a href="https://t.co/xyz">github.com/a/b</a></div>`,
+      ),
     );
     expect(f.hasLink).toBe(true);
     expect(f.linkHosts).toContain("github.com");
@@ -60,7 +64,9 @@ describe("extractFacets", () => {
 
   it("detects a quoted post (nested tweet article)", () => {
     const f = extractFacets(
-      article(`${text("en", "outer")}<div><article data-testid="tweet">${text("ja", "inner")}</article></div>`),
+      article(
+        `${text("en", "outer")}<div><article data-testid="tweet">${text("ja", "inner")}</article></div>`,
+      ),
     );
     expect(f.hasQuote).toBe(true);
   });

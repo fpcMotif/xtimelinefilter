@@ -24,11 +24,15 @@ describe("getCurrentAccount", () => {
   });
 
   it("returns null when logged out (no twid)", () => {
-    expect(getCurrentAccount({ cookie: "guest_id=v1%3A17; ct0=abc", profileHref: () => "/x" })).toBeNull();
+    expect(
+      getCurrentAccount({ cookie: "guest_id=v1%3A17; ct0=abc", profileHref: () => "/x" }),
+    ).toBeNull();
   });
 
   it("returns null when twid carries no numeric id", () => {
-    expect(getCurrentAccount({ cookie: "twid=garbage; ct0=abc", profileHref: () => "/x" })).toBeNull();
+    expect(
+      getCurrentAccount({ cookie: "twid=garbage; ct0=abc", profileHref: () => "/x" }),
+    ).toBeNull();
   });
 
   it("falls back to empty screenName when the profile link is absent (best-effort)", () => {

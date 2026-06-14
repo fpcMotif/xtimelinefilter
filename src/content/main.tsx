@@ -4,16 +4,17 @@ import { render } from "preact";
 import { App, OverlayBinding } from "@/content/app";
 import { createAppState } from "@/content/app-state";
 import { createLassoController, type LassoController } from "@/content/controller";
+import { createFilterApplier } from "@/content/filter-applier";
+import { getCurrentAccount } from "@/content/get-current-account";
 import { getFocusedTweet } from "@/content/get-focused-tweet";
 import { DEFAULT_KEYMAP, installKeyboardLayer } from "@/content/keyboard";
-import { getCurrentAccount } from "@/content/get-current-account";
-import { createScannerHealth } from "@/content/scanner-health";
-import { createFilterApplier } from "@/content/filter-applier";
 import { isInScope, onRouteChange } from "@/content/route";
+import { createScannerHealth } from "@/content/scanner-health";
 import { DriverSelectors, Selectors } from "@/content/selectors";
 import { mountFilterSurfaces } from "@/content/surface-mount";
 import { createTweetScanner } from "@/content/tweet-scanner";
 import { createCoach } from "@/core/coach";
+import { createFilterStore } from "@/core/filter-store";
 import { detectPlatform } from "@/core/keycaps";
 import { createListCache } from "@/core/list-cache";
 import { createListUsage } from "@/core/list-usage";
@@ -25,7 +26,6 @@ import {
   type SelectionStore,
   type TweetAuthor,
 } from "@/core/selection-store";
-import { createFilterStore } from "@/core/filter-store";
 import { createSettings, type LassoSettings } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
 import { extractAuthor } from "@/core/tweet-extractor";

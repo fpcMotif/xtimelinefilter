@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import { DEFAULT_KEYMAP, type KeyBinding } from "@/content/keyboard";
 import { type Coach, createCoach } from "@/core/coach";
+import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import { detectPlatform, keycaps, type Platform } from "@/core/keycaps";
 import {
   type BackendStrategy,
@@ -11,7 +12,6 @@ import {
   type SettingsStore,
   type StorageLike,
 } from "@/core/settings";
-import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import { clearLassoData, STORAGE_KEYS } from "@/core/storage-keys";
 import { PRIVACY_LINE } from "@/core/strings";
 import type { XList } from "@/core/x-client/types";
@@ -170,8 +170,8 @@ export function OptionsApp({
 
       <Section title="Sync across your accounts (Convex)">
         <p class="text-muted mb-3 text-[13px]">
-          Optional. Mirrors List membership to your own Convex deployment for cross-account
-          history and instant “already in” checks. Leave both blank to keep Lasso fully local.
+          Optional. Mirrors List membership to your own Convex deployment for cross-account history
+          and instant “already in” checks. Leave both blank to keep Lasso fully local.
         </p>
         <label class="mb-3 flex flex-col gap-1 text-[13px]">
           Deployment URL
@@ -213,18 +213,18 @@ export function OptionsApp({
           When “only my languages” is on, posts outside this allowlist are hidden.
         </p>
         <MyLanguagesEditor store={filter} />
-        <h3 class="mb-1 mt-4 text-[14px] font-semibold">Link rules</h3>
+        <h3 class="mt-4 mb-1 text-[14px] font-semibold">Link rules</h3>
         <p class="text-muted mb-2 text-[13px]">
           Map a host to a category; your rules win over the built-ins. Anything unmatched is
           Article/Blog.
         </p>
         <LinkRulesEditor store={filter} />
-        <h3 class="mb-1 mt-4 text-[14px] font-semibold">Surfaces</h3>
+        <h3 class="mt-4 mb-1 text-[14px] font-semibold">Surfaces</h3>
         <p class="text-muted mb-2 text-[13px]">
           Turn each filter surface on or off, and set the shortcut that opens the command palette.
         </p>
         <SurfaceOptions settings={settings} />
-        <h3 class="mb-1 mt-4 text-[14px] font-semibold">Presets</h3>
+        <h3 class="mt-4 mb-1 text-[14px] font-semibold">Presets</h3>
         <p class="text-muted mb-2 text-[13px]">
           Rename or remove the filter selections you've saved.
         </p>

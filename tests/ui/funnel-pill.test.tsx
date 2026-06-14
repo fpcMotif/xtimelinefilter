@@ -18,12 +18,14 @@ function makeState(over: Partial<FilterState> = {}): FilterState {
   };
 }
 
-function setup(opts: {
-  hidden?: number;
-  prepare?: (store: ReturnType<typeof createFilterStore>) => void;
-  position?: { x: number; y: number };
-  onPositionChange?: (p: { x: number; y: number }) => void;
-} = {}) {
+function setup(
+  opts: {
+    hidden?: number;
+    prepare?: (store: ReturnType<typeof createFilterStore>) => void;
+    position?: { x: number; y: number };
+    onPositionChange?: (p: { x: number; y: number }) => void;
+  } = {},
+) {
   const store = createFilterStore({ navLanguages: ["ja"] });
   opts.prepare?.(store);
   const onPositionChange = opts.onPositionChange ?? vi.fn();
@@ -69,24 +71,18 @@ describe("activeCriteriaCount", () => {
   it("counts non-off criteria", () => {
     expect(activeCriteriaCount(makeState({ criteria: { "kind:video": "only" } }))).toBe(1);
     expect(
-      activeCriteriaCount(
-        makeState({ criteria: { "kind:video": "only", "role:repost": "hide" } }),
-      ),
+      activeCriteriaCount(makeState({ criteria: { "kind:video": "only", "role:repost": "hide" } })),
     ).toBe(2);
   });
 
   it("ignores criteria explicitly set to off", () => {
-    expect(
-      activeCriteriaCount(makeState({ criteria: { "kind:video": "off" } })),
-    ).toBe(0);
+    expect(activeCriteriaCount(makeState({ criteria: { "kind:video": "off" } }))).toBe(0);
   });
 
   it("adds one for the language gate when onlyMyLanguages is true", () => {
     expect(activeCriteriaCount(makeState({ onlyMyLanguages: true }))).toBe(1);
     expect(
-      activeCriteriaCount(
-        makeState({ criteria: { "kind:video": "only" }, onlyMyLanguages: true }),
-      ),
+      activeCriteriaCount(makeState({ criteria: { "kind:video": "only" }, onlyMyLanguages: true })),
     ).toBe(2);
   });
 
@@ -177,9 +173,7 @@ describe("FunnelPill", () => {
         mount,
       );
 
-      const pill = shadow.querySelector<HTMLButtonElement>(
-        'button[aria-label="Timeline filter"]',
-      )!;
+      const pill = shadow.querySelector<HTMLButtonElement>('button[aria-label="Timeline filter"]')!;
       fireEvent.click(pill);
       expect(shadow.querySelector('[role="dialog"]')).toBeTruthy();
 

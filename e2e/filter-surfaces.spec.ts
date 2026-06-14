@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -229,9 +229,10 @@ test.describe("filter surfaces (real bundle, chrome stubbed)", () => {
     await expect(panel).toBeVisible();
 
     // When I save the current filter as a preset "Reading" …
-    await page.locator("#lasso-filter-surfaces [role='dialog']").getByLabel("Preset name").fill(
-      "Reading",
-    );
+    await page
+      .locator("#lasso-filter-surfaces [role='dialog']")
+      .getByLabel("Preset name")
+      .fill("Reading");
     await page
       .locator("#lasso-filter-surfaces [role='dialog']")
       .getByRole("button", { name: "Save", exact: true })

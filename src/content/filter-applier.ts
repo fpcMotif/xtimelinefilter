@@ -2,8 +2,8 @@ import { effect } from "@preact/signals-core";
 
 import { Selectors } from "@/content/selectors";
 import type { FilterStore } from "@/core/filter-store";
-import { extractFacets } from "@/core/tweet-facets";
 import { decide } from "@/core/timeline-filter";
+import { extractFacets } from "@/core/tweet-facets";
 
 /** Cell is collapsed by the Filter. Prod CSS keys the visual collapse on this. */
 const FILTERED = "data-lasso-filtered";
