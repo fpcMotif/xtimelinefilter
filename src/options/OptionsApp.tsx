@@ -11,9 +11,12 @@ import {
   type SettingsStore,
   type StorageLike,
 } from "@/core/settings";
+import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import { clearLassoData, STORAGE_KEYS } from "@/core/storage-keys";
 import { PRIVACY_LINE } from "@/core/strings";
 import type { XList } from "@/core/x-client/types";
+import { LinkRulesEditor, MyLanguagesEditor } from "@/options/FilterOptions";
+import { PresetManager, SurfaceOptions } from "@/options/SurfaceOptions";
 import { COMMAND_LABELS } from "@/ui/ShortcutsSheet";
 
 /** Story beat 9: the promised backend disclosure, verbatim. */
@@ -39,6 +42,7 @@ export interface OptionsAppProps {
   sync?: StorageLike;
   keymap?: KeyBinding[];
   platform?: Platform;
+  filter?: FilterStore;
 }
 
 /**
@@ -53,6 +57,7 @@ export function OptionsApp({
   sync = chrome.storage.sync as unknown as StorageLike,
   keymap = DEFAULT_KEYMAP,
   platform = detectPlatform(),
+  filter = createFilterStore(),
 }: OptionsAppProps) {
   const [current, setCurrent] = useState<LassoSettings | null>(null);
   const [lists, setLists] = useState<XList[]>([]);
@@ -61,10 +66,11 @@ export function OptionsApp({
 
   useEffect(() => {
     void settings.get().then(setCurrent);
+    void filter.load();
     void local.get(STORAGE_KEYS.lists).then((items) => {
       setLists((items[STORAGE_KEYS.lists] as XList[] | undefined) ?? []);
     });
-  }, [settings, local]);
+  }, [settings, local, filter]);
 
   if (!current) return null;
 
@@ -195,6 +201,34 @@ export function OptionsApp({
             class="border-line bg-surface rounded-lg border px-3 py-2 text-[15px]"
           />
         </label>
+      </Section>
+
+      <Section title="Timeline Filter">
+        <p class="text-muted mb-3 text-[13px]">
+          Narrow Home and List timelines by content. The in-feed bar holds the on/off chips; these
+          two lists configure the language gate and how links are categorized.
+        </p>
+        <h3 class="mb-1 text-[14px] font-semibold">My languages</h3>
+        <p class="text-muted mb-2 text-[13px]">
+          When “only my languages” is on, posts outside this allowlist are hidden.
+        </p>
+        <MyLanguagesEditor store={filter} />
+        <h3 class="mb-1 mt-4 text-[14px] font-semibold">Link rules</h3>
+        <p class="text-muted mb-2 text-[13px]">
+          Map a host to a category; your rules win over the built-ins. Anything unmatched is
+          Article/Blog.
+        </p>
+        <LinkRulesEditor store={filter} />
+        <h3 class="mb-1 mt-4 text-[14px] font-semibold">Surfaces</h3>
+        <p class="text-muted mb-2 text-[13px]">
+          Turn each filter surface on or off, and set the shortcut that opens the command palette.
+        </p>
+        <SurfaceOptions settings={settings} />
+        <h3 class="mb-1 mt-4 text-[14px] font-semibold">Presets</h3>
+        <p class="text-muted mb-2 text-[13px]">
+          Rename or remove the filter selections you've saved.
+        </p>
+        <PresetManager store={filter} />
       </Section>
 
       <Section title="Privacy & data">
