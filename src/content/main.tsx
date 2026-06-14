@@ -8,7 +8,10 @@ import { getFocusedTweet } from "@/content/get-focused-tweet";
 import { DEFAULT_KEYMAP, installKeyboardLayer } from "@/content/keyboard";
 import { getCurrentAccount } from "@/content/get-current-account";
 import { createScannerHealth } from "@/content/scanner-health";
+import { createFilterApplier } from "@/content/filter-applier";
+import { isInScope, onRouteChange } from "@/content/route";
 import { DriverSelectors, Selectors } from "@/content/selectors";
+import { mountFilterSurfaces } from "@/content/surface-mount";
 import { createTweetScanner } from "@/content/tweet-scanner";
 import { createCoach } from "@/core/coach";
 import { detectPlatform } from "@/core/keycaps";
@@ -22,6 +25,7 @@ import {
   type SelectionStore,
   type TweetAuthor,
 } from "@/core/selection-store";
+import { createFilterStore } from "@/core/filter-store";
 import { createSettings, type LassoSettings } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
 import { extractAuthor } from "@/core/tweet-extractor";
@@ -237,18 +241,61 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
   // The toolbar badge mirrors the live selection count (story beat 7).
   selection.count.subscribe((count) => sendToBackground({ type: "lasso:badge", count }));
 
+  // Filter capability (ADR-0010, spec §3): display-only, shares Lasso's lifecycle,
+  // starts as a no-op (zero criteria). FacetSelectors are UNVERIFIED on live x.com
+  // until verify-filter-dom.md (plan task 018) — but the Filter does nothing until
+  // the user sets a chip, and fails open.
+  const filterStore = createFilterStore();
+  await filterStore.load();
+  // Page-level CSS for collapse-to-stub: the cell lives in x.com's DOM, not our
+  // Shadow DOM, so this style goes in the page. Hiding the cell's content while
+  // keeping the stub's height stays gentle on X's virtualization (ADR-0010).
+  const filterStyle = document.createElement("style");
+  filterStyle.textContent =
+    "[data-lasso-filtered] > *:not([data-lasso-filter-stub]){display:none !important}" +
+    "[data-lasso-filter-stub]{display:block;padding:6px 12px;font-size:13px;color:#536471;cursor:pointer}";
+  document.head.appendChild(filterStyle);
+  const filterApplier = createFilterApplier({
+    store: filterStore,
+    root: document,
+    inScope: () => isInScope(location.pathname),
+  });
+  // One Shadow host for every in-page filter surface; the manager mounts the
+  // enabled ones (pill / bar) into it per settings and tears them down off-route.
+  const filterSurfaceRoot = createUiRoot("lasso-filter-surfaces");
+  if (settings.highContrast) filterSurfaceRoot.host.setAttribute("data-hc", "");
+  const surfaces = mountFilterSurfaces({
+    root: filterSurfaceRoot.root,
+    store: filterStore,
+    settings: settingsStore,
+    hiddenCount: () => filterApplier.hiddenCount(),
+    inScope: () => isInScope(location.pathname),
+  });
+  // Re-evaluate surfaces + re-apply collapses on SPA navigation.
+  const syncFilterUi = (): void => {
+    surfaces.update();
+    filterApplier.reapplyAll();
+  };
+  onRouteChange(syncFilterUi);
+  syncFilterUi();
+
   // Selector breakage detection (story beat 8).
   const health = createScannerHealth({ onBreakage: () => controller.reportBreakage() });
   createTweetScanner(
     document,
-    (author, article) =>
+    (author, article) => {
+      // Classify first; a Hidden cell is inert for List-assign (no overlay).
+      filterApplier.classify(article);
+      const cell = article.closest(Selectors.CELL);
+      if (cell && filterApplier.isStubbed(cell)) return;
       injectOverlay(article, author, {
         selection,
         controller,
         coach,
         visualHover,
         highContrast: settings.highContrast,
-      }),
+      });
+    },
     { onScan: (mutations, matches) => health.record(mutations, matches) },
   ).start();
 
