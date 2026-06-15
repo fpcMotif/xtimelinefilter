@@ -1,0 +1,4 @@
+interface:
+  display_name: "Product Documentation"
+  short_description: "Maintain screenshot-backed user guides"
+  default_prompt: "Use $product-documentation to update the user-facing product guide from the current app."
