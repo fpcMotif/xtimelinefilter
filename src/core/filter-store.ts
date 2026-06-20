@@ -49,6 +49,8 @@ export interface FilterStore {
   deletePreset(id: string): void;
   /** Hydrate from storage.sync, merging over defaults. Never throws. */
   load(): Promise<void>;
+  /** Replace the whole config in one shot (the conductor undoes a filter command by restoring a snapshot); persists + syncs. */
+  restore(state: FilterState): void;
 }
 
 export interface FilterStoreDeps {
@@ -185,6 +187,10 @@ export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
     async load() {
       await store.hydrate().catch(() => {}); // §8: storage failure keeps in-memory defaults
       state.value = store.current();
+    },
+    restore(next) {
+      state.value = next;
+      persist();
     },
   };
 }

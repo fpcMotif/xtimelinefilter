@@ -248,6 +248,19 @@ describe("createFilterStore", () => {
     }
   });
 
+  it("restore replaces the whole state and persists it (powers conducted undo)", async () => {
+    const a = createFilterStore({ navLanguages: ["en"] });
+    a.cycle("kind:video"); // only
+    const snapshot = a.state.value;
+    a.cycle("kind:video"); // hide — moves away from the snapshot
+    a.restore(snapshot);
+    expect(a.state.value).toBe(snapshot);
+    // Persisted: a fresh store loads the restored config.
+    const b = createFilterStore({ navLanguages: ["fr"] });
+    await b.load();
+    expect(b.state.value.criteria["kind:video"]).toBe("only");
+  });
+
   it("falls back to safe defaults when storage rejects, never throws", async () => {
     const broken: StorageLike = {
       get: () => Promise.reject(new Error("boom")),

@@ -498,6 +498,36 @@ describe("Filter conductor is never load-bearing (ADR-0010)", () => {
     const h = harness(); // no filter
     expect(() => h.controller.filterCommand(() => {})).not.toThrow();
   });
+
+  it("a state-changing filter command arms undo, and Z reverts it", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    h.controller.filterCommand((s) => s.cycle("kind:video"));
+    expect(filter.state.value.criteria["kind:video"]).toBe("only");
+    expect(h.controller.command("undo")).toBe(true); // Z
+    expect(filter.state.value.criteria["kind:video"]).toBeUndefined(); // reverted to the snapshot
+  });
+
+  it("a filter command that changes no persistent state arms no undo", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    h.controller.filterCommand((s) => s.setRevealed(true)); // transient reveal — no FilterState change
+    expect(filter.revealed.value).toBe(true);
+    expect(h.controller.command("undo")).toBe(false); // nothing armed → left for X
+  });
+
+  it("undo is last-wins across filter and assign: a later assign owns Z", async () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    h.controller.filterCommand((s) => s.cycle("kind:video")); // arms a filter undo
+    h.selection.add({ screenName: "a" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList); // arms the assign undo (replaces)
+    await flush();
+    expect(h.controller.command("undo")).toBe(true);
+    await flush();
+    expect(h.backend.removed).toEqual(["a"]); // the assign was undone (last-wins)
+    expect(filter.state.value.criteria["kind:video"]).toBe("only"); // filter change left intact
+  });
 });
 
 describe("keyboard command surface (story beat 6)", () => {

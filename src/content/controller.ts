@@ -340,10 +340,18 @@ export function createLassoController(deps: ControllerDeps): LassoController {
    */
   function filterCommand(run: (filter: FilterStore) => void): void {
     if (!filter) return;
+    const before = filter.state.value;
     try {
       run(filter);
     } catch {
       // A broken filter command must never touch the X flow.
+      return;
+    }
+    // Arm undo only when the command changed persistent config — a transient
+    // reveal / no-op must not shadow a more useful prior undo. One armed undo,
+    // Z, last-wins, shared with the assign flow (the Filter stays non-load-bearing).
+    if (filter.state.value !== before) {
+      undo.arm(() => filter.restore(before), UNDO_WINDOW_MS);
     }
   }
 
