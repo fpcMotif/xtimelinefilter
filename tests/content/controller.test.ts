@@ -516,6 +516,20 @@ describe("Filter conductor is never load-bearing (ADR-0010)", () => {
     expect(h.controller.command("undo")).toBe(false); // nothing armed → left for X
   });
 
+  it("conducting applyPreset is one batched undo that reverts the whole preset (goal 4b)", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    filter.setMode("kind:video", "hide");
+    filter.setMode("kind:link", "only");
+    const id = filter.savePreset("P");
+    filter.setMode("kind:video", "off"); // move away from the preset
+    filter.setMode("kind:link", "off");
+    const h = harness({ filter });
+    h.controller.filterCommand((s) => s.applyPreset(id));
+    expect(filter.state.value.criteria).toEqual({ "kind:video": "hide", "kind:link": "only" });
+    expect(h.controller.command("undo")).toBe(true); // one Z
+    expect(filter.state.value.criteria).toEqual({}); // the whole batch reverted in one entry
+  });
+
   it("undo is last-wins across filter and assign: a later assign owns Z", async () => {
     const filter = createFilterStore({ navLanguages: ["en"] });
     const h = harness({ filter });
