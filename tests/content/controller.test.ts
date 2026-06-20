@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createAppState } from "@/content/app-state";
 import { createLassoController, UNDO_WINDOW_MS } from "@/content/controller";
 import { createCoach } from "@/core/coach";
+import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
 import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
 import { createPickerController } from "@/core/picker-controller";
@@ -61,6 +62,7 @@ function harness(
     anchorFor?: (tweetEl: Element) => { left: number; top: number } | null;
     omitNow?: boolean;
     usage?: { record: (listId: string) => Promise<void> };
+    filter?: FilterStore;
   } = {},
 ) {
   const selection = createSelectionStore();
@@ -103,6 +105,7 @@ function harness(
     currentOwner: opts.currentOwner,
     anchorFor: opts.anchorFor,
     usage: opts.usage as Parameters<typeof createLassoController>[0]["usage"],
+    filter: opts.filter,
     assignOpts: { sleep: async () => {}, delayMs: 0 },
     ...(opts.omitNow ? {} : { now: () => Date.UTC(2026, 5, 10) }),
   });
@@ -456,6 +459,44 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     await flush();
     expect(h.backend.added).toEqual([]);
     expect(calls).toEqual([]); // recordToMirror short-circuits on the empty change set
+  });
+});
+
+describe("Filter conductor is never load-bearing (ADR-0010)", () => {
+  it("a throwing filter command leaves the assign + undo flow byte-identical", async () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    // A filter command that throws must be swallowed by the walled section and
+    // never touch the X flow (mirrors the throwing-Mirror proof above).
+    expect(() =>
+      h.controller.filterCommand(() => {
+        throw new Error("filter boom");
+      }),
+    ).not.toThrow();
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush();
+    expect(h.backend.added).toEqual(["a", "b"]);
+    expect(h.selection.count.value).toBe(0);
+    const toast = h.toasts.toasts.value[0];
+    expect(toast?.title).toBe("Added 2 to Design Folks");
+    expect(toast?.actions?.map((a) => a.label)).toEqual(["View List", "Undo"]);
+    expect(h.controller.command("undo")).toBe(true);
+    await flush();
+    expect(h.backend.removed).toEqual(["a", "b"]);
+  });
+
+  it("conducts a succeeding filter command against the wired store", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    h.controller.filterCommand((s) => s.cycle("kind:video"));
+    expect(filter.state.value.criteria["kind:video"]).toBe("only");
+  });
+
+  it("is a safe no-op when no filter store is wired", () => {
+    const h = harness(); // no filter
+    expect(() => h.controller.filterCommand(() => {})).not.toThrow();
   });
 });
 

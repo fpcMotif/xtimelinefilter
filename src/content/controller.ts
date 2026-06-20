@@ -3,6 +3,7 @@ import type { CommandId } from "@/content/keyboard";
 import { type AssignOptions, assignAuthorsToList } from "@/core/actions/assign-to-list";
 import { feedbackFor } from "@/core/assign-feedback";
 import type { Coach } from "@/core/coach";
+import type { FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
 import type { ListUsage } from "@/core/list-usage";
 import { NullMembershipStore } from "@/core/membership-store/null";
@@ -70,6 +71,8 @@ export interface ControllerDeps {
   /** The Owner logged in at action time; absent/returns null ⇒ the Mirror is skipped. */
   currentOwner?: () => Owner | null;
   usage?: ListUsage;
+  /** The one global filter store; absent ⇒ filter commands are no-ops (ADR-0010 — never load-bearing). */
+  filter?: FilterStore;
   quick: QuickActions;
   target: TargetResolver;
   openUrl(url: string): void;
@@ -89,6 +92,13 @@ export interface ControllerDeps {
 export interface LassoController {
   /** Sync command entry for the keyboard layer; false = not consumed, leave for X. */
   command(cmd: CommandId): boolean;
+  /**
+   * Conduct one in-page Filter command (cycle a criterion, reveal, show-all, …)
+   * behind a fail-open wall: a throwing command is swallowed so a filter failure
+   * can never break or alter the assign/undo flow (ADR-0010 — the Filter is never
+   * load-bearing). No-op when no filter store is wired.
+   */
+  filterCommand(run: (filter: FilterStore) => void): void;
   openPicker(source?: AssignSource): void;
   assignSelectedTo(list: XList): Promise<void>;
   addToDefaultList(): Promise<void>;
@@ -108,6 +118,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const now = deps.now ?? Date.now;
   const membershipStore = deps.membershipStore ?? new NullMembershipStore();
   const currentOwner = deps.currentOwner ?? ((): Owner | null => null);
+  const filter = deps.filter;
   let stopRequested = false;
   let lastSource: AssignSource = "pointer";
   let individualSelections = 0; // session-scoped, feeds the select-mode nudge
@@ -321,6 +332,21 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     }
   }
 
+  /**
+   * The walled Filter section. Every filter command runs fail-open and assign
+   * never awaits one, so the Filter stays non-load-bearing even though a single
+   * conductor now runs both capabilities (ADR-0010). A thrown filter command is
+   * swallowed here and cannot reach the X flow's shared state (undo/toasts/selection).
+   */
+  function filterCommand(run: (filter: FilterStore) => void): void {
+    if (!filter) return;
+    try {
+      run(filter);
+    } catch {
+      // A broken filter command must never touch the X flow.
+    }
+  }
+
   function command(cmd: CommandId): boolean {
     switch (cmd) {
       case "escape":
@@ -379,6 +405,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
 
   return {
     command,
+    filterCommand,
     openPicker,
     assignSelectedTo,
     addToDefaultList,
