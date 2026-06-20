@@ -58,4 +58,24 @@ describe("createUndoRegistry", () => {
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
   });
+
+  it("the default real timers expire via window.setTimeout and clear on disarm", () => {
+    vi.useFakeTimers();
+    try {
+      const reg = createUndoRegistry(); // exercises realTimers (window.set/clearTimeout)
+      const run = vi.fn();
+      reg.arm(run, 10_000);
+      vi.advanceTimersByTime(10_000); // disarm scheduled via window.setTimeout fires
+      expect(reg.trigger()).toBe(false);
+      expect(run).not.toHaveBeenCalled();
+
+      const run2 = vi.fn();
+      reg.arm(run2, 10_000);
+      reg.disarm(); // clearTimer arrow runs (window.clearTimeout)
+      vi.advanceTimersByTime(10_000);
+      expect(reg.trigger()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -36,4 +36,14 @@ describe("classifyHost", () => {
     const rules = [{ host: "lemmy.world", dest: "reddit" as const }];
     expect(classifyHost("https://lemmy.world/post/1", rules)).toBe("reddit");
   });
+
+  it("skips a user rule with an empty host and falls through to defaults", () => {
+    const rules = [{ host: "", dest: "article" as const }];
+    // The empty-host rule is skipped; the built-in arxiv default still wins.
+    expect(classifyHost("https://arxiv.org/abs/1", rules)).toBe("arxiv");
+  });
+
+  it("accepts a bare host (not a full URL) like tweet-read's facets store", () => {
+    expect(classifyHost("reddit.com")).toBe("reddit");
+  });
 });

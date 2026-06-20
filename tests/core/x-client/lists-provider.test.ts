@@ -127,4 +127,46 @@ describe("fetchMembershipListIds — the picker's 'already in' blue checks", () 
     );
     expect(ids).toEqual([]);
   });
+
+  it("falls back to numeric id when id_str is absent and drops id-less entries", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ lists: [{ id: 42, name: "Numeric" }, { name: "No id at all" }] }),
+    );
+    const ids = await fetchMembershipListIds(
+      { fetch: fetchMock as unknown as typeof fetch, creds },
+      "jane",
+    );
+    expect(ids).toEqual(["42"]); // String(id) used; the id-less entry is filtered out
+  });
+
+  it("treats a 200 response with no lists field as no memberships", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({})); // ok, but lists omitted
+    const ids = await fetchMembershipListIds(
+      { fetch: fetchMock as unknown as typeof fetch, creds },
+      "jane",
+    );
+    expect(ids).toEqual([]); // json.lists ?? [] → []
+  });
+
+  it("returns [] when the fetch itself throws (network error never blocks the picker)", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("network down");
+    });
+    const ids = await fetchMembershipListIds(
+      { fetch: fetchMock as unknown as typeof fetch, creds },
+      "jane",
+    );
+    expect(ids).toEqual([]);
+  });
+
+  it("maps id-less and numeric-id membership entries the same way ownerships does", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ lists: [{ id: 7, name: "Numeric" }, { name: "No id" }] }),
+    );
+    const ids = await fetchMembershipListIds(
+      { fetch: fetchMock as unknown as typeof fetch, creds },
+      "jane",
+    );
+    expect(ids).toEqual(["7"]);
+  });
 });

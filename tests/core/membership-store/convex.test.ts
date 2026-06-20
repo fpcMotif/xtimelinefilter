@@ -94,6 +94,14 @@ describe("ConvexMembershipStore", () => {
     ]);
   });
 
+  it("omits lastReconciledAt for an Owner whose Lists were never reconciled", async () => {
+    const { fake, store } = make();
+    fake.queryResults.set(refs.catalog, [
+      { owner, lists: [{ listId: "L1", name: "A" }] }, // no lastReconciledAt anywhere
+    ]);
+    expect(await store.catalog()).toEqual([{ owner, lists: [{ id: "L1", name: "A" }] }]);
+  });
+
   it("reconcileCatalog maps each XList.id->listId, omitting absent optionals", async () => {
     const { fake, store } = make();
     await store.reconcileCatalog(owner, [list, { id: "L2", name: "Friends" }]);

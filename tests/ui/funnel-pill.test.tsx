@@ -3,20 +3,7 @@ import { render as renderPreact } from "preact";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFilterStore } from "@/core/filter-store";
-import type { FilterState } from "@/core/filter-types";
-import { activeCriteriaCount, FunnelPill } from "@/ui/funnel-pill";
-
-function makeState(over: Partial<FilterState> = {}): FilterState {
-  return {
-    enabled: true,
-    criteria: {},
-    onlyMyLanguages: false,
-    myLanguages: ["ja"],
-    linkRules: [],
-    presets: [],
-    ...over,
-  };
-}
+import { FunnelPill } from "@/ui/funnel-pill";
 
 function setup(
   opts: {
@@ -66,30 +53,6 @@ function dispatchRetargetedMouseDown(origin: Element, host: Element) {
   // Route through fireEvent so the resulting Preact re-render is flushed (act()).
   fireEvent(document, evt);
 }
-
-describe("activeCriteriaCount", () => {
-  it("counts non-off criteria", () => {
-    expect(activeCriteriaCount(makeState({ criteria: { "kind:video": "only" } }))).toBe(1);
-    expect(
-      activeCriteriaCount(makeState({ criteria: { "kind:video": "only", "role:repost": "hide" } })),
-    ).toBe(2);
-  });
-
-  it("ignores criteria explicitly set to off", () => {
-    expect(activeCriteriaCount(makeState({ criteria: { "kind:video": "off" } }))).toBe(0);
-  });
-
-  it("adds one for the language gate when onlyMyLanguages is true", () => {
-    expect(activeCriteriaCount(makeState({ onlyMyLanguages: true }))).toBe(1);
-    expect(
-      activeCriteriaCount(makeState({ criteria: { "kind:video": "only" }, onlyMyLanguages: true })),
-    ).toBe(2);
-  });
-
-  it("is zero on a fresh state", () => {
-    expect(activeCriteriaCount(makeState())).toBe(0);
-  });
-});
 
 describe("FunnelPill", () => {
   function prepareScenario(store: ReturnType<typeof createFilterStore>) {
@@ -194,6 +157,47 @@ describe("FunnelPill", () => {
     }
   });
 
+  it("keeps the popover open when a mousedown is composed onto the shadow host itself", () => {
+    // composedPath contains the host but NOT the inner pill root, so the open
+    // check must fall to the `path.includes(host)` operand.
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    store.setMode("kind:video", "only");
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const mount = document.createElement("div");
+    shadow.appendChild(mount);
+
+    try {
+      renderPreact(
+        <FunnelPill
+          store={store}
+          hiddenCount={() => 0}
+          position={{ x: 40, y: 60 }}
+          onPositionChange={vi.fn()}
+        />,
+        mount,
+      );
+      const pill = shadow.querySelector<HTMLButtonElement>('button[aria-label="Timeline filter"]')!;
+      fireEvent.click(pill);
+      expect(shadow.querySelector('[role="dialog"]')).toBeTruthy();
+
+      const evt = new MouseEvent("mousedown", { bubbles: true, composed: true });
+      Object.defineProperty(evt, "target", { configurable: true, get: () => host });
+      Object.defineProperty(evt, "composedPath", {
+        configurable: true,
+        value: () => [host, document, window],
+      });
+      fireEvent(document, evt);
+
+      expect(shadow.querySelector('[role="dialog"]')).toBeTruthy();
+    } finally {
+      renderPreact(null, mount);
+      host.remove();
+    }
+  });
+
   it("dims the pill and hides the badge when the filter is disabled", () => {
     const { pill } = setup({
       prepare: (s) => {
@@ -226,6 +230,19 @@ describe("FunnelPill", () => {
     expect(last.y).toBeGreaterThan(100);
   });
 
+  it("a drag does not toggle the popover (the trailing click is suppressed)", () => {
+    const { r, pill } = setup({ position: { x: 100, y: 100 } });
+    fireEvent.pointerDown(pill, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(document, { clientX: 160, clientY: 140, pointerId: 1 });
+    fireEvent.pointerUp(document, { clientX: 160, clientY: 140, pointerId: 1 });
+    // A real browser fires a click after the drag; it must not open the popover.
+    fireEvent.click(pill);
+    expect(r.queryByRole("dialog")).toBeNull();
+    // A subsequent plain click (no drag) still opens it.
+    fireEvent.click(pill);
+    expect(r.queryByRole("dialog")).toBeTruthy();
+  });
+
   it("mounts in its own container with a z-index that does not overlap the ActionBar", () => {
     const { pill } = setup();
     const container = pill.closest("[data-funnel-pill-root]") as HTMLElement;
@@ -240,5 +257,82 @@ describe("FunnelPill", () => {
     expect(Number.isNaN(z)).toBe(false);
     expect(z).not.toBe(2147483646);
     expect(/fixed/.test(classes) || /position\s*:\s*fixed/.test(style)).toBe(true);
+  });
+
+  it("ignores non-Escape keys while the popover is open", () => {
+    const { r, pill } = setup({ prepare: prepareScenario });
+    fireEvent.click(pill);
+    expect(r.queryByRole("dialog")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "a" });
+    expect(r.queryByRole("dialog")).toBeTruthy();
+  });
+
+  it("keeps the popover open when the mousedown lands inside the pill root", () => {
+    const { r, pill } = setup({ prepare: prepareScenario });
+    fireEvent.click(pill);
+    expect(r.queryByRole("dialog")).toBeTruthy();
+    // A mousedown whose target is the pill itself: root.contains(e.target) is true.
+    fireEvent.mouseDown(pill);
+    expect(r.queryByRole("dialog")).toBeTruthy();
+  });
+
+  it("does not close on a mousedown event whose composedPath yields nothing", () => {
+    const { r, pill } = setup({ prepare: prepareScenario });
+    fireEvent.click(pill);
+    expect(r.queryByRole("dialog")).toBeTruthy();
+    // Dispatch a real mousedown, then override composedPath to report undefined so
+    // the component's `?? []` fallback yields an empty path; happy-dom has already
+    // consumed the real composedPath by the time the listener runs.
+    const evt = new MouseEvent("mousedown", { bubbles: true, composed: true });
+    let armed = false;
+    document.addEventListener(
+      "mousedown",
+      () => {
+        if (!armed) {
+          armed = true;
+          Object.defineProperty(evt, "composedPath", {
+            configurable: true,
+            value: () => undefined,
+          });
+        }
+      },
+      true,
+    );
+    fireEvent(document, evt);
+    // path.length === 0 ⇒ handler is a no-op, popover stays open.
+    expect(r.queryByRole("dialog")).toBeTruthy();
+  });
+
+  it("falls back to default viewport dimensions when window has no size", () => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 0 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 0 });
+    try {
+      const onPositionChange = vi.fn();
+      const { pill } = setup({ position: { x: 100, y: 100 }, onPositionChange });
+      fireEvent.pointerDown(pill, { clientX: 100, clientY: 100, pointerId: 1 });
+      fireEvent.pointerMove(document, { clientX: 5000, clientY: 5000, pointerId: 1 });
+      fireEvent.pointerUp(document, { clientX: 5000, clientY: 5000, pointerId: 1 });
+      // Clamped to the 1024×768 fallback viewport minus the 44px pill.
+      const last = onPositionChange.mock.calls.at(-1)![0] as { x: number; y: number };
+      expect(last.x).toBe(1024 - 44);
+      expect(last.y).toBe(768 - 44);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: w });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: h });
+    }
+  });
+
+  it("a pointer drag with no net movement does not flag the position as moved", () => {
+    const onPositionChange = vi.fn();
+    const { r, pill } = setup({ position: { x: 100, y: 100 }, onPositionChange });
+    fireEvent.pointerDown(pill, { clientX: 100, clientY: 100, pointerId: 1 });
+    // Same coordinates → next === pos, so `moved` stays false.
+    fireEvent.pointerMove(document, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerUp(document, { clientX: 100, clientY: 100, pointerId: 1 });
+    // Because the drag never moved, the trailing click still toggles the popover open.
+    fireEvent.click(pill);
+    expect(r.queryByRole("dialog")).toBeTruthy();
   });
 });

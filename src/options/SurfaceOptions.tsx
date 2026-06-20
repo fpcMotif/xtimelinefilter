@@ -2,15 +2,12 @@ import { useEffect, useState } from "preact/hooks";
 
 import type { FilterStore } from "@/core/filter-store";
 import { type LassoSettings, type SettingsStore } from "@/core/settings";
+import { Button, Input, Switch } from "@/ui/components";
 import { useSignalValue } from "@/ui/use-signal-value";
-
-const INPUT = "border-line bg-surface rounded-lg border px-3 py-2 text-[15px]";
-const BTN = "border-line hover:bg-elevated rounded-full border px-3 py-1.5 text-sm font-semibold";
 
 const SURFACE_COPY: Record<keyof LassoSettings["surfaces"], string> = {
   pill: "Floating pill",
   palette: "Command palette",
-  bar: "In-feed status bar",
 };
 const SURFACES = Object.keys(SURFACE_COPY) as Array<keyof LassoSettings["surfaces"]>;
 
@@ -28,37 +25,33 @@ export function SurfaceOptions({ settings }: { settings: SettingsStore }) {
   const patch = (p: Partial<LassoSettings>) => void settings.set(p).then(setCurrent);
 
   return (
-    <div class="flex flex-col gap-3">
+    <div class="flex flex-col gap-2.5">
       {SURFACES.map((surface) => (
-        <label key={surface} class="flex cursor-pointer items-center gap-3 py-1 text-[15px]">
-          <input
-            type="checkbox"
-            aria-label={SURFACE_COPY[surface]}
-            checked={current.surfaces[surface]}
-            onChange={(e) =>
-              patch({
-                surfaces: {
-                  ...current.surfaces,
-                  [surface]: (e.currentTarget as HTMLInputElement).checked,
-                },
-              })
-            }
-          />
+        <div
+          key={surface}
+          class="border-border flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-[14px]"
+        >
           {SURFACE_COPY[surface]}
-        </label>
+          <Switch
+            label={SURFACE_COPY[surface]}
+            checked={current.surfaces[surface]}
+            onChange={(on) => patch({ surfaces: { ...current.surfaces, [surface]: on } })}
+          />
+        </div>
       ))}
-      <label class="flex flex-col gap-1 text-[13px]">
-        Palette hotkey
-        <input
+      <div class="mt-1 flex flex-col gap-1.5">
+        <span class="text-faint text-[11px] font-semibold tracking-wide uppercase">
+          Palette hotkey
+        </span>
+        <Input
           aria-label="Palette hotkey"
           placeholder="e.g. mod+shift+f"
           value={current.paletteHotkey}
           onChange={(e) =>
             patch({ paletteHotkey: (e.currentTarget as HTMLInputElement).value.trim() })
           }
-          class={INPUT}
         />
-      </label>
+      </div>
     </div>
   );
 }
@@ -73,29 +66,33 @@ export function PresetManager({ store }: { store: FilterStore }) {
   };
 
   return (
-    <ul class="flex flex-col gap-1">
+    <ul class="flex flex-col gap-1.5">
       {presets.map((preset) => (
-        <li key={preset.id} class="flex items-center gap-2 text-[14px]">
-          <span>{preset.name}</span>
-          <button
-            type="button"
+        <li
+          key={preset.id}
+          class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[14px]"
+        >
+          <span class="font-medium">{preset.name}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            class="ml-auto"
             aria-label={`Rename ${preset.name}`}
             onClick={() => rename(preset.id, preset.name)}
-            class={`${BTN} ml-auto`}
           >
             Rename
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             aria-label={`Delete ${preset.name}`}
             onClick={() => store.deletePreset(preset.id)}
-            class={BTN}
           >
             Delete
-          </button>
+          </Button>
         </li>
       ))}
-      {presets.length === 0 && <li class="text-muted text-[13px]">No saved presets yet.</li>}
+      {presets.length === 0 && <li class="text-faint text-[13px]">No saved presets yet.</li>}
     </ul>
   );
 }

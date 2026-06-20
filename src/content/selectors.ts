@@ -20,7 +20,7 @@ export const Selectors = {
 export const AVATAR_CONTAINER_PREFIX = "UserAvatar-Container-";
 
 /**
- * Hooks for the Filter capability's Facet extraction (tweet-facets.ts). The one
+ * Hooks for the Filter capability's Facet extraction (tweet-read/facets.ts). The one
  * place to fix on an X redesign (ADR-0004). Reuse Selectors.TWEET_TEXT (the lang
  * attribute lives there), Selectors.SOCIAL_CONTEXT (repost) and Selectors.CELL.
  *

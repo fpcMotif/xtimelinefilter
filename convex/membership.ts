@@ -246,25 +246,34 @@ export const listsContaining = query({
       .withIndex("by_member", (q) => q.eq("memberScreenName", args.screenName))
       .collect();
 
+    // Resolve each row's List concurrently rather than awaiting one round-trip
+    // per row in series — this runs on every author hover, so the serial N+1
+    // shape was the avoidable cost.
+    const lists = await Promise.all(
+      rows.map((row) =>
+        ctx.db
+          .query("lists")
+          .withIndex("by_listId", (q) => q.eq("listId", row.listId))
+          .unique(),
+      ),
+    );
+
     const out: Array<{
       listId: string;
       ownerUserId: string;
       present: boolean;
       lastSeenAt: number;
     }> = [];
-    for (const row of rows) {
-      const list = await ctx.db
-        .query("lists")
-        .withIndex("by_listId", (q) => q.eq("listId", row.listId))
-        .unique();
-      if (list === null) continue; // snapshot row for an unknown List: skip the join
+    rows.forEach((row, i) => {
+      const list = lists[i];
+      if (!list) return; // snapshot row for an unknown List: skip the join
       out.push({
         listId: row.listId,
         ownerUserId: list.ownerUserId,
         present: row.present,
         lastSeenAt: row.lastSeenAt,
       });
-    }
+    });
     return out;
   },
 });
@@ -291,32 +300,24 @@ export const catalog = query({
     assertDeviceKey(args.deviceKey);
 
     const owners = await ctx.db.query("accounts").collect();
-    const out: Array<{
-      owner: { userId: string; screenName: string };
-      lists: Array<{
-        listId: string;
-        name: string;
-        isPrivate?: boolean;
-        memberCount?: number;
-        lastReconciledAt?: number;
-      }>;
-    }> = [];
-    for (const owner of owners) {
-      const lists = await ctx.db
-        .query("lists")
-        .withIndex("by_owner", (q) => q.eq("ownerUserId", owner.userId))
-        .collect();
-      out.push({
-        owner: { userId: owner.userId, screenName: owner.screenName },
-        lists: lists.map((l) => ({
-          listId: l.listId,
-          name: l.name,
-          isPrivate: l.isPrivate,
-          memberCount: l.memberCount,
-          lastReconciledAt: l.lastReconciledAt,
-        })),
-      });
-    }
-    return out;
+    // One owned-Lists query per Owner, fanned out concurrently instead of serially.
+    return Promise.all(
+      owners.map(async (owner) => {
+        const lists = await ctx.db
+          .query("lists")
+          .withIndex("by_owner", (q) => q.eq("ownerUserId", owner.userId))
+          .collect();
+        return {
+          owner: { userId: owner.userId, screenName: owner.screenName },
+          lists: lists.map((l) => ({
+            listId: l.listId,
+            name: l.name,
+            isPrivate: l.isPrivate,
+            memberCount: l.memberCount,
+            lastReconciledAt: l.lastReconciledAt,
+          })),
+        };
+      }),
+    );
   },
 });

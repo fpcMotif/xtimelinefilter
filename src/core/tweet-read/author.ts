@@ -1,5 +1,7 @@
-import { AVATAR_CONTAINER_PREFIX, PERMALINK_RE, Selectors } from "@/content/selectors";
+import { AVATAR_CONTAINER_PREFIX, Selectors } from "@/content/selectors";
 import type { TweetAuthor } from "@/core/selection-store";
+
+import { parsePermalink, pathnameOf } from "./status";
 
 export type TweetType = "tweet" | "retweet" | "promoted";
 
@@ -8,7 +10,7 @@ export type TweetType = "tweet" | "retweet" | "promoted";
  * Leaves userId undefined (rest_id is not in the DOM — resolved later via
  * UserByScreenName). See docs/research/03-tweet-extraction.md.
  */
-export function extractAuthor(article: Element): TweetAuthor | null {
+export function author(article: Element): TweetAuthor | null {
   if (!isTweet(article)) return null;
   if (getTweetType(article) === "promoted") return null; // skip ads
 
@@ -40,20 +42,6 @@ export function getTweetType(article: Element): TweetType {
 
 function isTweet(el: Element | null): el is Element {
   return !!el && el.getAttribute?.("data-testid") === "tweet";
-}
-
-function parsePermalink(a: Element): { screenName: string; tweetId: string } | null {
-  const m = pathnameOf(a).match(PERMALINK_RE);
-  return m ? { screenName: m[1] as string, tweetId: m[2] as string } : null;
-}
-
-/** Robust against happy-dom base-URL quirks: resolve hrefs against a fixed base. */
-function pathnameOf(a: Element): string {
-  try {
-    return new URL(a.getAttribute("href") ?? "", "https://x.com").pathname;
-  } catch {
-    return "";
-  }
 }
 
 function handleFromAvatar(article: Element): string | null {

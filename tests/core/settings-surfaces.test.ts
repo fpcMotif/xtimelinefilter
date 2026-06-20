@@ -27,28 +27,28 @@ function fakeStorage(seed: Record<string, unknown> = {}): StorageLike {
 const KEY = "lasso:settings";
 
 describe("surface preferences", () => {
-  it("defaults to pill on, palette/bar off with a hotkey and pill position", async () => {
+  it("defaults to pill on, palette off with a hotkey and pill position", async () => {
     const s = createSettings(fakeStorage());
     const got = await s.get();
 
-    expect(got.surfaces).toEqual({ pill: true, palette: false, bar: false });
+    expect(got.surfaces).toEqual({ pill: true, palette: false });
     expect(typeof got.paletteHotkey).toBe("string");
     expect(got.paletteHotkey.length).toBeGreaterThan(0);
     expect(typeof got.pillPosition.x).toBe("number");
     expect(typeof got.pillPosition.y).toBe("number");
 
-    expect(DEFAULT_SETTINGS.surfaces).toEqual({ pill: true, palette: false, bar: false });
+    expect(DEFAULT_SETTINGS.surfaces).toEqual({ pill: true, palette: false });
   });
 
   it("round-trips surfaces.palette=true and pillPosition over defaults", async () => {
     const s = createSettings(fakeStorage());
     await s.set({
-      surfaces: { pill: true, palette: true, bar: false },
+      surfaces: { pill: true, palette: true },
       pillPosition: { x: 40, y: 120 },
     });
 
     const got = await s.get();
-    expect(got.surfaces).toEqual({ pill: true, palette: true, bar: false });
+    expect(got.surfaces).toEqual({ pill: true, palette: true });
     expect(got.pillPosition).toEqual({ x: 40, y: 120 });
     // Untouched fields stay at their defaults.
     expect(got.paletteHotkey).toBe(DEFAULT_SETTINGS.paletteHotkey);
@@ -65,7 +65,7 @@ describe("surface preferences", () => {
 
     const got = await s.get();
     expect(got.backend).toBe("dom");
-    expect(got.surfaces).toEqual({ pill: true, palette: false, bar: false });
+    expect(got.surfaces).toEqual({ pill: true, palette: false });
     expect(got.pillPosition).toEqual(DEFAULT_SETTINGS.pillPosition);
     expect(got.paletteHotkey).toBe(DEFAULT_SETTINGS.paletteHotkey);
   });

@@ -22,6 +22,7 @@ const BASE_STATE: FilterState = {
   myLanguages: [],
   linkRules: [],
   presets: [],
+  compactHidden: false,
 };
 const st = (p: Partial<FilterState>): FilterState => ({ ...BASE_STATE, ...p });
 
@@ -80,6 +81,22 @@ describe("decide", () => {
     });
   });
 
+  describe("video 'only' = originals AND reposts that contain video", () => {
+    const only = st({ criteria: { "kind:video": "only" } });
+
+    it("shows an original post that contains video", () => {
+      expect(decide(f({ hasVideo: true }), only)).toBe("show");
+    });
+
+    it("shows a repost that contains video (role:repost is irrelevant to the kind family)", () => {
+      expect(decide(f({ hasVideo: true, role: "repost" }), only)).toBe("show");
+    });
+
+    it("hides a plain text repost — a repost with no video is not a video post", () => {
+      expect(decide(f({ hasText: true, role: "repost" }), only)).toBe("hide");
+    });
+  });
+
   it("text-only only matches a post with no media/card/quote", () => {
     const only = st({ criteria: { "kind:text": "only" } });
     expect(decide(f({ hasText: true }), only)).toBe("show");
@@ -100,5 +117,59 @@ describe("decide", () => {
       linkRules: [{ host: "lemmy.world", dest: "reddit" }],
     });
     expect(decide(f({ hasLink: true, linkHosts: ["lemmy.world"] }), gate)).toBe("show");
+  });
+
+  describe("kind family — every value arm", () => {
+    it("video 'only' shows a video post and hides a photo post", () => {
+      const only = st({ criteria: { "kind:video": "only" } });
+      expect(decide(f({ hasVideo: true }), only)).toBe("show");
+      expect(decide(f({ hasPhoto: true }), only)).toBe("hide");
+    });
+
+    it("photo 'only' shows a photo post and hides a video post", () => {
+      const only = st({ criteria: { "kind:photo": "only" } });
+      expect(decide(f({ hasPhoto: true }), only)).toBe("show");
+      expect(decide(f({ hasVideo: true }), only)).toBe("hide");
+    });
+
+    it("quote 'only' shows a quote post and hides a plain post", () => {
+      const only = st({ criteria: { "kind:quote": "only" } });
+      expect(decide(f({ hasQuote: true }), only)).toBe("show");
+      expect(decide(f({ hasText: true }), only)).toBe("hide");
+    });
+
+    it("link 'only' shows a link post and hides a plain post", () => {
+      const only = st({ criteria: { "kind:link": "only" } });
+      expect(decide(f({ hasLink: true, linkHosts: ["arxiv.org"] }), only)).toBe("show");
+      expect(decide(f({ hasText: true }), only)).toBe("hide");
+    });
+
+    it("an unknown kind value never matches (hide criterion stays inert)", () => {
+      const hide = st({ criteria: { "kind:bogus": "hide" } });
+      expect(decide(f({ hasPhoto: true, hasVideo: true }), hide)).toBe("show");
+    });
+  });
+
+  describe("role + malformed criterion ids", () => {
+    it("role:repost 'hide' hides a repost and shows an original", () => {
+      const hide = st({ criteria: { "role:repost": "hide" } });
+      expect(decide(f({ role: "repost" }), hide)).toBe("hide");
+      expect(decide(f({ role: null }), hide)).toBe("show");
+    });
+
+    it("a role value other than repost never matches", () => {
+      const hide = st({ criteria: { "role:reply": "hide" } });
+      expect(decide(f({ role: "repost" }), hide)).toBe("show");
+    });
+
+    it("an unknown family never matches (criterion stays inert)", () => {
+      const hide = st({ criteria: { "mystery:thing": "hide" } });
+      expect(decide(f({ hasPhoto: true }), hide)).toBe("show");
+    });
+
+    it("a value-less criterion id never matches (fails closed on match)", () => {
+      const hide = st({ criteria: { kind: "hide" } });
+      expect(decide(f({ hasPhoto: true }), hide)).toBe("show");
+    });
   });
 });

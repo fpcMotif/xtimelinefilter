@@ -118,4 +118,18 @@ describe("filter-store presets", () => {
     expect(s.state.value.presets).toEqual([]);
     expect(s.state.value.criteria).toEqual({ "kind:video": "hide" });
   });
+
+  it("leaves the global compactHidden display preference untouched on save + apply", () => {
+    const s = createFilterStore({ navLanguages: ["en"] });
+    s.setCompactHidden(true);
+    s.setMode("kind:video", "only");
+    const id = s.savePreset("Clean");
+    // A preset is a selection snapshot — it must not capture the display pref.
+    expect("compactHidden" in s.state.value.presets[0]!).toBe(false);
+
+    s.setMode("kind:video", "off");
+    s.applyPreset(id);
+    expect(s.state.value.criteria["kind:video"]).toBe("only");
+    expect(s.state.value.compactHidden).toBe(true); // survives a preset apply
+  });
 });

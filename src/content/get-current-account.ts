@@ -39,5 +39,7 @@ function readProfileHref(): string | null {
 /** "/jane_doe" -> "jane_doe"; null/empty -> "". */
 function handleFromHref(href: string | null): string {
   if (!href) return "";
-  return href.replace(/^\//, "").split(/[/?#]/)[0] ?? "";
+  const rest = href.replace(/^\//, "");
+  const sep = rest.search(/[/?#]/);
+  return sep === -1 ? rest : rest.slice(0, sep);
 }

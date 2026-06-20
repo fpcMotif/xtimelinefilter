@@ -16,7 +16,7 @@ const DEFAULT_RULES: ReadonlyArray<{ host: string; dest: LinkDest }> = [
 
 /**
  * Hostname of the input, lowercased. Accepts a full URL ("https://arxiv.org/…")
- * or a bare host ("arxiv.org") — tweet-facets stores bare hosts. Null when neither.
+ * or a bare host ("arxiv.org") — tweet-read's facets store bare hosts. Null when neither.
  */
 function hostOf(input: string): string | null {
   const s = input.trim();

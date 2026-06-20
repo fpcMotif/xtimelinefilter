@@ -99,4 +99,98 @@ describe("PopupApp — hosting the shared filter panel (task 013)", () => {
     expect(queryByText("show all")).toBeNull();
     expect(queryByText(/\bhidden\b/)).toBeNull();
   });
+
+  it("toggles compact-hidden mode from the popup", async () => {
+    const filter = createFilterStore({ storage: fakeStorage() });
+    const { getByLabelText } = render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        platform="other"
+        filter={filter}
+      />,
+    );
+
+    const box = (await waitFor(() =>
+      getByLabelText("Hide filtered posts completely"),
+    )) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    expect(filter.state.value.compactHidden).toBe(true);
+  });
+
+  it("omits the reveal line even while revealed (off-page mode has no live count)", async () => {
+    const filter = createFilterStore({ storage: fakeStorage() });
+    filter.setRevealed(true); // default state is enabled, so this peeks
+    const { queryByText, getByLabelText } = render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        platform="other"
+        filter={filter}
+      />,
+    );
+
+    await waitFor(() => expect(getByLabelText("Video")).toBeTruthy());
+    expect(queryByText(/showing all/i)).toBeNull();
+    expect(queryByText(/hide all/i)).toBeNull();
+  });
+
+  it("counts the language gate as an armed filter and labels singular counts", async () => {
+    const filter = createFilterStore({ storage: fakeStorage() });
+    filter.setOnlyMyLanguages(true); // armed = 1 → "filter on"
+    filter.savePreset("Reading"); // presetCount = 1 → "preset"
+    const { getByText, getByLabelText } = render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        platform="other"
+        filter={filter}
+      />,
+    );
+
+    await waitFor(() => expect(getByLabelText("Video")).toBeTruthy());
+    expect(getByText("filter on")).toBeTruthy();
+    expect(getByText("preset")).toBeTruthy();
+  });
+
+  it("falls back to the detected platform when none is provided", async () => {
+    const { getByText } = render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        filter={createFilterStore({ storage: fakeStorage() })}
+      />,
+    );
+
+    await waitFor(() => expect(getByText("Active")).toBeTruthy());
+    // The shortcut rows still render with whatever platform detectPlatform() returns.
+    expect(getByText("File the author into a List")).toBeTruthy();
+  });
+
+  it("shows the loading status dot before the tab state resolves", async () => {
+    let resolveState!: (s: "active") => void;
+    const { container, getByText } = render(
+      <PopupApp
+        queryState={() =>
+          new Promise<"active">((resolve) => {
+            resolveState = resolve;
+          })
+        }
+        wake={async () => {}}
+        openOptions={() => {}}
+        platform="other"
+        filter={createFilterStore({ storage: fakeStorage() })}
+      />,
+    );
+
+    expect(container.querySelector(".bg-border")).toBeTruthy();
+    expect(getByText("…")).toBeTruthy();
+    resolveState("active");
+    await waitFor(() => expect(getByText("Active")).toBeTruthy());
+  });
 });

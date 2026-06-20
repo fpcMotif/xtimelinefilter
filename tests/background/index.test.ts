@@ -73,4 +73,23 @@ describe("background service worker wiring", () => {
     message({ type: "something-else" }, { tab: { id: 8 } });
     expect(setBadgeText).toHaveBeenCalledTimes(1);
   });
+
+  it('sets the "zz" dormant badge without recoloring it', async () => {
+    const { message, setBadgeText, setBadgeBackgroundColor } = await load();
+
+    // state:"asleep" → "zz": badge text set, but the blue accent color is NOT
+    // applied (the `text !== "zz"` guard) so the dormant badge stays neutral.
+    message({ type: "lasso:state", state: "asleep" }, { tab: { id: 5 } });
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 5, text: "zz" });
+    expect(setBadgeBackgroundColor).not.toHaveBeenCalled();
+  });
+
+  it("clears the badge to empty on a zero count without recoloring", async () => {
+    const { message, setBadgeText, setBadgeBackgroundColor } = await load();
+
+    // count 0 → "" (falsy): badge cleared, no color applied.
+    message({ type: "lasso:badge", count: 0 }, { tab: { id: 6 } });
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 6, text: "" });
+    expect(setBadgeBackgroundColor).not.toHaveBeenCalled();
+  });
 });

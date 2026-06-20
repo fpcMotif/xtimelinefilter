@@ -90,9 +90,15 @@ describe("OptionsApp — story beat 9", () => {
         "Lasso has no servers. Your X session, your Lists, and your usage stats never leave this browser.",
       ),
     ).toBeTruthy();
+    // Sync also holds the settings + the one global filter — both must go.
+    s.sync.data[STORAGE_KEYS.settings] = { backend: "rest" };
+    s.sync.data[STORAGE_KEYS.filter] = { enabled: true, criteria: { "kind:video": "hide" } };
+
     fireEvent.click(s.getByText("Clear Lasso data"));
     await waitFor(() => expect(s.getByText("Cleared")).toBeTruthy());
     expect(Object.keys(s.local.data)).toEqual([]);
+    expect(STORAGE_KEYS.settings in s.sync.data).toBe(false);
+    expect(STORAGE_KEYS.filter in s.sync.data).toBe(false);
   });
 
   it("Replay intro restores the welcome card via the coach", async () => {
@@ -114,5 +120,51 @@ describe("OptionsApp — story beat 9", () => {
     fireEvent.click(r.getByText("Replay intro"));
     await waitFor(async () => expect(await coach.isOnboarded()).toBe(false));
     expect(replaySpy).toHaveBeenCalled();
+  });
+
+  it("resetting the default List back to None clears defaultListId", async () => {
+    const s = await setup({
+      [STORAGE_KEYS.lists]: [{ id: "9", name: "Design Folks" }],
+    });
+    const select = s.getByLabelText("Default List") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "9" } });
+    await waitFor(async () => expect((await s.settings.get()).defaultListId).toBe("9"));
+    fireEvent.change(select, { target: { value: "" } });
+    await waitFor(async () => expect((await s.settings.get()).defaultListId).toBeUndefined());
+  });
+
+  it("switching the connection backend persists", async () => {
+    const s = await setup();
+    const graphql = s.getByText(BACKEND_COPY.graphql).querySelector("input") as HTMLInputElement;
+    fireEvent.change(graphql, { target: { checked: true } });
+    await waitFor(async () => expect((await s.settings.get()).backend).toBe("graphql"));
+  });
+
+  it("persists the Convex deployment URL and device key, trimming and dropping empties", async () => {
+    const s = await setup();
+    const url = s.getByLabelText("Convex deployment URL") as HTMLInputElement;
+    fireEvent.change(url, { target: { value: "  https://app.convex.cloud  " } });
+    await waitFor(async () =>
+      expect((await s.settings.get()).convexUrl).toBe("https://app.convex.cloud"),
+    );
+
+    const key = s.getByLabelText("Convex device key") as HTMLInputElement;
+    fireEvent.change(key, { target: { value: "  secret-key  " } });
+    await waitFor(async () => expect((await s.settings.get()).convexDeviceKey).toBe("secret-key"));
+
+    fireEvent.change(url, { target: { value: "   " } });
+    await waitFor(async () => expect((await s.settings.get()).convexUrl).toBeUndefined());
+
+    fireEvent.change(key, { target: { value: "" } });
+    await waitFor(async () => expect((await s.settings.get()).convexDeviceKey).toBeUndefined());
+  });
+
+  it("a nav-rail item scrolls its target section into view", async () => {
+    const s = await setup();
+    const target = s.container.querySelector("#connection") as HTMLElement;
+    const scrollSpy = vi.fn();
+    (target as unknown as { scrollIntoView: () => void }).scrollIntoView = scrollSpy;
+    fireEvent.click(s.getByRole("button", { name: "Connection" }));
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 });

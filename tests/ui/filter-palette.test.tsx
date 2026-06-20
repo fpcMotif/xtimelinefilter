@@ -2,20 +2,7 @@ import { fireEvent, render } from "@testing-library/preact";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFilterStore } from "@/core/filter-store";
-import type { FilterState } from "@/core/filter-types";
-import { buildPaletteItems, FilterPalette } from "@/ui/filter-palette";
-
-function makeState(over: Partial<FilterState> = {}): FilterState {
-  return {
-    enabled: true,
-    criteria: {},
-    onlyMyLanguages: false,
-    myLanguages: ["ja"],
-    linkRules: [],
-    presets: [],
-    ...over,
-  };
-}
+import { FilterPalette } from "@/ui/filter-palette";
 
 function setup(
   opts: {
@@ -34,46 +21,6 @@ function setup(
   const labels = () => options().map((o) => o.textContent?.trim());
   return { store, r, onClose, input, type, options, labels };
 }
-
-describe("buildPaletteItems", () => {
-  it("offers an Only and a Hide entry for each criterion", () => {
-    const items = buildPaletteItems(makeState());
-    const labels = items.map((i) => i.label);
-    expect(labels).toContain("Only · video");
-    expect(labels).toContain("Hide · video");
-    expect(labels).toContain("Only · arXiv");
-    expect(labels).toContain("Hide · Repost");
-  });
-
-  it("offers an apply entry per preset", () => {
-    const state = makeState({
-      presets: [
-        {
-          id: "p1",
-          name: "Reading",
-          criteria: { "kind:link": "only" },
-          onlyMyLanguages: false,
-        },
-      ],
-    });
-    const item = buildPaletteItems(state).find((i) => i.label.includes("Reading"));
-    expect(item).toBeTruthy();
-  });
-
-  it("offers the global actions", () => {
-    const labels = buildPaletteItems(makeState()).map((i) => i.label);
-    expect(labels).toContain("Show all hidden");
-    expect(labels).toContain("Disable filter");
-    expect(labels).toContain("Enable filter");
-  });
-
-  it("each item's run mutates the store", () => {
-    const store = createFilterStore({ navLanguages: ["ja"] });
-    const only = buildPaletteItems(store.state.value).find((i) => i.label === "Only · video")!;
-    only.run(store);
-    expect(store.state.value.criteria["kind:video"]).toBe("only");
-  });
-});
 
 describe("FilterPalette", () => {
   it("renders nothing when closed", () => {
@@ -106,14 +53,25 @@ describe("FilterPalette", () => {
     expect(applyPreset).toHaveBeenCalledWith(presetId);
   });
 
-  it('typing "show all" offers an action that disables the filter on select', () => {
+  it('typing "show all" offers a reveal action that keeps the filter enabled on select', () => {
     const { store, type, options } = setup();
     expect(store.state.value.enabled).toBe(true);
     type("show all");
     const target = options().find((o) => o.textContent?.includes("Show all hidden"))!;
     expect(target).toBeTruthy();
     fireEvent.mouseDown(target);
-    expect(store.state.value.enabled).toBe(false);
+    expect(store.revealed.value).toBe(true);
+    expect(store.state.value.enabled).toBe(true); // reveal ≠ disable
+  });
+
+  it('typing "hide all" offers the re-hide action that resumes filtering on select', () => {
+    const { store, type, options } = setup({ prepare: (s) => s.setRevealed(true) });
+    type("hide all");
+    const target = options().find((o) => o.textContent?.includes("Hide all (resume filtering)"))!;
+    expect(target).toBeTruthy();
+    fireEvent.mouseDown(target);
+    expect(store.revealed.value).toBe(false);
+    expect(store.state.value.enabled).toBe(true); // re-hide ≠ disable
   });
 
   it("stays open after applying an item for rapid multi-toggle", () => {
@@ -131,10 +89,89 @@ describe("FilterPalette", () => {
     expect(store.state.value.criteria["kind:video"]).toBe("only");
   });
 
+  it("Enter selects the highlighted 'Show all hidden' command (keyboard path)", () => {
+    const { store, type, input } = setup();
+    type("show all"); // unique fuzzy match — lands at the highlighted row
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(store.revealed.value).toBe(true);
+  });
+
+  it("Enter runs 'Hide all' via a uniquely-matching query and resumes filtering", () => {
+    const { store, type, input } = setup({ prepare: (s) => s.setRevealed(true) });
+    // "hide all" alone fuzzy-matches "Hide · Article/Blog" first, so query the
+    // unique parenthetical to land the highlight on the re-hide command.
+    type("resume");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(store.revealed.value).toBe(false);
+    expect(store.state.value.enabled).toBe(true); // re-hide ≠ disable
+  });
+
   it("Escape invokes onClose", () => {
     const onClose = vi.fn();
     const { input } = setup({ onClose });
     fireEvent.keyDown(input(), { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("ArrowDown then Enter runs the next item down the list", () => {
+    const { store, input } = setup();
+    // First two catalog rows are "Only · text" then "Hide · text" (KIND order).
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(store.state.value.criteria["kind:text"]).toBe("hide");
+  });
+
+  it("ArrowUp wraps to the last item and runs it on Enter", () => {
+    const { store, input } = setup();
+    // From the top row, ArrowUp wraps to the last command: "Enable filter".
+    store.setEnabled(false);
+    fireEvent.keyDown(input(), { key: "ArrowUp" });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(store.state.value.enabled).toBe(true);
+  });
+
+  it("highlights an option on mouse enter, and selecting it acts on that row", () => {
+    const { store, type, options } = setup();
+    type("video"); // matches both "Only · video" and "Hide · video"
+    const hide = options().find((o) => o.textContent?.includes("Hide · video"))!;
+    fireEvent.mouseEnter(hide);
+    expect(hide.getAttribute("aria-selected")).toBe("true");
+    fireEvent.mouseDown(hide);
+    expect(store.state.value.criteria["kind:video"]).toBe("hide");
+  });
+
+  it("shows a no-match row and Enter is a no-op when nothing matches", () => {
+    const onClose = vi.fn();
+    const { store, type, options, input, r } = setup({ onClose });
+    const before = JSON.stringify(store.state.value);
+    type("zzqqxx-nope");
+    expect(options()).toHaveLength(0);
+    expect(r.getByText(/no matching commands/i)).toBeTruthy();
+    // Arrow keys and Enter must not throw or mutate state with an empty list.
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    fireEvent.keyDown(input(), { key: "ArrowUp" });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(JSON.stringify(store.state.value)).toBe(before);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("ignores keys it does not handle", () => {
+    const { store, input } = setup();
+    const before = JSON.stringify(store.state.value);
+    fireEvent.keyDown(input(), { key: "a" });
+    expect(JSON.stringify(store.state.value)).toBe(before);
+  });
+
+  it("clicking the backdrop closes the palette; clicking the card does not", () => {
+    const onClose = vi.fn();
+    const { r } = setup({ onClose });
+    const backdrop = r.getByRole("presentation");
+    const dialog = r.getByRole("dialog");
+    // Mousedown on the card (target ≠ currentTarget) leaves it open.
+    fireEvent.mouseDown(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    // Mousedown on the backdrop itself (target === currentTarget) closes it.
+    fireEvent.mouseDown(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

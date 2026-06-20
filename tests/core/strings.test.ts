@@ -160,4 +160,28 @@ describe("derived copy", () => {
     expect(S.minutesUntil(Math.floor(now / 1000) + 30, now)).toBe(1);
     expect(S.minutesUntil(Math.floor(now / 1000) - 30, now)).toBe(1);
   });
+
+  it("formats a tabular count with thousands separators", () => {
+    expect(S.formatCount(1204)).toBe("1,204");
+    expect(S.formatCount(0)).toBe("0");
+  });
+
+  it("hide / remove / unmute / block confirmations and failures", () => {
+    expect(S.hideFailedLine).toBe("Couldn't hide that post");
+    expect(S.removedLine(3, "Design Folks")).toBe("Removed 3 from Design Folks");
+    expect(S.unmutedLine("jane")).toBe("Unmuted @jane");
+    expect(S.blockedLine("jane")).toBe("Blocked @jane");
+    expect(S.blockFailedLine("jane")).toBe("Couldn't block @jane");
+  });
+
+  it("settings / popup copy and remaining canonical constants", () => {
+    expect(S.PICKER_ERROR_UNKNOWN).toBe("X didn't respond — try again");
+    expect(S.CREATE_LIST_URL).toBe("https://x.com/i/lists/create");
+    expect(S.SHORTCUTS_TITLE).toBe("Keyboard shortcuts");
+    expect(S.PRIVACY_LINE).toBe(
+      "Lasso has no servers. Your X session, your Lists, and your usage stats never leave this browser.",
+    );
+    expect(S.POPUP_ACTIVE).toBe("Active on x.com");
+    expect(S.POPUP_ASLEEP).toBe("Asleep — click to wake");
+  });
 });

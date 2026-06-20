@@ -53,16 +53,17 @@ export function createCoach(
     return next;
   }
 
-  async function ensureInstalledAt(): Promise<CoachState> {
+  /** Reads coach state, stamping installedAt on first call so it is always set. */
+  async function ensureInstalledAt(): Promise<CoachState & { installedAt: number }> {
     const s = await read();
-    if (s.installedAt !== undefined) return s;
-    return write({ installedAt: now() });
+    if (s.installedAt !== undefined) return s as CoachState & { installedAt: number };
+    return write({ installedAt: now() }) as Promise<CoachState & { installedAt: number }>;
   }
 
   async function hintsActive(): Promise<boolean> {
     const s = await ensureInstalledAt();
     if ((s.assignCount ?? 0) >= DECAY_ASSIGNS) return false;
-    return now() - (s.installedAt ?? now()) <= DECAY_MS;
+    return now() - s.installedAt <= DECAY_MS;
   }
 
   return {

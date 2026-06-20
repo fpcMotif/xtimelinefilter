@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { TweetAuthor } from "@/core/selection-store";
 import { createToastStore } from "@/core/toast-store";
 import { ActionBar, type ActionBarProps } from "@/ui/ActionBar";
+import { RadioCard } from "@/ui/components/radio-card";
+import { Switch } from "@/ui/components/switch";
 import { ToastHost } from "@/ui/Toast";
 import { TweetOverlay } from "@/ui/TweetOverlay";
 
@@ -123,6 +125,113 @@ describe("ActionBar", () => {
     expect((await findByRole("tooltip")).textContent).toBe(
       "Lasso adds people to Lists, not posts.",
     );
+  });
+
+  it("clears the count tooltip on mouse leave", async () => {
+    const onCountHover = vi.fn(async () => "tip");
+    const { getByText, findByRole, queryByRole } = render(
+      <ActionBar {...barProps({ authors: authors("a"), onCountHover })} />,
+    );
+    const count = getByText("1 person selected");
+    fireEvent.mouseEnter(count);
+    await findByRole("tooltip");
+    fireEvent.mouseLeave(count);
+    await waitFor(() => expect(queryByRole("tooltip")).toBeNull());
+  });
+
+  it("resolves a null count tooltip to no tooltip", async () => {
+    const onCountHover = vi.fn(async () => null);
+    const { getByText, queryByRole } = render(
+      <ActionBar {...barProps({ authors: authors("a"), onCountHover })} />,
+    );
+    fireEvent.mouseEnter(getByText("1 person selected"));
+    await Promise.resolve();
+    expect(queryByRole("tooltip")).toBeNull();
+  });
+
+  it("renders nothing extra when the count is hovered without an onCountHover handler", () => {
+    const { getByText, queryByRole } = render(
+      <ActionBar {...barProps({ authors: authors("a") })} />,
+    );
+    fireEvent.mouseEnter(getByText("1 person selected"));
+    expect(queryByRole("tooltip")).toBeNull();
+  });
+
+  it("renders an <img> avatar when an avatarUrl is present", () => {
+    const props = barProps({
+      authors: [{ screenName: "jane", avatarUrl: "https://example.com/jane.png" }],
+    });
+    const { container } = render(<ActionBar {...props} />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(img.getAttribute("src")).toBe("https://example.com/jane.png");
+    expect(img.getAttribute("alt")).toBe("@jane");
+  });
+
+  it("falls back to an initial avatar when no avatarUrl is present", () => {
+    const { container, getByLabelText } = render(
+      <ActionBar {...barProps({ authors: authors("Zoe") })} />,
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(getByLabelText("@Zoe").textContent).toBe("Z");
+  });
+});
+
+describe("RadioCard", () => {
+  it("uses string children as the input's accessible name and fires onSelect", () => {
+    const onSelect = vi.fn();
+    const { getByLabelText } = render(
+      <RadioCard name="surface" value="pill" checked={false} onSelect={onSelect}>
+        Funnel pill
+      </RadioCard>,
+    );
+    const input = getByLabelText("Funnel pill") as HTMLInputElement;
+    expect(input.checked).toBe(false);
+    fireEvent.click(input);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders non-string children without an aria-label and reflects checked", () => {
+    const { container } = render(
+      <RadioCard name="surface" checked onSelect={() => {}} class="extra" className="more">
+        <strong>Rich label</strong>
+      </RadioCard>,
+    );
+    const input = container.querySelector("input") as HTMLInputElement;
+    expect(input.getAttribute("aria-label")).toBeNull();
+    expect(input.checked).toBe(true);
+    expect(container.querySelector("strong")?.textContent).toBe("Rich label");
+    expect(container.querySelector("label")?.className).toContain("extra");
+    expect(container.querySelector("label")?.className).toContain("more");
+  });
+});
+
+describe("Switch", () => {
+  it("exposes the label as the accessible name and toggles via onChange", () => {
+    const onChange = vi.fn();
+    const { getByLabelText } = render(
+      <Switch label="Dark mode" checked={false} onChange={onChange} />,
+    );
+    const input = getByLabelText("Dark mode") as HTMLInputElement;
+    expect(input.checked).toBe(false);
+    fireEvent.click(input);
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("omits aria-label when no label is given (named by an enclosing label)", () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <label htmlFor="sw">
+        Wrapped
+        <Switch checked onChange={onChange} id="sw" class="a" className="b" />
+      </label>,
+    );
+    const input = container.querySelector("input") as HTMLInputElement;
+    expect(input.getAttribute("aria-label")).toBeNull();
+    expect(input.id).toBe("sw");
+    expect(input.checked).toBe(true);
+    fireEvent.click(input);
+    expect(onChange).toHaveBeenCalledWith(false);
   });
 });
 

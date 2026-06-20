@@ -1,6 +1,6 @@
 import { Selectors } from "@/content/selectors";
 import type { TweetAuthor } from "@/core/selection-store";
-import { extractAuthor } from "@/core/tweet-extractor";
+import * as tweetRead from "@/core/tweet-read";
 
 export interface TweetScanner {
   /** Process tweets already in the DOM and start observing for new ones. */
@@ -30,7 +30,7 @@ export function createTweetScanner(
   const handle = (article: Element): void => {
     if (seen.has(article)) return;
     seen.add(article);
-    const author = extractAuthor(article);
+    const author = tweetRead.author(article);
     if (author) onTweet(author, article);
   };
 

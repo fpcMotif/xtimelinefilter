@@ -191,9 +191,9 @@ function findNotInterestedFeedback(cellEl: Element): Element | null {
   const outside = [...cellEl.querySelectorAll('button, [role="button"]')].filter(
     (b) => !b.closest(Selectors.TWEET),
   );
-  const byPost = outside.find((b) => POST_NOT_RELEVANT_TEXT.test(b.textContent ?? ""));
+  const byPost = outside.find((b) => POST_NOT_RELEVANT_TEXT.test(textOf(b)));
   if (byPost) return byPost;
-  const byFewer = outside.find((b) => SHOW_FEWER_TEXT.test(b.textContent ?? ""));
+  const byFewer = outside.find((b) => SHOW_FEWER_TEXT.test(textOf(b)));
   if (byFewer) return byFewer;
   const positional =
     outside.length >= 3
@@ -201,7 +201,7 @@ function findNotInterestedFeedback(cellEl: Element): Element | null {
       : outside.length >= 2
         ? (outside[1] as Element)
         : null;
-  return positional && !UNDO_TEXT.test(positional.textContent ?? "") ? positional : null;
+  return positional && !UNDO_TEXT.test(textOf(positional)) ? positional : null;
 }
 
 /**
@@ -311,7 +311,7 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
       let row = await waitForRow(menu, match, timeoutMs);
       if (!row) {
         const labels = [...menu.querySelectorAll(DriverSelectors.MENUITEM)]
-          .map((r) => (r.textContent ?? "").trim().slice(0, 24))
+          .map((r) => textOf(r).trim().slice(0, 24))
           .join(" | ");
         throw new Error(`Lasso: target menu item not found (rows: ${labels})`);
       }
@@ -354,10 +354,10 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
     // The tweet article can unmount a beat before the panel buttons render
     // (seen live 2026-06-12: a fast run skipped the follow-up) — give the
     // panel a short grace window instead of bailing once the article is gone.
-    const feedback =
-      effect !== cellEl
-        ? effect
-        : await waitForEl(() => findNotInterestedFeedback(cellEl), 800, cellEl);
+    let feedback: Element | null = effect;
+    if (effect === cellEl) {
+      feedback = await waitForEl(() => findNotInterestedFeedback(cellEl), 800, cellEl);
+    }
     if (feedback) {
       await settle(120);
       await activate(feedback);

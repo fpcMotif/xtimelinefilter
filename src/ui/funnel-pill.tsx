@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { activeCriteriaCount } from "@/core/filter-projection";
 import type { FilterStore } from "@/core/filter-store";
-import type { FilterState } from "@/core/filter-types";
 import { FilterPanel } from "@/ui/filter-panel";
 import { useSignalValue } from "@/ui/use-signal-value";
 
@@ -15,16 +15,6 @@ const PILL_Z = 2147483640;
 const PILL_SIZE = 44;
 const POPOVER_W = 320;
 const POPOVER_GAP = 8;
-
-/** Active-criteria count: criteria not set to "off" plus the language gate (spec §5). */
-export function activeCriteriaCount(state: FilterState): number {
-  let n = 0;
-  for (const mode of Object.values(state.criteria)) {
-    if (mode && mode !== "off") n += 1;
-  }
-  if (state.onlyMyLanguages) n += 1;
-  return n;
-}
 
 export interface FunnelPillProps {
   store: FilterStore;
@@ -56,7 +46,9 @@ export function FunnelPill({ store, hiddenCount, position, onPositionChange }: F
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(position);
   const rootRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  // A drag's bookkeeping lives in the pointerdown closure; pointerup latches its
+  // `moved` flag here so the trailing synthetic click can tell a drag from a tap.
+  const suppressClick = useRef(false);
 
   // Keep local position in sync when the caller hands us a new persisted value.
   useEffect(() => setPos({ x: position.x, y: position.y }), [position.x, position.y]);
@@ -68,8 +60,9 @@ export function FunnelPill({ store, hiddenCount, position, onPositionChange }: F
       if (e.key === "Escape") setOpen(false);
     };
     const onOutside = (e: Event) => {
-      const root = rootRef.current;
-      if (!root) return;
+      // `onOutside` is only registered while the popover is open and rendered, so
+      // the ref is always attached here.
+      const root = rootRef.current as HTMLDivElement;
       // In production the pill lives in a Shadow DOM; a mousedown crossing the
       // shadow boundary retargets e.target to the shadow host, which is outside
       // `root`. Use the composed path (which still contains `root`) so clicks on
@@ -89,23 +82,21 @@ export function FunnelPill({ store, hiddenCount, position, onPositionChange }: F
   }, [open]);
 
   function onPointerDown(e: PointerEvent) {
-    dragging.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, moved: false };
+    const drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, moved: false };
     const onMove = (ev: PointerEvent) => {
-      const d = dragging.current;
-      if (!d) return;
       const { w, h } = viewport();
       const next = {
-        x: clamp(ev.clientX - d.dx, 0, Math.max(0, w - PILL_SIZE)),
-        y: clamp(ev.clientY - d.dy, 0, Math.max(0, h - PILL_SIZE)),
+        x: clamp(ev.clientX - drag.dx, 0, Math.max(0, w - PILL_SIZE)),
+        y: clamp(ev.clientY - drag.dy, 0, Math.max(0, h - PILL_SIZE)),
       };
-      if (next.x !== pos.x || next.y !== pos.y) d.moved = true;
+      if (next.x !== pos.x || next.y !== pos.y) drag.moved = true;
       setPos(next);
       onPositionChange(next);
     };
     const onUp = () => {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
-      dragging.current = null;
+      suppressClick.current = drag.moved;
     };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
@@ -113,7 +104,10 @@ export function FunnelPill({ store, hiddenCount, position, onPositionChange }: F
 
   function onClick() {
     // Suppress the click that ends a drag so dragging never toggles the popover.
-    if (dragging.current?.moved) return;
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
     setOpen((v) => !v);
   }
 

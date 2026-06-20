@@ -17,6 +17,20 @@ import { PRIVACY_LINE } from "@/core/strings";
 import type { XList } from "@/core/x-client/types";
 import { LinkRulesEditor, MyLanguagesEditor } from "@/options/FilterOptions";
 import { PresetManager, SurfaceOptions } from "@/options/SurfaceOptions";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Kbd,
+  LassoMark,
+  RadioCard,
+  Switch,
+} from "@/ui/components";
 import { COMMAND_LABELS } from "@/ui/ShortcutsSheet";
 
 /** Story beat 9: the promised backend disclosure, verbatim. */
@@ -35,6 +49,19 @@ export const BACKEND_COPY: Record<BackendStrategy, string> = {
 export const DEFAULT_LIST_NONE = "None — always ask";
 export const DEFAULT_LIST_HINT = "Alt+Shift+L adds straight to this List.";
 
+const SELECT =
+  "border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 w-full rounded-lg border px-3 text-sm outline-none transition-[color,box-shadow,border-color] focus-visible:ring-2";
+
+const RAIL: ReadonlyArray<{ label: string; target: string }> = [
+  { label: "General", target: "activation" },
+  { label: "Connection", target: "connection" },
+  { label: "Lists", target: "lists" },
+  { label: "Shortcuts", target: "shortcuts" },
+  { label: "Timeline filter", target: "filter" },
+  { label: "Sync", target: "sync" },
+  { label: "Privacy", target: "privacy" },
+];
+
 export interface OptionsAppProps {
   settings?: SettingsStore;
   coach?: Coach;
@@ -46,7 +73,8 @@ export interface OptionsAppProps {
 }
 
 /**
- * The real options page (story beat 9): every setting that existed only in
+ * The real options page (story beat 9): a two-pane settings app — a sticky nav
+ * rail beside content cards. Every setting that once lived only in
  * chrome.storage gets a surface, the strongest trust facts move into
  * user-facing copy, and the data Lasso keeps is named and wipeable.
  */
@@ -77,196 +105,284 @@ export function OptionsApp({
   const patch = (p: Partial<LassoSettings>) => void settings.set(p).then(setCurrent);
 
   return (
-    <main class="text-ink mx-auto flex w-full max-w-[600px] flex-col gap-8 px-6 py-8">
-      <h1 class="text-[20px] font-bold">Lasso settings</h1>
-
-      <Section title="Activation">
-        {(Object.keys(ACTIVATION_COPY) as Array<keyof typeof ACTIVATION_COPY>).map((value) => (
-          <label key={value} class="flex cursor-pointer items-start gap-3 py-1.5 text-[15px]">
-            <input
-              type="radio"
-              name="activation"
-              aria-label={ACTIVATION_COPY[value]}
-              checked={current.activation === value}
-              onChange={() => patch({ activation: value })}
-            />
-            {ACTIVATION_COPY[value]}
-          </label>
-        ))}
-      </Section>
-
-      <Section title="How Lasso talks to X">
-        {(Object.keys(BACKEND_COPY) as BackendStrategy[]).map((value) => (
-          <label key={value} class="flex cursor-pointer items-start gap-3 py-1.5 text-[15px]">
-            <input
-              type="radio"
-              name="backend"
-              aria-label={BACKEND_COPY[value]}
-              checked={current.backend === value}
-              onChange={() => patch({ backend: value })}
-            />
-            {BACKEND_COPY[value]}
-          </label>
-        ))}
-      </Section>
-
-      <Section title="Default List">
-        <select
-          aria-label="Default List"
-          value={current.defaultListId ?? ""}
-          onChange={(e) => {
-            const id = (e.currentTarget as HTMLSelectElement).value;
-            patch({ defaultListId: id === "" ? undefined : id });
-          }}
-          class="border-line bg-surface w-full rounded-lg border px-3 py-2 text-[15px]"
-        >
-          <option value="">{DEFAULT_LIST_NONE}</option>
-          {lists.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
+    <div class="mx-auto flex w-full max-w-[920px] gap-8 px-6 py-10">
+      <aside class="hidden w-[196px] shrink-0 md:block">
+        <div class="sticky top-10 flex flex-col gap-1">
+          <div class="mb-4 flex flex-col gap-1 px-3">
+            <div class="flex items-center gap-2.5">
+              <LassoMark size={22} class="text-primary" />
+              <span class="text-[17px] font-bold tracking-tight">Lasso</span>
+            </div>
+            <span class="text-faint text-[12px] font-medium">Settings</span>
+          </div>
+          {RAIL.map((item, i) => (
+            <RailItem key={item.target} label={item.label} target={item.target} active={i === 0} />
           ))}
-        </select>
-        {current.defaultListId && <p class="text-muted mt-2 text-[13px]">{DEFAULT_LIST_HINT}</p>}
-        {lists.length === 0 && (
-          <p class="text-muted mt-2 text-[13px]">Open x.com once so Lasso can see your Lists.</p>
-        )}
-      </Section>
-
-      <Section title="Keyboard shortcuts">
-        <table class="w-full">
-          <tbody>
-            {keymap.map((binding) => (
-              <tr key={binding.combo}>
-                <td class="py-1 text-[15px]">{COMMAND_LABELS[binding.command]}</td>
-                <td class="py-1 text-right">
-                  {keycaps(binding.combo, platform).map((cap) => (
-                    <kbd
-                      key={cap}
-                      class="border-line ml-0.5 rounded border px-1.5 py-0.5 text-[12px]"
-                    >
-                      {cap}
-                    </kbd>
-                  ))}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p class="text-muted mt-2 text-[13px]">Press ? on x.com anytime.</p>
-      </Section>
-
-      <Section title="Accessibility">
-        <label class="flex cursor-pointer items-center gap-3 py-1.5 text-[15px]">
-          <input
-            type="checkbox"
-            aria-label="Higher-contrast buttons"
-            checked={current.highContrast}
-            onChange={(e) => patch({ highContrast: (e.currentTarget as HTMLInputElement).checked })}
-          />
-          Higher-contrast buttons
-        </label>
-      </Section>
-
-      <Section title="Sync across your accounts (Convex)">
-        <p class="text-muted mb-3 text-[13px]">
-          Optional. Mirrors List membership to your own Convex deployment for cross-account history
-          and instant “already in” checks. Leave both blank to keep Lasso fully local.
-        </p>
-        <label class="mb-3 flex flex-col gap-1 text-[13px]">
-          Deployment URL
-          <input
-            type="url"
-            aria-label="Convex deployment URL"
-            placeholder="https://your-app.convex.cloud"
-            defaultValue={current.convexUrl ?? ""}
-            onChange={(e) =>
-              patch({ convexUrl: (e.currentTarget as HTMLInputElement).value.trim() || undefined })
-            }
-            class="border-line bg-surface rounded-lg border px-3 py-2 text-[15px]"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-[13px]">
-          Device key
-          <input
-            type="password"
-            aria-label="Convex device key"
-            placeholder="matches LASSO_DEVICE_KEY"
-            defaultValue={current.convexDeviceKey ?? ""}
-            onChange={(e) =>
-              patch({
-                convexDeviceKey: (e.currentTarget as HTMLInputElement).value.trim() || undefined,
-              })
-            }
-            class="border-line bg-surface rounded-lg border px-3 py-2 text-[15px]"
-          />
-        </label>
-      </Section>
-
-      <Section title="Timeline Filter">
-        <p class="text-muted mb-3 text-[13px]">
-          Narrow Home and List timelines by content. The in-feed bar holds the on/off chips; these
-          two lists configure the language gate and how links are categorized.
-        </p>
-        <h3 class="mb-1 text-[14px] font-semibold">My languages</h3>
-        <p class="text-muted mb-2 text-[13px]">
-          When “only my languages” is on, posts outside this allowlist are hidden.
-        </p>
-        <MyLanguagesEditor store={filter} />
-        <h3 class="mt-4 mb-1 text-[14px] font-semibold">Link rules</h3>
-        <p class="text-muted mb-2 text-[13px]">
-          Map a host to a category; your rules win over the built-ins. Anything unmatched is
-          Article/Blog.
-        </p>
-        <LinkRulesEditor store={filter} />
-        <h3 class="mt-4 mb-1 text-[14px] font-semibold">Surfaces</h3>
-        <p class="text-muted mb-2 text-[13px]">
-          Turn each filter surface on or off, and set the shortcut that opens the command palette.
-        </p>
-        <SurfaceOptions settings={settings} />
-        <h3 class="mt-4 mb-1 text-[14px] font-semibold">Presets</h3>
-        <p class="text-muted mb-2 text-[13px]">
-          Rename or remove the filter selections you've saved.
-        </p>
-        <PresetManager store={filter} />
-      </Section>
-
-      <Section title="Privacy & data">
-        <p class="text-[15px]">{PRIVACY_LINE}</p>
-        <div class="mt-3 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() =>
-              void clearLassoData(local, sync).then(() => {
-                setCleared(true);
-                setLists([]);
-                void settings.get().then(setCurrent);
-              })
-            }
-            class="border-line hover:bg-elevated rounded-full border px-4 py-1.5 text-sm font-semibold"
-          >
-            Clear Lasso data
-          </button>
-          {cleared && <span class="text-muted text-sm">Cleared</span>}
-          <button
-            type="button"
-            onClick={() => void coach.replayIntro().then(() => setReplayed(true))}
-            class="border-line hover:bg-elevated rounded-full border px-4 py-1.5 text-sm font-semibold"
-          >
-            Replay intro
-          </button>
-          {replayed && <span class="text-muted text-sm">On your next visit to x.com</span>}
+          <div class="mt-4 px-3">
+            <Badge variant="success">Local-first</Badge>
+          </div>
         </div>
-      </Section>
-    </main>
+      </aside>
+
+      <main class="flex min-w-0 flex-1 flex-col gap-5">
+        <header class="flex flex-col gap-1">
+          <h1 class="text-[24px] font-bold tracking-tight">Settings</h1>
+          <p class="text-muted-foreground text-[14px]">How and when Lasso runs on x.com.</p>
+        </header>
+
+        <Section title="Activation" id="activation">
+          <div class="flex flex-col gap-2">
+            {(Object.keys(ACTIVATION_COPY) as Array<keyof typeof ACTIVATION_COPY>).map((value) => (
+              <RadioCard
+                key={value}
+                name="activation"
+                checked={current.activation === value}
+                onSelect={() => patch({ activation: value })}
+              >
+                {ACTIVATION_COPY[value]}
+              </RadioCard>
+            ))}
+          </div>
+        </Section>
+
+        <Section
+          title="How Lasso talks to X"
+          id="connection"
+          helper="Pick the engine. Faster engines reach deeper into X's private surface."
+        >
+          <div class="flex flex-col gap-2">
+            {(Object.keys(BACKEND_COPY) as BackendStrategy[]).map((value) => (
+              <RadioCard
+                key={value}
+                name="backend"
+                checked={current.backend === value}
+                onSelect={() => patch({ backend: value })}
+              >
+                {BACKEND_COPY[value]}
+              </RadioCard>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Default List" id="lists">
+          <select
+            aria-label="Default List"
+            value={current.defaultListId ?? ""}
+            onChange={(e) => {
+              const id = (e.currentTarget as HTMLSelectElement).value;
+              patch({ defaultListId: id === "" ? undefined : id });
+            }}
+            class={SELECT}
+          >
+            <option value="">{DEFAULT_LIST_NONE}</option>
+            {lists.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          {current.defaultListId && (
+            <p class="text-muted-foreground mt-2 text-[13px]">{DEFAULT_LIST_HINT}</p>
+          )}
+          {lists.length === 0 && (
+            <p class="text-muted-foreground mt-2 text-[13px]">
+              Open x.com once so Lasso can see your Lists.
+            </p>
+          )}
+        </Section>
+
+        <Section title="Keyboard shortcuts" id="shortcuts">
+          <table class="w-full">
+            <tbody>
+              {keymap.map((binding) => (
+                <tr key={binding.combo} class="border-border/60 border-b last:border-0">
+                  <td class="py-2 text-[14px]">{COMMAND_LABELS[binding.command]}</td>
+                  <td class="py-2 text-right">
+                    {keycaps(binding.combo, platform).map((cap) => (
+                      <Kbd key={cap} class="ml-1">
+                        {cap}
+                      </Kbd>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p class="text-faint mt-3 text-[13px]">Press ? on x.com anytime.</p>
+        </Section>
+
+        <Section
+          title="Timeline filter"
+          id="filter"
+          helper="Narrow Home and List timelines by content. Open the funnel pill on x.com to set the on/off chips; these lists configure the language gate and how links are categorized."
+        >
+          <Sub heading="My languages">
+            When “only my languages” is on, posts outside this allowlist are hidden.
+          </Sub>
+          <MyLanguagesEditor store={filter} />
+          <Sub heading="Link rules" class="mt-5">
+            Map a host to a category; your rules win over the built-ins. Anything unmatched is
+            Article/Blog.
+          </Sub>
+          <LinkRulesEditor store={filter} />
+          <Sub heading="Surfaces" class="mt-5">
+            Turn each filter surface on or off, and set the shortcut that opens the command palette.
+          </Sub>
+          <SurfaceOptions settings={settings} />
+          <Sub heading="Presets" class="mt-5">
+            Rename or remove the filter selections you've saved.
+          </Sub>
+          <PresetManager store={filter} />
+        </Section>
+
+        <Section
+          title="Sync across your accounts"
+          id="sync"
+          badge="Local-only"
+          helper="Optional. Mirror List membership to your own Convex deployment for cross-account history and instant “already in” checks. Leave both blank to keep Lasso fully local."
+        >
+          <div class="flex flex-col gap-3 sm:flex-row">
+            <div class="flex flex-1 flex-col gap-1.5">
+              <span class="text-faint text-[11px] font-semibold tracking-wide uppercase">
+                Deployment URL
+              </span>
+              <Input
+                type="url"
+                aria-label="Convex deployment URL"
+                placeholder="https://your-app.convex.cloud"
+                defaultValue={current.convexUrl ?? ""}
+                onChange={(e) =>
+                  patch({
+                    convexUrl: (e.currentTarget as HTMLInputElement).value.trim() || undefined,
+                  })
+                }
+              />
+            </div>
+            <div class="flex flex-1 flex-col gap-1.5">
+              <span class="text-faint text-[11px] font-semibold tracking-wide uppercase">
+                Device key
+              </span>
+              <Input
+                type="password"
+                aria-label="Convex device key"
+                placeholder="matches LASSO_DEVICE_KEY"
+                defaultValue={current.convexDeviceKey ?? ""}
+                onChange={(e) =>
+                  patch({
+                    convexDeviceKey:
+                      (e.currentTarget as HTMLInputElement).value.trim() || undefined,
+                  })
+                }
+              />
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Accessibility" id="access">
+          <div class="flex items-center justify-between gap-3 text-[15px]">
+            Higher-contrast buttons
+            <Switch
+              label="Higher-contrast buttons"
+              checked={current.highContrast}
+              onChange={(on) => patch({ highContrast: on })}
+            />
+          </div>
+          <p class="text-faint mt-1 text-[13px]">AA-safe deeper amber on the accent controls.</p>
+        </Section>
+
+        <Section title="Privacy & data" id="privacy">
+          <p class="text-[14px]">{PRIVACY_LINE}</p>
+          <div class="border-destructive/30 bg-destructive/5 mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-4">
+            <Button
+              variant="destructive"
+              size="pill"
+              onClick={() =>
+                void clearLassoData(local, sync).then(() => {
+                  setCleared(true);
+                  setLists([]);
+                  void settings.get().then(setCurrent);
+                })
+              }
+            >
+              Clear Lasso data
+            </Button>
+            {cleared && <span class="text-muted-foreground text-[13px]">Cleared</span>}
+            <Button
+              variant="outline"
+              size="pill"
+              onClick={() => void coach.replayIntro().then(() => setReplayed(true))}
+            >
+              Replay intro
+            </Button>
+            {replayed && (
+              <span class="text-muted-foreground text-[13px]">On your next visit to x.com</span>
+            )}
+          </div>
+        </Section>
+      </main>
+    </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: ComponentChildren }) {
+function RailItem({ label, target, active }: { label: string; target: string; active: boolean }) {
   return (
-    <section>
-      <h2 class="border-line mb-2 border-b pb-2 text-[17px] font-bold">{title}</h2>
-      {children}
-    </section>
+    <button
+      type="button"
+      onClick={() =>
+        document.getElementById(target)?.scrollIntoView?.({ behavior: "smooth", block: "start" })
+      }
+      class={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
+        active
+          ? "bg-secondary text-foreground font-semibold"
+          : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      <span class={`h-1.5 w-1.5 rounded-full ${active ? "bg-primary" : "bg-faint"}`} />
+      {label}
+    </button>
+  );
+}
+
+function Section({
+  title,
+  id,
+  helper,
+  badge,
+  children,
+}: {
+  title: string;
+  id?: string;
+  helper?: string;
+  badge?: string;
+  children: ComponentChildren;
+}) {
+  return (
+    <Card id={id} class="scroll-mt-10">
+      <CardHeader>
+        <div class="flex items-center justify-between gap-3">
+          <CardTitle>{title}</CardTitle>
+          {badge && <Badge variant="success">{badge}</Badge>}
+        </div>
+        {helper && <CardDescription>{helper}</CardDescription>}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function Sub({
+  heading,
+  class: cls,
+  children,
+}: {
+  heading: string;
+  class?: string;
+  children: ComponentChildren;
+}) {
+  return (
+    <div class={`mb-2 ${cls ?? ""}`}>
+      <h3 class="mb-1 text-[14px] font-semibold">{heading}</h3>
+      <p class="text-muted-foreground text-[13px]">{children}</p>
+    </div>
   );
 }

@@ -3,7 +3,7 @@
  * docs/CONTEXT.md "Filter terms" and the design spec
  * docs/superpowers/specs/2026-06-14-timeline-content-filter-design.md).
  *
- * Types only — no logic. The pure units (link-classifier, tweet-facets,
+ * Types only — no logic. The pure units (link-classifier, tweet-read,
  * timeline-filter) and the filter-store consume these.
  */
 
@@ -70,6 +70,13 @@ export interface FilterState {
   linkRules: LinkRule[];
   /** Named selection snapshots (criteria + language gate; never linkRules). */
   presets: FilterPreset[];
+  /**
+   * When true, filtered posts collapse to 0 height with no "· hidden — show"
+   * stub, for a clean feed. Default false — the safe stub mode (ADR-0010); the
+   * 0-height mode is the deferred, virtualization-risky upgrade and is opt-in
+   * (popup toggle), pending live-DOM verification.
+   */
+  compactHidden: boolean;
 }
 
 export type FilterVerdict = "show" | "hide";

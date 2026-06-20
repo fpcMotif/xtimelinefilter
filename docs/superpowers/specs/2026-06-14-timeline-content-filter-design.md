@@ -25,9 +25,9 @@ Concretely, the user can, in one pass: keep only posts in their languages, hide 
 ## 3. Scope
 
 **In scope (v1):**
-- **Timelines:** Home (`/home`, both For You and Following tabs) and List timelines (`/i/lists/<id>`). Detected by URL; the Filter UI and applier are inert elsewhere.
+- **Timelines:** Home (`/home`, both For You and Following tabs), List timelines (`/i/lists/<id>`), and profile timelines (`/<handle>` and its post sub-tabs — promoted from fast-follow 2026-06-20, see Update below). Detected by URL; the Filter UI and applier are inert elsewhere.
 - **Facets (the "green-dot core"):**
-  - **Media kind:** `text` (no media/card/quote), `photo`, `video`, `quote`, `link` (has an external link card).
+  - **Media kind:** `text` (no media/card/quote), `photo`, `video`, `quote`, `link` (has an external link card). A media kind is read from the post's *displayed* content and is **independent of `role`**: X renders a repost's original media inline, so a **repost of a video** reads as `video` *and* `repost`. Hence `kind:video=only` surfaces **both** fresh videos and reposted ones (the kind family and the role family are orthogonal — only a `role:repost=hide` would, by hide-wins, drop a reposted video).
   - **Link destination** (sub-facet of `link`, by outbound host): `arxiv`, `hn`, `reddit`, `youtube`, `github`; any other external host → generic **Article/Blog**. The host→destination table is **user-extensible in v1** via Link rules (Options); user rules win over defaults.
   - **Language:** a single **"only my languages"** toggle gated on the user's **My-languages** allowlist (configured in Options; default from `navigator.languages`); each post's language is read from the `lang` attribute on `[data-testid="tweetText"]`. Per-language *only/hide* chips deferred to v2.
   - **Post role:** `repost` (retweet/repost via socialContext).
@@ -35,7 +35,9 @@ Concretely, the user can, in one pass: keep only posts in their languages, hide 
 **Deferred to v2 (amber — heuristic or extra plumbing):**
 GIF, poll, reply, thread, pinned; author `verified` / `org`; **"in one of my Lists"** (reuses Lasso's membership knowledge — attractive, but needs the Mirror/REST membership path wired in); blog/news destination heuristics; per-language only/hide chips. Each is listed in §11.
 
-**Out of scope:** Search, profile, notifications, bookmarks timelines; any action against X; server-side or cross-device filter sync.
+**Out of scope:** Search, notifications, bookmarks timelines; any action against X; server-side or cross-device filter sync.
+
+**Update (2026-06-20): profile timelines promoted from fast-follow to in scope.** Profile pages use the same virtualized `cellInnerDiv` / `article[data-testid="tweet"]` structure as Home/List (research 03 §1), so the applier and facets work unchanged — the route gate (`content/route.ts isInScope`) was the only thing keeping them out. `isInScope` now also matches `/<handle>` and known profile post sub-tabs (`with_replies`, `media`, `likes`, …), guarded by a reserved-route deny-list so X's own nav routes (`/explore`, `/messages`, `/i/*`, …) stay out. Live-DOM confirmation of the visible filter behaviour on a real profile is still pending (same `verify-*-dom.md` discipline as the rest of §3).
 
 ## 4. Filter model & semantics
 
@@ -150,7 +152,7 @@ master toggle off  ->  filter-applier.restoreAll()  (native feed returns instant
 - **Per-timeline filter profiles** (independent saved filters for Home vs each List).
 - **Global AND/OR toggle** as an escape hatch from the §4 default.
 - **Full `display:none`** once the virtualization verification note clears it.
-- **Search / profile timelines** — fast-follow once their cell/article structure is verified live.
+- **Search timelines** — fast-follow once their cell/article structure is verified live. (Profile timelines shipped 2026-06-20 — see §3 Update.)
 
 ## 12. Verifiable goals (hand to writing-plans / tdd)
 

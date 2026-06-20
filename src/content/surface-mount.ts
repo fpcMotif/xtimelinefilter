@@ -5,7 +5,6 @@ type AnyVNode = VNode<any>;
 
 import type { FilterStore } from "@/core/filter-store";
 import type { LassoSettings, SettingsStore } from "@/core/settings";
-import { FilterBar } from "@/ui/filter-bar";
 import { FilterPalette } from "@/ui/filter-palette";
 import { FunnelPill } from "@/ui/funnel-pill";
 
@@ -62,10 +61,10 @@ function matchesHotkey(e: KeyboardEvent, combo: string): boolean {
 
 /**
  * Surface manager (spec §3/§5/§7): reads `settings.surfaces`, mounts each enabled
- * in-page surface (funnel pill / sticky bar) into the Shadow root, persists pill
- * position back to settings, and reconciles on settings change + SPA route change.
- * Everything tears down when `inScope()` is false — the filter only shows on Home
- * and List timelines.
+ * in-page surface (funnel pill / command palette) into the Shadow root, persists
+ * pill position back to settings, and reconciles on settings change + SPA route change.
+ * Everything tears down when `inScope()` is false — the filter only shows on
+ * Home, List, and profile timelines.
  */
 export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
   const { root, store, settings, hiddenCount } = deps;
@@ -85,10 +84,6 @@ export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
           position: s.pillPosition,
           onPositionChange: (pillPosition) => void settings.set({ pillPosition }),
         }),
-    },
-    bar: {
-      enabled: (s) => s.surfaces.bar,
-      view: () => createElement(FilterBar, { store, hiddenCount }),
     },
     palette: {
       enabled: (s) => s.surfaces.palette,

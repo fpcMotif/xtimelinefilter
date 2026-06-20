@@ -100,4 +100,37 @@ describe("feedbackFor — every failure is a designed beat (story beat 8)", () =
     expect(f.toast).toMatchObject({ kind: "info", title: "2 added · 5 still selected" });
     expect(f.deselect).toEqual(["a", "b"]);
   });
+
+  it("all-already-member: success toast with View List only (nothing newly added to undo)", () => {
+    const f = feedbackFor([r("a", "already-member"), r("b", "already-member")], LIST, {
+      selectedCount: 2,
+      nowMs: NOW,
+    });
+    expect(f.toast).toMatchObject({ kind: "success", title: "Added 0 to Design Folks" });
+    expect(f.toast.line).toBe("2 were already in the List");
+    expect(f.actions).toEqual(["view-list"]); // no "undo" — undoable is empty
+    expect(f.undoable).toEqual([]);
+    expect(f.deselect).toEqual(["a", "b"]);
+  });
+
+  it("rate limit defaults nowMs to Date.now when the caller omits it", () => {
+    const f = feedbackFor(
+      [r("a", "rate-limited", { resetAt: Math.floor(Date.now() / 1000) + 5 * 60 })],
+      LIST,
+      { selectedCount: 1 }, // no nowMs → falls back to Date.now()
+    );
+    expect(f.toast.kind).toBe("danger");
+    expect(f.toast.line).toContain("still selected — try again in");
+  });
+
+  it("total failure falls back to the first failed message when no protected author", () => {
+    const f = feedbackFor([r("a", "failed"), r("b", "failed", { message: "HTTP 503" })], LIST, {
+      selectedCount: 2,
+      nowMs: NOW,
+    });
+    // failureReason: no protected → first result.message is undefined → second is used? No:
+    // it returns the first failed result's message, which is undefined here.
+    expect(f.toast.title).toBe("Nothing was added");
+    expect(f.toast.line).toBeUndefined();
+  });
 });

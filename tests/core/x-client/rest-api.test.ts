@@ -181,4 +181,17 @@ describe("story beats 6 & 8 — typed failure detail", () => {
     expect(url).toBe("https://x.com/i/api/1.1/mutes/users/destroy.json");
     expect(parseBody(init)).toEqual({ screen_name: "jane" });
   });
+
+  it("maps v1.1 error code 88 to rate-limited with the reset header", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ errors: [{ code: 88, message: "Rate limit exceeded" }] }), {
+          status: 200,
+          headers: { "x-rate-limit-reset": "1750000456" },
+        }),
+    );
+    await expect(
+      addToList({ fetch: fetchMock as unknown as typeof fetch, creds }, "L1", "jack"),
+    ).rejects.toMatchObject({ kind: "rate-limited", resetAt: 1750000456 });
+  });
 });

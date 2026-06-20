@@ -3,47 +3,167 @@
 /* Make sure Tailwind scans our components for class usage. */
 @source "../**/*.{ts,tsx}";
 
-/* OKLCH palette tuned to blend into X (oklch-skill). Light values live here;
-   dark overrides below. These vars are emitted to :root and rewritten to :host
-   at injection time (mount.tsx) so utilities resolve inside the Shadow DOM. */
-@theme {
-  --color-surface: oklch(1 0 0);
-  --color-elevated: oklch(0.97 0.005 250);
-  --color-ink: oklch(0.21 0.02 250);
-  --color-muted: oklch(0.51 0.03 245);
-  --color-line: oklch(0.87 0.01 240);
-  --color-accent: oklch(0.68 0.15 237);
-  --color-accent-ink: oklch(1 0 0);
-  --color-danger: oklch(0.55 0.21 25);
+/* ── Lasso "Lariat" identity · shadcn-style tokens on Tailwind v4 ─────────────
+   A distinct, ownable look: a warm rope-amber primary on a cool near-black
+   canvas. Dark-first — the dark theme is the hero; light is the paper variant,
+   and both carry the amber so Lasso reads as Lasso in either system theme.
 
-  /* Strong ease-out (Emil): stronger than the CSS default. */
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+   The token architecture follows shadcn/ui: semantic CSS variables (--primary,
+   --card, --muted-foreground …) declared on :root, mapped to Tailwind color
+   tokens through `@theme inline` so runtime overrides (dark, high-contrast)
+   take effect without rebuilding. mount.tsx rewrites :root → :host at injection
+   time so the same vars resolve inside the Shadow DOM overlays on x.com.
 
-  --shadow-elevated: 0 0 0 1px oklch(0 0 0 / 0.05), 0 8px 24px oklch(0 0 0 / 0.12);
+   Dark is driven by prefers-color-scheme (no `.dark` class) — the right default
+   for an extension that should track the user's system/X theme. accent-ink /
+   primary-foreground is theme-aware: white on the deeper light-amber, dark warm
+   ink on the brighter dark-amber, so `bg-primary text-primary-foreground` stays
+   AA in both themes. */
+
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.98 0.006 84.6);
+  --foreground: oklch(0.23 0.008 264.4);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.23 0.008 264.4);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.23 0.008 264.4);
+  --primary: oklch(0.587 0.13 56.8);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.953 0.011 84.6);
+  --secondary-foreground: oklch(0.23 0.008 264.4);
+  --muted-foreground: oklch(0.508 0.021 261.3);
+  --faint: oklch(0.666 0.019 292.9);
+  --destructive: oklch(0.584 0.176 24.4);
+  --success: oklch(0.622 0.133 155.5);
+  --border: oklch(0.911 0.014 84.6);
+  --input: oklch(0.911 0.014 84.6);
+  --ring: oklch(0.587 0.13 56.8);
+
+  --shadow-elevated: 0 0 0 1px oklch(0 0 0 / 0.05), 0 12px 34px oklch(0 0 0 / 0.14);
+  --shadow-pop: 0 0 0 1px oklch(0 0 0 / 0.04), 0 18px 48px oklch(0 0 0 / 0.18);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-surface: oklch(0 0 0);
-    --color-elevated: oklch(0.18 0.006 255);
-    --color-ink: oklch(0.93 0.003 250);
-    --color-muted: oklch(0.58 0.01 250);
-    --color-line: oklch(0.3 0.006 255);
-    --shadow-elevated: 0 0 0 1px oklch(1 0 0 / 0.08), 0 8px 24px oklch(0 0 0 / 0.5);
+    --background: oklch(0.173 0.009 264.3);
+    --foreground: oklch(0.967 0.003 264.5);
+    --card: oklch(0.209 0.013 264.2);
+    --card-foreground: oklch(0.967 0.003 264.5);
+    --popover: oklch(0.243 0.015 261.7);
+    --popover-foreground: oklch(0.967 0.003 264.5);
+    --primary: oklch(0.774 0.135 65.3);
+    --primary-foreground: oklch(0.215 0.033 64.7);
+    --secondary: oklch(0.243 0.015 261.7);
+    --secondary-foreground: oklch(0.967 0.003 264.5);
+    --muted-foreground: oklch(0.692 0.019 264.4);
+    --faint: oklch(0.552 0.023 267.1);
+    --destructive: oklch(0.703 0.17 22.5);
+    --success: oklch(0.774 0.145 154);
+    --border: oklch(0.297 0.02 264.2);
+    --input: oklch(0.297 0.02 264.2);
+    --ring: oklch(0.774 0.135 65.3);
+
+    --shadow-elevated: 0 0 0 1px oklch(1 0 0 / 0.06), 0 14px 40px oklch(0 0 0 / 0.55);
+    --shadow-pop: 0 0 0 1px oklch(1 0 0 / 0.07), 0 22px 60px oklch(0 0 0 / 0.62);
   }
 }
 
+/* Strong ease-out (Emil): stronger than the CSS default. Static across themes. */
+@theme {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Elevation utilities. These MUST be explicit box-shadow utilities: a
+   `--color-elevated` token exists, so Tailwind otherwise reads `shadow-elevated`
+   as a shadow-*color* utility and emits no box-shadow at all (and `shadow-pop`
+   matches nothing). A direct box-shadow also sidesteps Tailwind's @property-based
+   shadow composition, which collapses to `none` inside our Shadow-DOM overlays. */
+@utility shadow-elevated {
+  box-shadow: var(--shadow-elevated);
+}
+@utility shadow-pop {
+  box-shadow: var(--shadow-pop);
+}
+
+/* Map semantic vars → Tailwind color/radius tokens. `inline` keeps the utilities
+   referencing the live var(), so the dark / high-contrast overrides above win. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Legacy aliases — the surfaces not yet migrated to shadcn names (ActionBar,
+     ListPicker, Toast, funnel-pill …) keep resolving against the same vars, so
+     they inherit the Lariat palette for free. */
+  --color-canvas: var(--background);
+  --color-surface: var(--card);
+  --color-elevated: var(--secondary);
+  --color-ink: var(--foreground);
+  --color-muted: var(--muted-foreground);
+  --color-line: var(--border);
+  --color-accent: var(--primary);
+  --color-accent-ink: var(--primary-foreground);
+  --color-danger: var(--destructive);
+  --color-good: var(--success);
+}
+
 @layer base {
+  * {
+    border-color: var(--border);
+  }
+
   :host {
     font-family:
       -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
-    color: var(--color-ink);
+    color: var(--foreground);
   }
 
-  /* Accessibility: AA-safe darker-blue fills (Settings → Higher-contrast buttons). */
+  /* Extension pages (popup + options) are NOT Shadow DOM, so paint the canvas
+     here. The `body` selector never matches inside an overlay's shadow root, so
+     this leaves the on-x.com surfaces transparent. */
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Accessibility (Settings → Higher-contrast buttons): deepen the amber so the
+     primary fills clear AA. Theme-aware to match the primary-foreground direction. */
   :host([data-hc]) {
-    --color-accent: oklch(0.48 0.16 240);
+    --primary: oklch(0.494 0.11 57.8);
+    --ring: oklch(0.494 0.11 57.8);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :host([data-hc]) {
+    --primary: oklch(0.849 0.123 72.1);
+    --ring: oklch(0.849 0.123 72.1);
   }
 }
 

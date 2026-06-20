@@ -131,6 +131,40 @@ describe("recordAssign", () => {
     expect(events).toHaveLength(2); // add + remove both logged
   });
 
+  test("patches memberUserId onto an existing snapshot row when re-recorded with an id", async () => {
+    const t = convexTest(schema, modules);
+
+    // First add resolves no numeric id; the second carries one and must be
+    // patched onto the existing row (the memberUserId-present branch).
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list,
+      results: [{ memberScreenName: "alice", action: "add", outcome: "added" }],
+    });
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list,
+      results: [
+        {
+          memberScreenName: "alice",
+          memberUserId: "777",
+          action: "add",
+          outcome: "already-member",
+        },
+      ],
+    });
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("members")
+        .withIndex("by_list_member", (q) => q.eq("listId", "L1").eq("memberScreenName", "alice"))
+        .unique(),
+    );
+    expect(row).toMatchObject({ present: true, memberUserId: "777" });
+  });
+
   test('does NOT touch snapshot on "failed" / "rate-limited" / "protected" but still appends events', async () => {
     const t = convexTest(schema, modules);
 

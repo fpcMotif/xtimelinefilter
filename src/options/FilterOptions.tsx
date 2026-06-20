@@ -1,22 +1,18 @@
 import { useState } from "preact/hooks";
 
+import { LINK_DEST_LABELS } from "@/core/filter-criteria";
 import type { FilterStore } from "@/core/filter-store";
 import type { LinkDest } from "@/core/filter-types";
+import { Button, Input } from "@/ui/components";
 import { useSignalValue } from "@/ui/use-signal-value";
 
-const DEST_LABELS: Record<LinkDest, string> = {
-  article: "Article/Blog",
-  arxiv: "arXiv",
-  hn: "Hacker News",
-  reddit: "Reddit",
-  youtube: "YouTube",
-  github: "GitHub",
-};
+const DEST_LABELS = LINK_DEST_LABELS;
 const DESTS = Object.keys(DEST_LABELS) as LinkDest[];
 
-const CHIP = "border-line flex items-center gap-1 rounded-full border px-2 py-0.5 text-[13px]";
-const INPUT = "border-line bg-surface rounded-lg border px-3 py-2 text-[15px]";
-const BTN = "border-line hover:bg-elevated rounded-full border px-3 py-1.5 text-sm font-semibold";
+const CHIP =
+  "border-border bg-secondary flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[13px] font-medium";
+const SELECT =
+  "border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 rounded-lg border px-3 text-sm outline-none transition-[color,box-shadow,border-color] focus-visible:ring-2";
 
 /** BCP-47 allowlist editor for the "only my languages" gate. */
 export function MyLanguagesEditor({ store }: { store: FilterStore }) {
@@ -40,27 +36,26 @@ export function MyLanguagesEditor({ store }: { store: FilterStore }) {
               type="button"
               aria-label={`Remove ${lang}`}
               onClick={() => store.setMyLanguages(myLanguages.filter((l) => l !== lang))}
-              class="text-muted hover:text-ink"
+              class="text-faint hover:text-destructive transition-colors"
             >
               ✕
             </button>
           </span>
         ))}
         {myLanguages.length === 0 && (
-          <span class="text-muted text-[13px]">No languages — gate shows everything.</span>
+          <span class="text-faint text-[13px]">No languages — gate shows everything.</span>
         )}
       </div>
       <div class="flex gap-2">
-        <input
+        <Input
           aria-label="Language to add (BCP-47)"
           placeholder="e.g. ja"
           value={draft}
           onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-          class={INPUT}
         />
-        <button type="button" aria-label="Add language" onClick={add} class={BTN}>
+        <Button variant="secondary" aria-label="Add language" onClick={add}>
           Add
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -84,33 +79,36 @@ export function LinkRulesEditor({ store }: { store: FilterStore }) {
     <div class="flex flex-col gap-3">
       <ul class="flex flex-col gap-1">
         {linkRules.map((rule) => (
-          <li key={`${rule.host}:${rule.dest}`} class="flex items-center gap-2 text-[14px]">
+          <li
+            key={`${rule.host}:${rule.dest}`}
+            class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[14px]"
+          >
             <span class="font-mono">{rule.host}</span>
-            <span class="text-muted">→ {DEST_LABELS[rule.dest]}</span>
+            <span class="text-muted-foreground">→ {DEST_LABELS[rule.dest]}</span>
             <button
               type="button"
               aria-label={`Remove rule ${rule.host}`}
               onClick={() => store.setLinkRules(linkRules.filter((r) => r !== rule))}
-              class="text-muted hover:text-ink ml-auto"
+              class="text-faint hover:text-destructive ml-auto transition-colors"
             >
               ✕
             </button>
           </li>
         ))}
       </ul>
-      <div class="flex gap-2">
-        <input
+      <div class="flex flex-wrap gap-2">
+        <Input
           aria-label="Rule host"
           placeholder="e.g. lobste.rs"
           value={host}
           onInput={(e) => setHost((e.currentTarget as HTMLInputElement).value)}
-          class={`${INPUT} flex-1`}
+          class="flex-1"
         />
         <select
           aria-label="Rule destination"
           value={dest}
           onChange={(e) => setDest((e.currentTarget as HTMLSelectElement).value as LinkDest)}
-          class={INPUT}
+          class={SELECT}
         >
           {DESTS.map((d) => (
             <option key={d} value={d}>
@@ -118,9 +116,9 @@ export function LinkRulesEditor({ store }: { store: FilterStore }) {
             </option>
           ))}
         </select>
-        <button type="button" aria-label="Add rule" onClick={add} class={BTN}>
+        <Button variant="secondary" aria-label="Add rule" onClick={add}>
           Add rule
-        </button>
+        </Button>
       </div>
     </div>
   );

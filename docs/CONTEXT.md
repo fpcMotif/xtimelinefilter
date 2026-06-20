@@ -19,12 +19,13 @@ The shared vocabulary for this codebase. Keep terms consistent in code, tests, a
 
 ## Module map (single-purpose units)
 ```
-core/selection-store   reactive selection (done)        core/tweet-extractor   article -> author (pure)
+core/selection-store   reactive selection (done)        core/tweet-read        known article -> author + facets + identity (one read home; status core private)
 core/x-client/types    XListApi seam + errors           core/x-client/auth     ct0 + bearer
 core/x-client/dom-api  default backend (UI automation)  core/x-client/page-driver  DOM driver
 core/x-client/graphql-api  opt-in backend               core/x-client/graphql-config  ids/features
 core/x-client/factory  pick backend from settings       core/actions/assign-to-list  orchestrate + policy
-core/list-cache        list + handle->id cache          core/settings          typed storage.sync
+core/list-cache        list + handle->id cache          core/settings          typed storage.sync (face over synced-store)
+core/synced-store      one sync key: cache+merge+echo+listener   core/filter-projection  state-derived count + palette catalog
 content/main           wire observer/store/UI           content/selectors      DOM hook table
 ui/*                   Preact in Shadow DOM             background/index       minimal SW
 content/get-focused-tweet  read X's native j/k cursor   content/keyboard       Alt+key dispatcher + DEFAULT_KEYMAP
@@ -66,13 +67,15 @@ convex/schema + functions  accounts/lists/members/events    convex/auth  device-
 
 ## Filter terms (docs/superpowers/specs/2026-06-14-timeline-content-filter-design.md)
 - **Filter** — Lasso's second capability: a client-side, display-only narrowing of the timeline. Reads each **Tweet**'s **Facets** and decides show/hide. Never calls X, never acts on X, never load-bearing for the List-assign flow (same posture as the **Mirror**).
-- **Facet** — a classifiable property of a Tweet, read purely from its `article`: independent predicates `{hasText, hasPhoto, hasVideo, hasQuote, hasLink}` + `linkDest` (set of hosts) + `role` (repost) + `lang`. Isolated-world-safe, no network. Sibling to the Author that `tweet-extractor` pulls out.
+- **Facet** — a classifiable property of a Tweet, read purely from its `article`: independent predicates `{hasText, hasPhoto, hasVideo, hasQuote, hasLink}` + `linkDest` (set of hosts) + `role` (repost) + `lang`. Isolated-world-safe, no network. Read by the `tweet-read` module alongside the Author (one read home; the shared status/identity core is private).
 - **Family** — a group of related criteria the Filter offers: Media kind, Link destination, Post role, Language.
 - **Criterion** — one filterable Facet value the user can switch (e.g. `kind:video`, `linkDest:arxiv`).
 - **Filter mode** — the per-Criterion tri-state `off | only | hide`; the UI chip cycles `off → only → hide → off`.
+- **Filter projection** — the state-derived read-side views every surface renders, concentrated in `core/filter-projection.ts`: `activeCriteriaCount(state)` (Criteria not `off` + the language gate) and `buildPaletteItems(state)` (the Only/Hide + preset + global-action catalog). Distinct from the *static* `filter-criteria.ts` catalog; pure and data-only (ADR-0003). One home so surfaces cannot diverge (the pill badge and the popup "filters on" count once disagreed when an `off` key survived a preset/external write).
+- **Synced store** — `core/synced-store.ts`, the deep module owning cross-context reactive coherence for one `storage.sync` key (in-memory cache + merge-over-defaults + echo-suppression + the raw `storage-sync.ts` listener). `settings` and `filter-store` are thin reactive faces over it; `settings.get()` is a cached read, `write()` is strict (the filter face wraps it fail-soft per §8; the settings face re-throws — ADR-0009 credential store).
 - **Link rule** — a `host → destination` mapping used to classify a Tweet's outbound links. Built-in defaults cover arxiv/hn/reddit/youtube/github; the user adds more in Options (v1, winning over defaults); any other external host falls back to the generic **Article/Blog** destination.
 - **My languages** — the user's allowlist of BCP-47 codes (default seeded from `navigator.languages`). The Language family is a single **"only my languages"** gate: a post whose detected `lang` is outside the set is hidden; a post with no detectable `lang` is shown (fail-open). Per-language only/hide chips are a v2 facet.
-- **Hidden cell** — a timeline cell (`div[data-testid="cellInnerDiv"]`) the Filter collapses to a thin "· hidden — show" stub. Never removed from the DOM, always restorable; the Filter only ever toggles this. Chosen over full `display:none` to stay gentle on X's height-based virtualization (ADR-0010). A Hidden cell is **inert for List-assign**: no selection overlay, not click-selectable, skipped by select mode — clicking "show" turns it back into a normal, selectable Tweet.
+- **Hidden cell** — a timeline cell (`div[data-testid="cellInnerDiv"]`) the Filter collapses to a thin "· hidden — show" stub. Never removed from the DOM, always restorable; the Filter only ever toggles this. Chosen over full `display:none` to stay gentle on X's height-based virtualization (ADR-0010). A Hidden cell is **inert for List-assign**: no selection overlay, not click-selectable, skipped by select mode — clicking "show" turns it back into a normal, selectable Tweet. An opt-in, default-off **compact mode** (the popup's "Hide filtered posts completely" toggle) additionally hides the stub so the cell collapses to ~0 height for a clean feed — the node is still never removed, so it stays restorable; this deliberately enters the height-0 regime ADR-0010 deferred and is pending live-DOM verification (`docs/research/verify-filter-virtualization-dom.md`).
 
 ## Invariants
 - Authenticated x.com calls run in the **content script** (same-origin). The SW holds no X tokens and no long-lived X state; the *only* long-lived credential the extension may hold is the optional Mirror **device key** (ADR-0009).

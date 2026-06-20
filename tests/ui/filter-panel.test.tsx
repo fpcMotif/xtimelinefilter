@@ -54,15 +54,42 @@ describe("FilterPanel", () => {
     expect(store.state.value.onlyMyLanguages).toBe(true);
   });
 
-  it("shows '3 hidden' with a 'show all' override when hiddenCount returns 3", () => {
+  it("shows '3 hidden' with a 'show all' reveal that keeps the filter armed", () => {
     const { store, r } = setup(3);
     expect(r.getByText(/3 hidden/i)).toBeTruthy();
     const showAll = r.getByRole("button", { name: /show all/i });
     const before = store.state.value.criteria;
     fireEvent.click(showAll);
-    // temporary override — disables filtering without mutating stored criteria
-    expect(store.state.value.enabled).toBe(false);
+    // Reveal is a transient peek: filter stays enabled, stored criteria untouched
+    // — no longer the same act as "disable filter".
+    expect(store.revealed.value).toBe(true);
+    expect(store.state.value.enabled).toBe(true);
     expect(store.state.value.criteria).toEqual(before);
+    // While revealed the line offers "hide all" (re-hide) instead of "show all".
+    const hideAll = r.getByRole("button", { name: /hide all/i });
+    fireEvent.click(hideAll);
+    expect(store.revealed.value).toBe(false);
+  });
+
+  it("keeps the show-all/hide-all toggle in the panel even when nothing is hidden", () => {
+    const { store, r } = setup(0);
+    const showAll = r.getByRole("button", { name: /show all/i });
+    fireEvent.click(showAll);
+    expect(store.revealed.value).toBe(true);
+    // It flips to a "hide all" control that re-hides everything in one click.
+    fireEvent.click(r.getByRole("button", { name: /hide all/i }));
+    expect(store.revealed.value).toBe(false);
+  });
+
+  it("hides the 'show all' button while the filter is disabled but keeps the count", () => {
+    const { r } = setup(0, (s) => s.setEnabled(false));
+    expect(r.queryByRole("button", { name: /show all/i })).toBeNull();
+    expect(r.getByText(/0 hidden/i)).toBeTruthy();
+  });
+
+  it("does not render the compact-hidden toggle (it lives in the popup only)", () => {
+    const { r } = setup(0);
+    expect(r.queryByLabelText(/hide filtered posts completely/i)).toBeNull();
   });
 
   it("omits the hidden/show-all line entirely when hiddenCount is not provided", () => {
@@ -89,5 +116,14 @@ describe("FilterPanel", () => {
     fireEvent.input(input, { target: { value: "Focus" } });
     fireEvent.click(r.getByRole("button", { name: /^save$/i }));
     expect(spy).toHaveBeenCalledWith("Focus");
+  });
+
+  it("does not save when the preset name is empty or whitespace", () => {
+    const { store, r } = setup(0);
+    const spy = vi.spyOn(store, "savePreset");
+    const input = r.getByLabelText(/preset name/i) as HTMLInputElement;
+    fireEvent.input(input, { target: { value: "   " } });
+    fireEvent.click(r.getByRole("button", { name: /^save$/i }));
+    expect(spy).not.toHaveBeenCalled();
   });
 });

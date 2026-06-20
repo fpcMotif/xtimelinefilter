@@ -30,7 +30,9 @@ interface CatalogList {
   memberCount?: number;
   lastReconciledAt?: number;
 }
-interface CatalogGroup {
+/** Wire shape of `api.membership.catalog`. Pinned to the backend by a compile-time
+ *  guard in convex-client.ts (the only file that may see convex/_generated). */
+export interface CatalogGroup {
   owner: Owner;
   lists: CatalogList[];
 }
@@ -89,6 +91,8 @@ export class ConvexMembershipStore implements MembershipStore {
   }
 
   async listsContaining(screenName: string): Promise<MembershipHit[]> {
+    // Cast is proven safe by ASSERT_LISTS_CONTAINING in convex-client.ts, which
+    // checks the backend's generated return type against MembershipHit[].
     return (await this.client.query(this.api.listsContaining, {
       deviceKey: this.deviceKey,
       screenName,
@@ -96,6 +100,7 @@ export class ConvexMembershipStore implements MembershipStore {
   }
 
   async catalog(): Promise<OwnerCatalog[]> {
+    // Cast proven safe by ASSERT_CATALOG in convex-client.ts.
     const groups = (await this.client.query(this.api.catalog, {
       deviceKey: this.deviceKey,
     })) as CatalogGroup[];

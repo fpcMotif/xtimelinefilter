@@ -6,6 +6,24 @@ import tailwindCss from "./styles.css?inline";
 // apply inside the Shadow DOM (utilities resolve their var() references there).
 const shadowCss = tailwindCss.replaceAll(":root", ":host");
 
+// Tailwind v4 declares its utility state vars (--tw-shadow, --tw-border-style,
+// --tw-scale-*, …) with @property. @property only registers at the DOCUMENT
+// level — inside a shadow root (adoptedStyleSheets) those registrations are
+// ignored, so the vars have no initial value and any utility that composes them
+// silently collapses: border-style → none (⇒ 0-width borders), box-shadow → none,
+// ring/transform become no-ops. Mirror just the @property blocks into one
+// document-level <style> so the shadow-DOM utilities resolve correctly.
+const twPropertyRules = shadowCss.match(/@property[^{]+\{[^}]*\}/g)?.join("") ?? "";
+let twPropertiesInstalled = false;
+function installTwProperties(): void {
+  if (twPropertiesInstalled || !twPropertyRules || typeof document === "undefined") return;
+  twPropertiesInstalled = true;
+  const style = document.createElement("style");
+  style.setAttribute("data-lasso-tw-properties", "");
+  style.textContent = twPropertyRules;
+  (document.head ?? document.documentElement).appendChild(style);
+}
+
 let sheet: CSSStyleSheet | undefined;
 
 /** One constructable stylesheet shared by the main UI root and every overlay root. */
@@ -19,6 +37,7 @@ export function sharedStyleSheet(): CSSStyleSheet {
 
 /** Attach an open Shadow DOM with the shared theme, returning a Preact mount point. */
 export function attachShadowRoot(host: HTMLElement): { root: ShadowRoot; mount: HTMLElement } {
+  installTwProperties();
   const root = host.attachShadow({ mode: "open" });
   root.adoptedStyleSheets = [sharedStyleSheet()];
   const mount = document.createElement("div");

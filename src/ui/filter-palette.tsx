@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import { buildPaletteItems, type PaletteItem } from "@/core/filter-projection";
 import type { FilterStore } from "@/core/filter-store";
-import type { CriterionId, FilterMode, FilterState } from "@/core/filter-types";
 import { useSignalValue } from "@/ui/use-signal-value";
 
 /**
@@ -10,79 +10,6 @@ import { useSignalValue } from "@/ui/use-signal-value";
  * passive filter UI without occluding active multi-select (spec §7 / §10).
  */
 const PALETTE_Z = 2147483643;
-
-/** A criterion's short label, used to build "Only · …" / "Hide · …" entries. */
-const CRITERION_LABELS: Record<CriterionId, string> = {
-  "kind:text": "text",
-  "kind:photo": "photo",
-  "kind:video": "video",
-  "kind:quote": "quote",
-  "kind:link": "link",
-  "linkDest:arxiv": "arXiv",
-  "linkDest:hn": "Hacker News",
-  "linkDest:reddit": "Reddit",
-  "linkDest:youtube": "YouTube",
-  "linkDest:github": "GitHub",
-  "linkDest:article": "Article/Blog",
-  "role:repost": "Repost",
-};
-
-/** A single executable row in the palette: a stable id, a display label, and an effect. */
-export interface PaletteItem {
-  id: string;
-  label: string;
-  run(store: FilterStore): void;
-}
-
-const MODE_VERB: Record<Exclude<FilterMode, "off">, string> = { only: "Only", hide: "Hide" };
-
-/**
- * Pure item catalog for the current filter state: every criterion contributes an
- * "Only · …" and a "Hide · …" entry; each saved preset contributes an apply
- * entry; and three global actions ("Show all hidden", "Disable/Enable filter")
- * round it out. Stable ids/labels so the list diffs cleanly across renders.
- */
-export function buildPaletteItems(state: FilterState): PaletteItem[] {
-  const items: PaletteItem[] = [];
-
-  for (const [id, label] of Object.entries(CRITERION_LABELS)) {
-    for (const mode of ["only", "hide"] as const) {
-      items.push({
-        id: `criterion:${id}:${mode}`,
-        label: `${MODE_VERB[mode]} · ${label}`,
-        run: (store) => store.setMode(id, mode),
-      });
-    }
-  }
-
-  for (const preset of state.presets) {
-    items.push({
-      id: `preset:${preset.id}`,
-      label: `Apply preset · ${preset.name}`,
-      run: (store) => store.applyPreset(preset.id),
-    });
-  }
-
-  items.push(
-    {
-      id: "action:show-all",
-      label: "Show all hidden",
-      run: (store) => store.setEnabled(false),
-    },
-    {
-      id: "action:disable",
-      label: "Disable filter",
-      run: (store) => store.setEnabled(false),
-    },
-    {
-      id: "action:enable",
-      label: "Enable filter",
-      run: (store) => store.setEnabled(true),
-    },
-  );
-
-  return items;
-}
 
 /**
  * Subsequence fuzzy match: every character of `query` (ignoring case and spaces)

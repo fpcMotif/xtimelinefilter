@@ -4,6 +4,7 @@ import { classifyHost } from "@/core/link-classifier";
 /** X language codes that mean "no real language" — these pass the language gate. */
 const UNDETECTABLE = new Set(["und", "zxx", "qme", "qst", "qht", "qct", "qam"]);
 
+/* v8 ignore next 2 -- split[0] is always present; ?. and ?? "" are type-required, runtime-dead guards */
 const normalizeLang = (lang: string): string => lang.split("-")[0]?.toLowerCase() ?? "";
 const isDetectable = (lang: string | null): lang is string =>
   !!lang && !UNDETECTABLE.has(normalizeLang(lang));

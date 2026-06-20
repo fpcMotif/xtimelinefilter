@@ -3,8 +3,9 @@ import type { Facets } from "@/core/filter-types";
 
 /**
  * Pure, ISOLATED-world-safe extraction of a Tweet's Facets from its article.
- * Sibling of tweet-extractor.ts. Every read is guarded so a malformed/unexpected
- * article degrades to partial Facets and NEVER throws (fail-open, spec §8).
+ * Co-located sibling of author() under tweet-read. Every read is guarded so a
+ * malformed/unexpected article degrades to partial Facets and NEVER throws
+ * (fail-open, spec §8).
  *
  * The FacetSelectors it relies on are ASSUMPTIONS until confirmed on live x.com
  * (plan task 018 / verify-filter-dom.md).
@@ -26,17 +27,18 @@ function safe<T>(fn: () => T, fallback: T): T {
 /** Parse a host out of visible link text (X shows the real domain as the link's text). */
 function hostFromText(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const token =
-    raw
-      .trim()
-      .replace(/^https?:\/\//i, "")
-      .split(/[/?#\s]/)[0] ?? "";
-  const host = token.toLowerCase();
+  const head = raw
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .split(/[/?#\s]/);
+  /* v8 ignore next -- split always yields >=1 element; ?? "" is a type-required, runtime-dead guard */
+  const host = (head[0] ?? "").toLowerCase();
   return HOST_RE.test(host) ? host : null;
 }
 
 /** Host of an outbound href; null for internal/t.co (the real domain is in the text). */
 function hostFromHref(href: string | null): string | null {
+  /* v8 ignore next -- caller only feeds matched a[href^="http"] anchors; the null guard is unreachable */
   if (!href) return null;
   try {
     const host = new URL(href, "https://x.com").hostname.toLowerCase();
@@ -71,7 +73,10 @@ function collectLinkHosts(article: Element): string[] {
   return [...hosts];
 }
 
-export function extractFacets(article: Element): Facets {
+/* v8 ignore next 2 -- an Element's textContent is never null at runtime; ?? "" is a type-required guard */
+const textOf = (el: Element): string => el.textContent ?? "";
+
+export function facets(article: Element): Facets {
   const has = (sel: string): boolean => safe(() => !!article.querySelector(sel), false);
   const tweetText = safe(() => article.querySelector(Selectors.TWEET_TEXT), null);
 
@@ -82,7 +87,7 @@ export function extractFacets(article: Element): Facets {
   const hasCard = has(FacetSelectors.CARD);
 
   return {
-    hasText: !!(tweetText && (tweetText.textContent ?? "").trim()),
+    hasText: !!(tweetText && textOf(tweetText).trim()),
     hasPhoto,
     hasVideo,
     hasQuote,

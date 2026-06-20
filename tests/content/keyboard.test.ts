@@ -8,6 +8,7 @@ import {
   type KeyBinding,
   installKeyboardLayer,
 } from "@/content/keyboard";
+import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
 
 const keymap: KeyBinding[] = [
   { combo: "Alt+m", command: "mute" },
@@ -135,6 +136,15 @@ describe("installKeyboardLayer", () => {
       stopImmediatePropagation: vi.fn(),
     } as unknown as KeyboardEvent);
     expect(run).toHaveBeenCalledWith("toggle-select");
+  });
+
+  it("ignores Lasso's own synthetic events (the cleanup Escape it fires at X)", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({ keymap, run, doc: document });
+    const e = new KeyboardEvent("keydown", { key: "x", cancelable: true });
+    (e as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] = true;
+    document.dispatchEvent(e);
+    expect(run).not.toHaveBeenCalled(); // synthetic → not user input for this layer
   });
 
   it("fires Alt+n (not-interested) from a macOS dead-key event", () => {

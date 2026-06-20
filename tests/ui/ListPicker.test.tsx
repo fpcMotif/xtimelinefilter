@@ -96,6 +96,37 @@ describe("ListPicker — ready state anatomy (story beat 4)", () => {
     fireEvent.keyDown(s.input(), { key: "Escape" });
     expect(s.onCancel).toHaveBeenCalled();
   });
+
+  it("ArrowUp moves the active row back up", async () => {
+    const s = await setup({});
+    fireEvent.keyDown(s.input(), { key: "ArrowDown" });
+    expect(s.picker.activeIndex.value).toBe(1);
+    fireEvent.keyDown(s.input(), { key: "ArrowUp" });
+    expect(s.picker.activeIndex.value).toBe(0);
+  });
+
+  it("ignores keys other than the four it handles", async () => {
+    const s = await setup({});
+    fireEvent.keyDown(s.input(), { key: "a" });
+    expect(s.onPick).not.toHaveBeenCalled();
+    expect(s.onCancel).not.toHaveBeenCalled();
+    expect(s.picker.activeIndex.value).toBe(0);
+  });
+
+  it("Enter with no active row (no match) does not pick", async () => {
+    const s = await setup({});
+    fireEvent.input(s.input(), { target: { value: "zzz-no-match" } });
+    await waitFor(() => expect(s.picker.active.value).toBeNull());
+    fireEvent.keyDown(s.input(), { key: "Enter" });
+    expect(s.onPick).not.toHaveBeenCalled();
+  });
+
+  it("picks a List when its row is clicked", async () => {
+    const s = await setup({});
+    const row = s.container.querySelector('[role="option"]') as HTMLElement;
+    fireEvent.mouseDown(row);
+    expect(s.onPick).toHaveBeenCalledWith(expect.objectContaining({ name: "Research" }));
+  });
 });
 
 describe("ListPicker — designed failure beats (story beat 8)", () => {
@@ -134,6 +165,42 @@ describe("ListPicker — designed failure beats (story beat 8)", () => {
       },
     });
     expect(s.getByText("X rate limited Lasso — try again in a few minutes")).toBeTruthy();
+  });
+
+  it("unknown errors fall back to the generic reason", async () => {
+    const s = await setup({
+      lists: async () => {
+        throw new XApiError("unknown", "500");
+      },
+    });
+    expect(s.getByText("Couldn't load your Lists")).toBeTruthy();
+    expect(s.getByText("X didn't respond — try again")).toBeTruthy();
+  });
+
+  it("Escape on the retry button cancels; other keys are ignored", async () => {
+    const s = await setup({
+      lists: async () => {
+        throw new XApiError("auth", "401");
+      },
+    });
+    const retry = s.getByText("Retry");
+    fireEvent.keyDown(retry, { key: "x" });
+    expect(s.onCancel).not.toHaveBeenCalled();
+    fireEvent.keyDown(retry, { key: "Escape" });
+    expect(s.onCancel).toHaveBeenCalled();
+  });
+
+  it("clicking Retry re-fetches the Lists", async () => {
+    let fail = true;
+    const s = await setup({
+      lists: async () => {
+        if (fail) throw new XApiError("auth", "401");
+        return LISTS;
+      },
+    });
+    fail = false;
+    fireEvent.click(s.getByText("Retry"));
+    await waitFor(() => expect(s.picker.status.value).toBe("ready"));
   });
 
   it("pressing r retries from the keyboard", async () => {

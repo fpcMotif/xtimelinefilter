@@ -8,15 +8,24 @@ import type {
   LinkRule,
 } from "@/core/filter-types";
 import type { StorageLike } from "@/core/settings";
+import { STORAGE_KEYS } from "@/core/storage-keys";
+import { syncedStore } from "@/core/synced-store";
 
 /** storage.sync key for the one global filter (v1). */
-const KEY = "lasso:filter";
+const KEY = STORAGE_KEYS.filter;
 
 const NEXT_MODE: Record<FilterMode, FilterMode> = { off: "only", only: "hide", hide: "off" };
 
 export interface FilterStore {
   /** Reactive filter configuration; consumers `.subscribe` or read `.value`. */
   readonly state: ReadonlySignal<FilterState>;
+  /**
+   * Transient "show all hidden" peek — un-collapses the timeline *without*
+   * touching the persisted config (criteria + master toggle stay armed). Not
+   * persisted and not synced; any selection edit resumes filtering. Distinct
+   * from `enabled` so "show all" and "disable filter" are no longer the same act.
+   */
+  readonly revealed: ReadonlySignal<boolean>;
   /** Advance a criterion's tri-state off → only → hide → off. */
   cycle(id: CriterionId): void;
   /** Set a criterion directly ("off" clears it). */
@@ -25,6 +34,13 @@ export interface FilterStore {
   setMyLanguages(langs: readonly string[]): void;
   setLinkRules(rules: LinkRule[]): void;
   setEnabled(on: boolean): void;
+  /**
+   * Persist the compact-hidden display mode: when true, filtered cells collapse
+   * to 0 height (no stub). Synced like the rest of the config; not a peek.
+   */
+  setCompactHidden(on: boolean): void;
+  /** Toggle the transient reveal (see {@link FilterStore.revealed}); a no-op while the filter is disabled. */
+  setRevealed(on: boolean): void;
   /** Snapshot the active selection (criteria + language gate) as a named preset; returns its id. */
   savePreset(name: string): string;
   /** Replace criteria + onlyMyLanguages (+ myLanguages if captured); never touches linkRules. */
@@ -58,42 +74,82 @@ function defaultState(navLanguages: readonly string[]): FilterState {
     myLanguages: normalizeLangs(navLanguages),
     linkRules: [],
     presets: [],
+    compactHidden: false,
   };
 }
 
 /**
- * Reactive, persisted store for the one global filter (storage.sync). Mirrors the
- * createSettings pattern; storage access is guarded so failures fall back to
- * in-memory defaults and never throw into the page (spec §8).
+ * Reactive, persisted store for the one global filter (storage.sync). A thin
+ * reactive face over {@link syncedStore} (cache + merge + echo + listener); its
+ * writes are wrapped fail-soft so a storage failure falls back to in-memory
+ * defaults and never throws into the page (spec §8).
  */
 export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
   const area = deps.storage ?? (chrome.storage.sync as unknown as StorageLike);
   const navLanguages =
     deps.navLanguages ?? (typeof navigator !== "undefined" ? navigator.languages : []);
-  const state = signal<FilterState>(defaultState(navLanguages));
+  const store = syncedStore<FilterState>(KEY, defaultState(navLanguages), area);
+  const state = signal<FilterState>(store.current());
+  const revealed = signal<boolean>(false);
 
+  // Persist via syncedStore's strict write, wrapped fail-soft: a storage.sync
+  // failure falls back to in-memory defaults and never throws into the page (§8).
   function persist(): void {
-    Promise.resolve(area.set({ [KEY]: state.value })).catch(() => {});
+    void store.write(state.value).catch(() => {});
   }
   function update(patch: Partial<FilterState>): void {
     state.value = { ...state.value, ...patch };
     persist();
   }
+  // Any change to the selection ends a "show all" peek — adjusting the filter
+  // is the natural signal that the user wants to see its effect again.
+  function resumeFiltering(): void {
+    if (revealed.value) revealed.value = false;
+  }
   function setMode(id: CriterionId, mode: FilterMode): void {
+    resumeFiltering();
     const criteria = { ...state.value.criteria };
     if (mode === "off") delete criteria[id];
     else criteria[id] = mode;
     update({ criteria });
   }
 
+  // Bridge cross-context writes (popup / Options / sibling tabs) into this
+  // store's signal so an edit anywhere reaches every open surface live.
+  store.onExternalChange((next) => {
+    state.value = next; // external change — adopt without re-persisting
+  });
+
   return {
     state,
+    revealed,
     cycle: (id) => setMode(id, NEXT_MODE[state.value.criteria[id] ?? "off"]),
     setMode,
-    setOnlyMyLanguages: (on) => update({ onlyMyLanguages: on }),
-    setMyLanguages: (langs) => update({ myLanguages: normalizeLangs(langs) }),
-    setLinkRules: (rules) => update({ linkRules: rules }),
-    setEnabled: (on) => update({ enabled: on }),
+    setOnlyMyLanguages: (on) => {
+      resumeFiltering();
+      update({ onlyMyLanguages: on });
+    },
+    setMyLanguages: (langs) => {
+      resumeFiltering();
+      update({ myLanguages: normalizeLangs(langs) });
+    },
+    setLinkRules: (rules) => {
+      resumeFiltering();
+      update({ linkRules: rules });
+    },
+    setEnabled: (on) => {
+      resumeFiltering();
+      update({ enabled: on });
+    },
+    // A display preference, not a selection edit — it must NOT end a "show all"
+    // peek, so it deliberately skips resumeFiltering().
+    setCompactHidden: (on) => update({ compactHidden: on }),
+    setRevealed: (on) => {
+      // Reveal only makes sense while the filter is armed. Guarding here keeps the
+      // store coherent so no surface can render "showing all" beside a disabled
+      // filter (e.g. the palette running "disable filter" then "show all hidden").
+      revealed.value = on && state.value.enabled;
+    },
     savePreset(name) {
       const id = crypto.randomUUID();
       const { criteria, onlyMyLanguages, myLanguages } = state.value;
@@ -110,6 +166,7 @@ export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
     applyPreset(id) {
       const preset = state.value.presets.find((p) => p.id === id);
       if (!preset) return;
+      resumeFiltering();
       const patch: Partial<FilterState> = {
         criteria: { ...preset.criteria },
         onlyMyLanguages: preset.onlyMyLanguages,
@@ -126,12 +183,8 @@ export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
       update({ presets: state.value.presets.filter((p) => p.id !== id) });
     },
     async load() {
-      try {
-        const raw = (await area.get(KEY))[KEY] as Partial<FilterState> | undefined;
-        if (raw) state.value = { ...defaultState(navLanguages), ...raw };
-      } catch {
-        // keep safe in-memory defaults
-      }
+      await store.hydrate().catch(() => {}); // §8: storage failure keeps in-memory defaults
+      state.value = store.current();
     },
   };
 }

@@ -38,7 +38,7 @@ describe("SurfaceOptions", () => {
     fireEvent.change(palette, { target: { checked: true } });
     await waitFor(async () => {
       const s = await settings.get();
-      expect(s.surfaces).toEqual({ pill: true, palette: true, bar: false });
+      expect(s.surfaces).toEqual({ pill: true, palette: true });
     });
   });
 
@@ -82,5 +82,33 @@ describe("PresetManager", () => {
     fireEvent.click(r.getByLabelText(/delete reading/i));
     expect(spy).toHaveBeenCalledWith(id);
     expect(store.state.value.presets).toEqual([]);
+  });
+
+  it("leaves the name untouched when the rename prompt is cancelled", () => {
+    const store = createFilterStore({ navLanguages: ["en"] });
+    store.savePreset("Reading");
+    const spy = vi.spyOn(store, "renamePreset");
+    vi.stubGlobal("prompt", vi.fn().mockReturnValue(null));
+    const r = render(<PresetManager store={store} />);
+    fireEvent.click(r.getByLabelText(/rename reading/i));
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.state.value.presets[0]?.name).toBe("Reading");
+  });
+
+  it("ignores a whitespace-only rename", () => {
+    const store = createFilterStore({ navLanguages: ["en"] });
+    store.savePreset("Reading");
+    const spy = vi.spyOn(store, "renamePreset");
+    vi.stubGlobal("prompt", vi.fn().mockReturnValue("   "));
+    const r = render(<PresetManager store={store} />);
+    fireEvent.click(r.getByLabelText(/rename reading/i));
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.state.value.presets[0]?.name).toBe("Reading");
+  });
+
+  it("renders the empty-state when there are no presets", () => {
+    const store = createFilterStore({ navLanguages: ["en"] });
+    const r = render(<PresetManager store={store} />);
+    expect(r.getByText(/no saved presets yet/i)).toBeTruthy();
   });
 });
