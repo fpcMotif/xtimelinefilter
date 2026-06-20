@@ -15,6 +15,8 @@ export interface SurfaceMountDeps {
   settings: SettingsStore;
   hiddenCount: () => number;
   inScope: () => boolean;
+  /** Conduct in-page Filter commands through the controller's fail-open wall (ADR-0010). */
+  conduct?: (run: (s: FilterStore) => void) => void;
 }
 
 export interface SurfaceManager {
@@ -67,7 +69,7 @@ function matchesHotkey(e: KeyboardEvent, combo: string): boolean {
  * Home, List, and profile timelines.
  */
 export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
-  const { root, store, settings, hiddenCount } = deps;
+  const { root, store, settings, hiddenCount, conduct } = deps;
 
   // The palette is modal and manager-driven: the configured hotkey toggles this
   // flag, the registry entry renders <FilterPalette open={…}>, and reconcile()
@@ -81,6 +83,7 @@ export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
         createElement(FunnelPill, {
           store,
           hiddenCount,
+          conduct,
           position: s.pillPosition,
           onPositionChange: (pillPosition) => void settings.set({ pillPosition }),
         }),
@@ -90,6 +93,7 @@ export function mountFilterSurfaces(deps: SurfaceMountDeps): SurfaceManager {
       view: () =>
         createElement(FilterPalette, {
           store,
+          conduct,
           open: paletteOpen,
           onClose: () => {
             paletteOpen = false;

@@ -1,6 +1,6 @@
 import { createFilterApplier } from "@/content/filter-applier";
 import { mountFilterSurfaces, type SurfaceManager } from "@/content/surface-mount";
-import { createFilterStore } from "@/core/filter-store";
+import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { SettingsStore } from "@/core/settings";
 import { createUiRoot } from "@/ui/mount";
 
@@ -21,6 +21,10 @@ export interface FilterFeatureDeps {
   highContrast: boolean;
   /** True on Home / List / profile timelines — the Filter is inert elsewhere. */
   inScope: () => boolean;
+  /** Shared filter store (so the controller conducts the same one the surfaces show); omit ⇒ the feature creates its own. */
+  store?: FilterStore;
+  /** Route in-page Filter commands through the controller's fail-open wall; omit ⇒ surfaces edit the store directly. */
+  conduct?: (run: (s: FilterStore) => void) => void;
 }
 
 // Page-level CSS for collapse-to-stub: the cell lives in x.com's DOM, not our
@@ -45,7 +49,7 @@ export const COLLAPSE_CSS =
 export async function installFilterFeature(deps: FilterFeatureDeps): Promise<FilterFeature> {
   const { settings, highContrast, inScope } = deps;
 
-  const store = createFilterStore();
+  const store = deps.store ?? createFilterStore();
   await store.load();
 
   const style = document.createElement("style");
@@ -65,6 +69,7 @@ export async function installFilterFeature(deps: FilterFeatureDeps): Promise<Fil
     settings,
     hiddenCount: () => applier.hiddenCount(),
     inScope,
+    conduct: deps.conduct,
   });
 
   const sync = (): void => {

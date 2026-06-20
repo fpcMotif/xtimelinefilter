@@ -31,6 +31,11 @@ export interface FilterPaletteProps {
   store: FilterStore;
   open: boolean;
   onClose: () => void;
+  /**
+   * Conduct each invoked item through the controller's fail-open wall (the palette
+   * is the in-page command surface). Omit ⇒ items run directly on the store.
+   */
+  conduct?: (run: (s: FilterStore) => void) => void;
 }
 
 /**
@@ -45,7 +50,9 @@ export function FilterPalette({
   store,
   open,
   onClose,
+  conduct,
 }: FilterPaletteProps): preact.JSX.Element | null {
+  const cmd = conduct ?? ((exec: (s: FilterStore) => void) => exec(store));
   const state = useSignalValue(store.state);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -86,7 +93,7 @@ export function FilterPalette({
 
   function run(item: PaletteItem | undefined) {
     if (!item) return;
-    item.run(store);
+    cmd(item.run);
     // Stay open for rapid multi-toggle (spec §7).
   }
 

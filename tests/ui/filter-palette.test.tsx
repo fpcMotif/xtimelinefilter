@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/preact";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFilterStore } from "@/core/filter-store";
+import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import { FilterPalette } from "@/ui/filter-palette";
 
 function setup(
@@ -9,12 +9,20 @@ function setup(
     open?: boolean;
     onClose?: () => void;
     prepare?: (store: ReturnType<typeof createFilterStore>) => void;
+    conduct?: (run: (s: FilterStore) => void) => void;
   } = {},
 ) {
   const store = createFilterStore({ navLanguages: ["ja"] });
   opts.prepare?.(store);
   const onClose = opts.onClose ?? vi.fn();
-  const r = render(<FilterPalette store={store} open={opts.open ?? true} onClose={onClose} />);
+  const r = render(
+    <FilterPalette
+      store={store}
+      open={opts.open ?? true}
+      onClose={onClose}
+      conduct={opts.conduct}
+    />,
+  );
   const input = () => r.getByRole("textbox") as HTMLInputElement;
   const type = (value: string) => fireEvent.input(input(), { target: { value } });
   const options = () => r.queryAllByRole("option");
@@ -35,6 +43,15 @@ describe("FilterPalette", () => {
     const target = options().find((o) => o.textContent?.includes("Only · video"))!;
     fireEvent.mouseDown(target);
     expect(store.state.value.criteria["kind:video"]).toBe("only");
+  });
+
+  it("routes a selected item through conduct — the fail-open wall, not a direct store call", () => {
+    const conduct = vi.fn(); // no-op wall
+    const { store, type, options } = setup({ conduct });
+    type("vid");
+    fireEvent.mouseDown(options().find((o) => o.textContent?.includes("Only · video"))!);
+    expect(conduct).toHaveBeenCalledTimes(1);
+    expect(store.state.value.criteria["kind:video"]).toBeUndefined();
   });
 
   it('typing "read" offers the preset and selecting it calls applyPreset(id)', () => {

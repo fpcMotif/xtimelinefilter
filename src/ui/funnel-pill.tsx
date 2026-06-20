@@ -21,6 +21,8 @@ export interface FunnelPillProps {
   hiddenCount: () => number;
   position: { x: number; y: number };
   onPositionChange: (pos: { x: number; y: number }) => void;
+  /** Conduct in-page Filter commands through the controller's fail-open wall (passed to the panel). */
+  conduct?: (run: (s: FilterStore) => void) => void;
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -41,7 +43,13 @@ function viewport(): { w: number; h: number } {
  * closing on Escape / outside-click. When the master filter is off the pill
  * dims and its badge clears. No innerHTML of page data (ADR-0003).
  */
-export function FunnelPill({ store, hiddenCount, position, onPositionChange }: FunnelPillProps) {
+export function FunnelPill({
+  store,
+  hiddenCount,
+  position,
+  onPositionChange,
+  conduct,
+}: FunnelPillProps) {
   const state = useSignalValue(store.state);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(position);
@@ -150,7 +158,7 @@ export function FunnelPill({ store, hiddenCount, position, onPositionChange }: F
           class="bg-surface shadow-elevated absolute w-80 overflow-hidden rounded-2xl"
           style={popover}
         >
-          <FilterPanel store={store} hiddenCount={hiddenCount} />
+          <FilterPanel store={store} hiddenCount={hiddenCount} conduct={conduct} />
         </div>
       )}
     </div>

@@ -14,6 +14,7 @@ import { createScannerHealth } from "@/content/scanner-health";
 import { DriverSelectors, Selectors } from "@/content/selectors";
 import { createTweetScanner } from "@/content/tweet-scanner";
 import { createCoach } from "@/core/coach";
+import { createFilterStore } from "@/core/filter-store";
 import { detectPlatform } from "@/core/keycaps";
 import { createListCache } from "@/core/list-cache";
 import { createListUsage } from "@/core/list-usage";
@@ -152,6 +153,9 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
   );
 
   const creds = () => ({ fetch: pageFetch, creds: auth.credentials() });
+  // One shared filter store: the conductor mutates the same store the in-page
+  // surfaces render, so filter commands flow through controller.filterCommand.
+  const filterStore = createFilterStore();
   const controller = createLassoController({
     selection,
     app: appState,
@@ -161,6 +165,7 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     coach,
     backend,
     cache: listCache,
+    filter: filterStore,
     settings: settingsStore,
     membershipStore,
     currentOwner: () => getCurrentAccount(),
@@ -240,6 +245,8 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     settings: settingsStore,
     highContrast: settings.highContrast,
     inScope: () => isInScope(location.pathname),
+    store: filterStore,
+    conduct: controller.filterCommand,
   });
   onRouteChange(() => filter.sync());
 

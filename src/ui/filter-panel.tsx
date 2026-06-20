@@ -18,6 +18,12 @@ export interface FilterPanelProps {
   store: FilterStore;
   /** When provided, render the "N hidden · show all / hide all" toggle. Omit for surfaces with no live count (popup). */
   hiddenCount?: () => number;
+  /**
+   * Conduct in-page Filter *commands* (cycle a criterion, reveal/show-all) through
+   * the controller's fail-open wall; preferences (master enable, languages, presets)
+   * stay direct. Omit (popup) ⇒ commands run directly on the store.
+   */
+  conduct?: (run: (s: FilterStore) => void) => void;
 }
 
 /**
@@ -28,7 +34,10 @@ export interface FilterPanelProps {
  * surface (popover, popup) hosts this; positioning is the mount's
  * job. No innerHTML of page data (ADR-0003).
  */
-export function FilterPanel({ store, hiddenCount }: FilterPanelProps) {
+export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
+  // Commands route through the conductor's fail-open wall in-page; with no
+  // conductor (popup) they run directly on the store.
+  const cmd = conduct ?? ((run: (s: FilterStore) => void) => run(store));
   const state = useSignalValue(store.state);
   const revealed = useSignalValue(store.revealed);
   const [draftName, setDraftName] = useState("");
@@ -67,7 +76,7 @@ export function FilterPanel({ store, hiddenCount }: FilterPanelProps) {
                 showing all
                 <button
                   type="button"
-                  onClick={() => store.setRevealed(false)}
+                  onClick={() => cmd((s) => s.setRevealed(false))}
                   class="text-primary ml-2 font-semibold underline-offset-2 hover:underline"
                 >
                   hide all
@@ -79,7 +88,7 @@ export function FilterPanel({ store, hiddenCount }: FilterPanelProps) {
                 {state.enabled && (
                   <button
                     type="button"
-                    onClick={() => store.setRevealed(true)}
+                    onClick={() => cmd((s) => s.setRevealed(true))}
                     class="text-primary ml-2 font-semibold underline-offset-2 hover:underline"
                   >
                     show all
@@ -108,7 +117,7 @@ export function FilterPanel({ store, hiddenCount }: FilterPanelProps) {
                   aria-label={chip.label}
                   title={mode === "off" ? chip.label : `${chip.label}: ${mode}`}
                   data-mode={mode}
-                  onClick={() => store.cycle(chip.id)}
+                  onClick={() => cmd((s) => s.cycle(chip.id))}
                   class={`${CHIP_BASE} ${CHIP_BY_MODE[mode]}`}
                 >
                   {chip.label}

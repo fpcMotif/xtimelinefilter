@@ -126,4 +126,33 @@ describe("FilterPanel", () => {
     fireEvent.click(r.getByRole("button", { name: /^save$/i }));
     expect(spy).not.toHaveBeenCalled();
   });
+
+  describe("conducting Filter commands (in-page)", () => {
+    it("routes a criterion chip through conduct — the fail-open wall, not a direct store call", () => {
+      const store = createFilterStore({ navLanguages: ["ja"] });
+      const conduct = vi.fn(); // no-op wall: receives the command but does not run it
+      const r = render(<FilterPanel store={store} conduct={conduct} />);
+      fireEvent.click(r.getByRole("button", { name: /^Video$/ }));
+      expect(conduct).toHaveBeenCalledTimes(1);
+      expect(store.state.value.criteria["kind:video"]).toBeUndefined();
+    });
+
+    it("routes show-all (reveal) through conduct", () => {
+      const store = createFilterStore({ navLanguages: ["ja"] });
+      const conduct = vi.fn();
+      const r = render(<FilterPanel store={store} hiddenCount={() => 3} conduct={conduct} />);
+      fireEvent.click(r.getByRole("button", { name: /show all/i }));
+      expect(conduct).toHaveBeenCalledTimes(1);
+      expect(store.revealed.value).toBe(false);
+    });
+
+    it("keeps preference controls (master enable) direct even when conducting", () => {
+      const store = createFilterStore({ navLanguages: ["ja"] });
+      const conduct = vi.fn();
+      const r = render(<FilterPanel store={store} conduct={conduct} />);
+      fireEvent.click(r.getByLabelText(/timeline filter enabled/i));
+      expect(store.state.value.enabled).toBe(false); // applied directly
+      expect(conduct).not.toHaveBeenCalled(); // the wall is only for commands
+    });
+  });
 });
