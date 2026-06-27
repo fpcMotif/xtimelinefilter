@@ -16,6 +16,8 @@ const FILTERED = "data-lasso-filtered";
 const SHOW = "data-lasso-show";
 /** Marks the injected stub element so we can find/remove it. */
 const STUB = "data-lasso-filter-stub";
+/** The acted-on action-bar button whose appearance/flip means "Owner just liked". */
+const ENGAGEMENT_SEL = FacetSelectors.LIKED;
 
 export interface FilterApplier {
   /** Decide + collapse/restore the article's cell. Re-decided every call (never cached). */
@@ -121,18 +123,28 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
     reapplyAll();
   });
 
-  // X hydrates a tweet's video player LAZILY: for the first beat after a cell
-  // mounts, a video post is just a `tweetPhoto` poster — byte-for-byte like a photo
-  // (live-verified on a media profile, verify-filter-virtualization-dom.md). The
-  // scanner classifies once, on mount, so it reads hasVideo:false and — under
-  // "video only" — collapses the post (under "video hide", wrongly shows it). That
-  // verdict never refreshes on its own, because the article node is already seen.
-  // So re-classify an article the instant its video player hydrates in.
+  // Two live-DOM swaps need a re-classify of an already-seen article:
+  //  (1) X hydrates a tweet's video player LAZILY: for the first beat after a cell
+  //      mounts, a video post is just a `tweetPhoto` poster — byte-for-byte like a
+  //      photo (verify-filter-virtualization-dom.md). Classified once on mount, it
+  //      reads hasVideo:false and (under "video only") collapses / (under "video
+  //      hide") wrongly shows. So re-classify when its player hydrates in.
+  //  (2) The Owner likes a post WHILE reading it: the action-bar like button's
+  //      testid flips (like→unlike) so under "hide: liked" the post must collapse
+  //      live. X may flip the testid in place (an `attributes` mutation) or swap the
+  //      button node (a `childList` add); watching both is a superset that is correct
+  //      either way (design §B2). This is X's own action, never a Filter command —
+  //      it stays OUT of the conductor/undo (design §B3).
   const observeTarget: Element | null =
     "documentElement" in root ? (root as Document).body : (root as Element);
   const hydrationObserver = new MutationObserver((mutations) => {
     const touched = new Set<Element>();
     for (const m of mutations) {
+      if (m.type === "attributes") {
+        const article = (m.target as Element).closest(Selectors.TWEET);
+        if (article) touched.add(article);
+        continue;
+      }
       for (const node of m.addedNodes) {
         if (!(node instanceof Element)) continue;
         const player = node.matches(FacetSelectors.VIDEO)
@@ -140,11 +152,21 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
           : node.querySelector(FacetSelectors.VIDEO);
         const article = player?.closest(Selectors.TWEET);
         if (article) touched.add(article);
+        // Node-replacement form of a like/bookmark toggle.
+        const acted = node.matches(ENGAGEMENT_SEL) ? node : node.querySelector(ENGAGEMENT_SEL);
+        const actedArticle = acted?.closest(Selectors.TWEET);
+        if (actedArticle) touched.add(actedArticle);
       }
     }
     for (const article of touched) classify(article);
   });
-  if (observeTarget) hydrationObserver.observe(observeTarget, { childList: true, subtree: true });
+  if (observeTarget)
+    hydrationObserver.observe(observeTarget, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-testid"],
+    });
 
   return {
     classify,

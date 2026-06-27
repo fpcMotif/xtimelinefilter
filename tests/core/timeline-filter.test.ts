@@ -12,6 +12,7 @@ const BASE_FACETS: Facets = {
   linkHosts: [],
   role: null,
   lang: null,
+  liked: false,
 };
 const f = (p: Partial<Facets>): Facets => ({ ...BASE_FACETS, ...p });
 
@@ -170,6 +171,35 @@ describe("decide", () => {
     it("a value-less criterion id never matches (fails closed on match)", () => {
       const hide = st({ criteria: { kind: "hide" } });
       expect(decide(f({ hasPhoto: true }), hide)).toBe("show");
+    });
+  });
+
+  describe("engagement family — hide what I've already liked", () => {
+    it("hide:liked collapses a liked post and shows an un-liked one", () => {
+      const hide = st({ criteria: { "engagement:liked": "hide" } });
+      expect(decide(f({ liked: true }), hide)).toBe("hide");
+      expect(decide(f({ liked: false }), hide)).toBe("show");
+    });
+
+    it("only:liked shows a liked post and hides an un-liked one", () => {
+      const only = st({ criteria: { "engagement:liked": "only" } });
+      expect(decide(f({ liked: true }), only)).toBe("show");
+      expect(decide(f({ liked: false }), only)).toBe("hide");
+    });
+
+    it("AND across families: only:liked + only:arxiv needs both", () => {
+      const only = st({
+        criteria: { "engagement:liked": "only", "linkDest:arxiv": "only" },
+      });
+      expect(decide(f({ liked: true, hasLink: true, linkHosts: ["arxiv.org"] }), only)).toBe(
+        "show",
+      );
+      expect(decide(f({ liked: true }), only)).toBe("hide"); // liked but no arxiv link
+    });
+
+    it("an unknown engagement value never matches (criterion stays inert)", () => {
+      const hide = st({ criteria: { "engagement:reposted": "hide" } });
+      expect(decide(f({ liked: true }), hide)).toBe("show");
     });
   });
 });

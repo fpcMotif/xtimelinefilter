@@ -60,6 +60,16 @@ export const CRITERIA: readonly CriterionDef[] = [
     }),
   ),
   { id: "role:repost", family: "role", group: "Source", label: "Repost", short: "Repost" },
+  // Bookmarked is intentionally omitted — this X build renders no inline bookmark
+  // button, so there is no DOM signal to read (see verify-filter-dom.md). Deferred
+  // to a GraphQL-bookmarks follow-up.
+  {
+    id: "engagement:liked",
+    family: "engagement",
+    group: "Engagement",
+    label: "Liked",
+    short: "Liked",
+  },
 ];
 
 /**

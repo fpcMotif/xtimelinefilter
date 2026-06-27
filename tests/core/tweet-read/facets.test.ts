@@ -158,5 +158,33 @@ describe("facets", () => {
     }).not.toThrow();
     expect(f).toMatchObject({ hasText: false, hasLink: false, lang: null, role: null });
     expect(f.linkHosts).toEqual([]);
+    // The host-scoped liked read also fails open to false (covers scopedHas catch).
+    expect(f.liked).toBe(false);
+  });
+
+  describe("engagement (liked)", () => {
+    it("reads liked from the unlike action-bar button", () => {
+      const f = facets(article(`${text("en")}<button data-testid="unlike"></button>`));
+      expect(f.liked).toBe(true);
+    });
+
+    it("reads not-liked when the bar shows the un-acted like button", () => {
+      const f = facets(article(`${text("en")}<button data-testid="like"></button>`));
+      expect(f.liked).toBe(false);
+    });
+
+    it("does NOT inherit a quoted post's liked state (host-scoped, B1)", () => {
+      // Host's own bar is un-acted (like). The QUOTED post is liked. An unscoped read
+      // would mark the host liked — the host-scoped read must not.
+      const f = facets(
+        article(
+          `${text("en", "outer")}<button data-testid="like"></button>` +
+            `<div><article data-testid="tweet">${text("en", "inner")}` +
+            `<button data-testid="unlike"></button>` +
+            `</article></div>`,
+        ),
+      );
+      expect(f.liked).toBe(false);
+    });
   });
 });

@@ -1,10 +1,21 @@
 # Engagement filter — hide posts you've already liked / bookmarked
 
-**Status:** Design — pending live-DOM verification gate (§9)
+**Status:** Implemented (Liked) — live-verified 2026-06-27. **Bookmarked dropped** (no DOM signal).
 **Date:** 2026-06-27
 **Branch:** `claude/convex-mirror`
 **Builds on:** timeline-content-filter (DOM hide/show core), filter-surfaces (criteria-matrix UI),
 filter conductor + one-Z undo (controller.ts).
+
+> **Post-verification addendum (2026-06-27).** The §9 live-DOM gate was run before merge and
+> **changed the scope**. **Liked** verified cleanly: `[data-testid="unlike"]` matched 0/11 on an
+> un-liked Home and 11/11 on the Bookmarks page (aria "已喜歡"). **Bookmarked was removed** — this
+> X build renders *no* bookmark button in the inline action bar (bar = reply · retweet · like ·
+> share; global `[data-testid*="bookmark"]` = 0 nodes, at 1876px so not a width artifact), so there
+> is no DOM signal to read. Bookmarked is deferred to a GraphQL-bookmarks follow-up (the "fetch"
+> path the timeline-filter design scoped out). The rest of this doc is the original design; read
+> every "liked / bookmarked" as **liked only**, and `engagement:bookmarked` /
+> `FacetSelectors.BOOKMARKED` / the `bookmarked` facet as **not built**. Verification record:
+> docs/research/verify-filter-dom.md.
 
 ## 1. Problem
 

@@ -78,6 +78,14 @@ const textOf = (el: Element): string => el.textContent ?? "";
 
 export function facets(article: Element): Facets {
   const has = (sel: string): boolean => safe(() => !!article.querySelector(sel), false);
+  // HOST-scoped variant: a match only counts when its NEAREST enclosing tweet is
+  // THIS article — so a quoted post's own action bar can't leak its liked state
+  // onto the host (facets §B1). Used only for the engagement read.
+  const scopedHas = (sel: string): boolean =>
+    safe(() => {
+      const el = article.querySelector(sel);
+      return !!el && el.closest(Selectors.TWEET) === article;
+    }, false);
   const tweetText = safe(() => article.querySelector(Selectors.TWEET_TEXT), null);
 
   const hasPhoto = has(FacetSelectors.PHOTO);
@@ -95,5 +103,6 @@ export function facets(article: Element): Facets {
     linkHosts,
     role: has(Selectors.SOCIAL_CONTEXT) ? "repost" : null,
     lang: safe(() => tweetText?.getAttribute("lang") || null, null),
+    liked: scopedHas(FacetSelectors.LIKED),
   };
 }

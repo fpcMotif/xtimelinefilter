@@ -27,6 +27,14 @@ export interface Facets {
   role: "repost" | null;
   /** BCP-47 code from the tweetText `lang` attribute; null when absent/undetectable. */
   lang: string | null;
+  /**
+   * Whether the Owner has liked this post, read HOST-SCOPED & fail-open from the
+   * live action bar (the `like` → `unlike` testid flip, verified live 2026-06-27).
+   * A quoted post's own action bar must NOT leak onto the host — see facets.ts
+   * `scopedHas`. (Bookmarked is intentionally absent: this X build renders no
+   * bookmark button inline, so there is no DOM signal — see the design spec.)
+   */
+  liked: boolean;
 }
 
 /** Per-criterion tri-state. The UI chip cycles off → only → hide → off. */
@@ -36,7 +44,7 @@ export type FilterMode = "off" | "only" | "hide";
 export type CriterionId = string;
 
 /** The families a criterion can belong to. */
-export type Family = "kind" | "linkDest" | "role" | "language";
+export type Family = "kind" | "linkDest" | "role" | "language" | "engagement";
 
 /** A user-defined host → destination mapping, merged ahead of the built-in defaults. */
 export interface LinkRule {

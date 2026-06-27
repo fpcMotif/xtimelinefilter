@@ -34,6 +34,12 @@ export const FacetSelectors = {
   CARD: '[data-testid="card.wrapper"]',
   QUOTE: '[data-testid="tweet"] [data-testid="tweet"]', // AMBER — verify live
   OUTBOUND_LINK: 'a[href^="http"]',
+  // Owner "liked" state: the action-bar like button's testid FLIPS to `unlike`
+  // once liked. Present ⇒ already liked. Read host-scoped (facets.ts) so a quoted
+  // post's bar can't leak. VERIFIED live 2026-06-27 (Home un-liked → 0/11, the
+  // Bookmarks page → 11/11; aria "已喜歡"). NB: this build renders NO bookmark
+  // button inline, so there is no "bookmarked" hook — see verify-filter-dom.md.
+  LIKED: '[data-testid="unlike"]',
 } as const;
 
 /**

@@ -12,7 +12,12 @@ function makeRoot(): Element {
 function addCell(
   root: Element,
   lang: string,
-  opts: { video?: boolean; videoComponent?: boolean; repost?: boolean } = {},
+  opts: {
+    video?: boolean;
+    videoComponent?: boolean;
+    repost?: boolean;
+    liked?: boolean;
+  } = {},
 ): Element {
   const cell = document.createElement("div");
   cell.setAttribute("data-testid", "cellInnerDiv");
@@ -22,10 +27,12 @@ function addCell(
     `<div data-testid="tweetText" lang="${lang}">hi</div>` +
     (opts.video ? `<div data-testid="videoPlayer"></div>` : "") +
     (opts.videoComponent ? `<div data-testid="videoComponent"></div>` : "") +
+    (opts.liked ? `<button data-testid="unlike"></button>` : "") +
     `</article>`;
   root.appendChild(cell);
   return cell;
 }
+const tick = () => new Promise((r) => setTimeout(r, 0));
 const articleOf = (cell: Element) => cell.querySelector('article[data-testid="tweet"]') as Element;
 
 describe("createFilterApplier", () => {
@@ -427,6 +434,111 @@ describe("createFilterApplier", () => {
     applier.dispose();
     cell.remove();
     document.documentElement.removeAttribute("data-lasso-compact");
+  });
+
+  describe("engagement: hide what I've already liked", () => {
+    it("collapses an already-liked post on mount under 'hide: liked'", () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const liked = addCell(root, "en", { liked: true });
+      const plain = addCell(root, "en");
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+
+      applier.reapplyAll();
+
+      expect(applier.isStubbed(liked)).toBe(true); // already liked → hidden
+      expect(applier.isStubbed(plain)).toBe(false); // never engaged → shown
+      applier.dispose();
+    });
+
+    it("collapses live, then restores, when X flips the like testid in place (attribute swap)", async () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const cell = addCell(root, "en");
+      const likeBtn = document.createElement("button");
+      likeBtn.setAttribute("data-testid", "like");
+      articleOf(cell).appendChild(likeBtn);
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+      applier.classify(articleOf(cell));
+      expect(applier.isStubbed(cell)).toBe(false); // not liked yet → shown
+
+      likeBtn.setAttribute("data-testid", "unlike"); // user likes it; React flips the testid
+      await tick();
+      expect(applier.isStubbed(cell)).toBe(true); // now liked → collapsed live
+
+      likeBtn.setAttribute("data-testid", "like"); // user un-likes it
+      await tick();
+      expect(applier.isStubbed(cell)).toBe(false); // restored
+      applier.dispose();
+    });
+
+    it("collapses live when an unlike button node is inserted (node replacement)", async () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const cell = addCell(root, "en");
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+      applier.classify(articleOf(cell));
+      expect(applier.isStubbed(cell)).toBe(false);
+
+      const unlike = document.createElement("button"); // the inserted "unlike" node itself
+      unlike.setAttribute("data-testid", "unlike");
+      articleOf(cell).appendChild(unlike);
+      await tick();
+      expect(applier.isStubbed(cell)).toBe(true);
+      applier.dispose();
+    });
+
+    it("collapses live when a wrapper CONTAINING the unlike button is inserted (querySelector arm)", async () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const cell = addCell(root, "en");
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+      applier.classify(articleOf(cell));
+      expect(applier.isStubbed(cell)).toBe(false);
+
+      const wrap = document.createElement("div"); // node is NOT the button but contains it
+      wrap.innerHTML = `<button data-testid="unlike"></button>`;
+      articleOf(cell).appendChild(wrap);
+      await tick();
+      expect(applier.isStubbed(cell)).toBe(true);
+      applier.dispose();
+    });
+
+    it("ignores an engagement button inserted outside any article (no enclosing tweet)", async () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const cell = addCell(root, "en");
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+      applier.reapplyAll();
+      expect(applier.isStubbed(cell)).toBe(false);
+
+      const stray = document.createElement("button"); // unlike with no article ancestor
+      stray.setAttribute("data-testid", "unlike");
+      root.appendChild(stray);
+      await tick();
+      expect(applier.isStubbed(cell)).toBe(false); // nothing to reclassify, no throw
+      applier.dispose();
+    });
+
+    it("ignores a data-testid attribute change outside any article", async () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const lone = document.createElement("div");
+      lone.setAttribute("data-testid", "foo");
+      root.appendChild(lone);
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+
+      lone.setAttribute("data-testid", "bar"); // attribute mutation, no enclosing tweet
+      await tick();
+      expect(() => applier.reapplyAll()).not.toThrow();
+      applier.dispose();
+    });
   });
 
   it("restoreAll() un-collapses every cell the filter hid", () => {

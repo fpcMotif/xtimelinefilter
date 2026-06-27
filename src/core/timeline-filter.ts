@@ -38,6 +38,8 @@ function matchesCriterion(id: CriterionId, f: Facets, state: FilterState): boole
       return f.hasLink && f.linkHosts.some((h) => classifyHost(h, state.linkRules) === value);
     case "role":
       return value === "repost" && f.role === "repost";
+    case "engagement":
+      return value === "liked" && f.liked;
     // "language" is the single onlyMyLanguages gate in v1, handled in decide(), not as a criterion.
     default:
       return false;
