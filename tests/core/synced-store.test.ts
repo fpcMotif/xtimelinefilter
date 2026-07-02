@@ -53,6 +53,23 @@ describe("syncedStore", () => {
     expect(store.current()).toEqual({ a: 5, b: "x" }); // merged over defaults
   });
 
+  it("deep-merges nested object defaults but replaces arrays/non-objects wholesale", async () => {
+    const D = { a: 0, nested: { x: 1, y: 2 }, tags: ["d"] };
+    // A legacy stored value missing `nested.y` (added to defaults in a later version).
+    const seeded = syncedStore(
+      KEY,
+      D,
+      fakeStorage({ [KEY]: { a: 5, nested: { x: 9 }, tags: ["s"] } }),
+    );
+    await seeded.hydrate();
+    expect(seeded.current()).toEqual({ a: 5, nested: { x: 9, y: 2 }, tags: ["s"] }); // y backfilled, array replaced
+
+    // A corrupt/legacy null under a nested-object key falls back to the default object, not null.
+    const corrupt = syncedStore(KEY, D, fakeStorage({ [KEY]: { nested: null } }));
+    await corrupt.hydrate();
+    expect(corrupt.current().nested).toEqual({ x: 1, y: 2 });
+  });
+
   it("hydrate() reads storage only once (idempotent — the cached read)", async () => {
     const area = fakeStorage({ [KEY]: { a: 5 } });
     const getSpy = vi.spyOn(area, "get");
@@ -77,6 +94,25 @@ describe("syncedStore", () => {
     };
     const store = syncedStore<Shape>(KEY, DEFAULTS, area);
     await expect(store.write({ a: 1, b: "z" })).rejects.toThrow("boom");
+  });
+
+  it("a failed write never clobbers a newer write's cache (last-wins preserved)", async () => {
+    let rejectFirst!: (e: Error) => void;
+    let calls = 0;
+    const store = syncedStore<Shape>(KEY, DEFAULTS, {
+      get: async () => ({}),
+      set: () =>
+        ++calls === 1
+          ? new Promise<void>((_, reject) => {
+              rejectFirst = reject;
+            })
+          : Promise.resolve(),
+    });
+    const first = store.write({ a: 1, b: "old" });
+    await store.write({ a: 2, b: "new" }); // supersedes while the first is still in flight
+    rejectFirst(new Error("boom"));
+    await expect(first).rejects.toThrow("boom");
+    expect(store.current()).toEqual({ a: 2, b: "new" }); // rollback skipped — the newer write owns the cache
   });
 
   describe("onExternalChange (cross-context)", () => {
@@ -113,6 +149,44 @@ describe("syncedStore", () => {
       await store.write({ a: 3, b: "w" }); // stamps the echo
       bridge.emit({ a: 3, b: "w" }); // identical → ignored
       expect(cb).not.toHaveBeenCalled();
+    });
+
+    it("watches the injected areaName — a 'local' store ignores sync-area changes", () => {
+      bridge = installOnChanged();
+      const store = syncedStore<Shape>(KEY, DEFAULTS, fakeStorage(), "local");
+      const cb = vi.fn();
+      store.onExternalChange(cb);
+      bridge.emit({ a: 7 }, "sync"); // wrong area — not ours
+      expect(cb).not.toHaveBeenCalled();
+      bridge.emit({ a: 7 }, "local"); // our area — adopted
+      expect(cb).toHaveBeenCalledWith({ a: 7, b: "x" });
+    });
+
+    it("a rejected write rolls the cache back and retires its echo", async () => {
+      bridge = installOnChanged();
+      const store = syncedStore<Shape>(KEY, DEFAULTS, {
+        get: async () => ({}),
+        set: () => Promise.reject(new Error("boom")),
+      });
+      const cb = vi.fn();
+      store.onExternalChange(cb);
+      await expect(store.write({ a: 1, b: "z" })).rejects.toThrow("boom");
+      expect(store.current()).toEqual(DEFAULTS); // failure must not read back as success
+      bridge.emit({ a: 1, b: "z" }); // the same payload arriving later is a REAL external change…
+      expect(cb).toHaveBeenCalledWith({ a: 1, b: "z" }); // …not swallowed as a stale echo
+    });
+
+    it("drops BOTH echoes under two rapid same-context writes — no flicker", async () => {
+      bridge = installOnChanged();
+      const store = syncedStore<Shape>(KEY, DEFAULTS, fakeStorage());
+      const cb = vi.fn();
+      store.onExternalChange(cb);
+      await store.write({ a: 1, b: "p" });
+      await store.write({ a: 2, b: "q" }); // second write before the first echo returns
+      bridge.emit({ a: 1, b: "p" }); // FIFO: the earlier echo arrives first...
+      bridge.emit({ a: 2, b: "q" }); // ...then the later one
+      expect(cb).not.toHaveBeenCalled(); // neither is mistaken for an external write
+      expect(store.current()).toEqual({ a: 2, b: "q" }); // never regressed to {a:1} (the old single-slot bug)
     });
   });
 });

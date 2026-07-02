@@ -62,6 +62,16 @@ describe("DEFAULT_SETTINGS Mirror config from build env", () => {
     expect(fresh.DEFAULT_SETTINGS.convexUrl).toBe("https://silent-crab-355.convex.cloud");
     expect(fresh.DEFAULT_SETTINGS.convexDeviceKey).toBe("device-123");
   });
+
+  it("never inlines the Convex credential in production builds (M1 — the dev-gate falsy branch)", async () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_CONVEX_URL", "https://silent-crab-355.convex.cloud");
+    vi.stubEnv("VITE_LASSO_DEVICE_KEY", "device-123");
+    vi.resetModules();
+    const fresh = await import("@/core/settings");
+    expect(fresh.DEFAULT_SETTINGS.convexUrl).toBeUndefined();
+    expect(fresh.DEFAULT_SETTINGS.convexDeviceKey).toBeUndefined();
+  });
 });
 
 describe("createSettings", () => {
@@ -93,6 +103,28 @@ describe("createSettings", () => {
     };
     const s = createSettings(area);
     await expect(s.set({ backend: "dom" })).rejects.toThrow("boom");
+  });
+
+  it("a rejected set() leaves no trace: get() returns the pre-write value and a later set() cannot re-persist the rejected patch", async () => {
+    // set() merges each patch over the cached current() — so a failed write that
+    // poisoned the cache would leak its values into the NEXT set()'s storage write.
+    let fail = true;
+    const written: Record<string, unknown>[] = [];
+    const area: StorageLike = {
+      get: async () => ({}),
+      set: async (items) => {
+        if (fail) throw new Error("boom");
+        written.push(items);
+      },
+    };
+    const s = createSettings(area);
+    await expect(s.set({ backend: "dom" })).rejects.toThrow("boom");
+    expect((await s.get()).backend).toBe(DEFAULT_SETTINGS.backend); // failure never reads as success
+
+    fail = false; // storage recovers; an unrelated save must not smuggle `backend: "dom"` along
+    await s.set({ highContrast: true });
+    const persisted = written[0]?.[KEY] as { backend: string } | undefined;
+    expect(persisted?.backend).toBe(DEFAULT_SETTINGS.backend);
   });
 
   it("notifies subscribers on set and stops after unsubscribe", async () => {
