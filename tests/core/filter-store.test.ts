@@ -261,6 +261,17 @@ describe("createFilterStore", () => {
     expect(b.state.value.criteria["kind:video"]).toBe("only");
   });
 
+  it("restore ends a 'show all' peek, like every other selection edit (undo must be visible)", () => {
+    const s = createFilterStore({ navLanguages: ["en"] });
+    s.cycle("kind:video"); // the command undo will revert
+    const snapshot = s.state.value;
+    s.cycle("kind:video");
+    s.setRevealed(true); // transient peek — doesn't change state, doesn't re-arm undo
+    s.restore(snapshot); // Z
+    expect(s.revealed.value).toBe(false); // …or the timeline would visibly not change
+    expect(s.state.value).toBe(snapshot);
+  });
+
   it("falls back to safe defaults when storage rejects, never throws", async () => {
     const broken: StorageLike = {
       get: () => Promise.reject(new Error("boom")),

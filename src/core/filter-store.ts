@@ -189,6 +189,9 @@ export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
       state.value = store.current();
     },
     restore(next) {
+      // Undo is a selection edit like any other: it must end a "show all" peek,
+      // or Z reverts the config while the timeline visibly changes nothing.
+      resumeFiltering();
       state.value = next;
       persist();
     },

@@ -516,6 +516,16 @@ describe("Filter conductor is never load-bearing (ADR-0010)", () => {
     expect(h.controller.command("undo")).toBe(false); // nothing armed → left for X
   });
 
+  it("Z after a 'show all' peek both reverts the criteria and re-hides — undo is visible", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    h.controller.filterCommand((s) => s.cycle("kind:video")); // arms undo
+    h.controller.filterCommand((s) => s.setRevealed(true)); // transient peek — doesn't re-arm
+    expect(h.controller.command("undo")).toBe(true); // Z
+    expect(filter.state.value.criteria["kind:video"]).toBeUndefined(); // config reverted…
+    expect(filter.revealed.value).toBe(false); // …and the peek ended, so the revert is visible
+  });
+
   it("conducting applyPreset is one batched undo that reverts the whole preset (goal 4b)", () => {
     const filter = createFilterStore({ navLanguages: ["en"] });
     filter.setMode("kind:video", "hide");
