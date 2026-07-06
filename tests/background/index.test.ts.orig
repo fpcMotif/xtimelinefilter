@@ -40,6 +40,7 @@ describe("background service worker", () => {
   }
 
   it("logs installation and ignores toolbar clicks without a tab id", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
     const { installed, messageListener, sendMessage } = await load();
 
     installed({ reason: "install" });
@@ -49,7 +50,7 @@ describe("background service worker", () => {
   });
 
   it("activates the clicked tab and swallows send failures", async () => {
-    const { messageListener } = await load();
+    const { messageListener, sendMessage } = await load();
 
     if (messageListener) messageListener({ type: "lasso-activate" }, { tab: { id: 7 } });
     await Promise.resolve();

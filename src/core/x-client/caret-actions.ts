@@ -204,7 +204,6 @@ function findNotInterestedFeedback(cellEl: Element): Element | null {
   return positional && !UNDO_TEXT.test(positional.textContent ?? "") ? positional : null;
 }
 
-
 /**
  * Drives the tweet "..." caret menu for quick actions on a focused tweet element
  * (docs/research/09). Row matching is tiered: data-testid / icon-path → localized

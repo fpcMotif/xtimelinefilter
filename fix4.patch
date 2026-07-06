@@ -1,0 +1,19 @@
+--- tests/background/index.test.ts
++++ tests/background/index.test.ts
+@@ -43,7 +43,6 @@
+   }
+
+   it("logs installation and ignores toolbar clicks without a tab id", async () => {
+-    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+     const { installed, messageListener, sendMessage } = await load();
+
+     installed({ reason: "install" });
+@@ -53,7 +52,7 @@
+   });
+
+   it("activates the clicked tab and swallows send failures", async () => {
+-    const { messageListener, sendMessage } = await load();
++    const { messageListener } = await load();
+
+     if (messageListener)
+       messageListener({ type: "lasso-activate" }, { tab: { id: 7 } });
