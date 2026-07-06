@@ -7,7 +7,11 @@ export interface SniffedOp {
 }
 
 const GQL_PATH_RE = /\/i\/api\/graphql\/([^/]+)\/([^/?]+)/;
-const TRACKED: readonly string[] = ["ListAddMember", "ListRemoveMember", "UserByScreenName"];
+const TRACKED: ReadonlySet<string> = new Set([
+  "ListAddMember",
+  "ListRemoveMember",
+  "UserByScreenName",
+]);
 
 /** Parse an x.com GraphQL request into {opName, queryId, features?}; null if not GraphQL. */
 export function parseGraphqlRequest(url: string, body?: string | null): SniffedOp | null {
@@ -54,7 +58,7 @@ export function createGraphqlSniffer(seed: GraphqlConfig): GraphqlSniffer {
     record(url, body) {
       const op = parseGraphqlRequest(url, body ?? null);
       if (!op) return;
-      if (TRACKED.includes(op.opName)) {
+      if (TRACKED.has(op.opName)) {
         ops[op.opName as keyof GraphqlConfig["ops"]] = op.queryId;
       }
       if (op.features) features = { ...features, ...op.features };
