@@ -1,9 +1,9 @@
-import { fireEvent, render, waitFor } from "@testing-library/preact";
+import { act, fireEvent, render, waitFor } from "@testing-library/preact";
 import { describe, expect, it, vi } from "vitest";
 
 import { createCoach } from "@/core/coach";
 import { createFilterStore } from "@/core/filter-store";
-import { createSettings, type StorageLike } from "@/core/settings";
+import { createSettings } from "@/core/settings";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import {
   ACTIVATION_COPY,
@@ -15,21 +15,7 @@ import {
   OptionsApp,
 } from "@/options/OptionsApp";
 
-function memoryArea(): StorageLike & { data: Record<string, unknown> } {
-  const data: Record<string, unknown> = {};
-  return {
-    data,
-    async get() {
-      return { ...data };
-    },
-    async set(items) {
-      Object.assign(data, items);
-    },
-    async remove(keys) {
-      for (const k of Array.isArray(keys) ? keys : [keys]) delete data[k];
-    },
-  };
-}
+import { createMemoryArea as memoryArea } from "../helpers/chrome-fake";
 
 async function setup(seedLocal: Record<string, unknown> = {}) {
   const local = memoryArea();
@@ -106,6 +92,7 @@ describe("OptionsApp — story beat 9", () => {
     s.sync.data[STORAGE_KEYS.filter] = { enabled: true, criteria: { "kind:video": "hide" } };
 
     fireEvent.click(s.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => s.getByText("Yes, clear it"))); // confirm step
     await waitFor(() => expect(s.getByText("Cleared")).toBeTruthy());
     expect(Object.keys(s.local.data)).toEqual([]);
     expect(STORAGE_KEYS.settings in s.sync.data).toBe(false);
@@ -243,5 +230,82 @@ describe("isValidConvexUrl", () => {
     expect(isValidConvexUrl("http://localhost:3210")).toBe(true);
     expect(isValidConvexUrl("convex.cloud")).toBe(false); // no scheme
     expect(isValidConvexUrl("https://")).toBe(false); // scheme present but unparseable (catch)
+  });
+});
+
+describe("OptionsApp — rail scroll-spy + destructive confirm", () => {
+  it("cancelling the clear confirm leaves data intact and restores the single button", async () => {
+    const s = await setup();
+    s.local.data["anything"] = "kept";
+    fireEvent.click(s.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => s.getByText("Cancel")));
+    await waitFor(() => expect(s.getByText("Clear Lasso data")).toBeTruthy());
+    expect(s.queryByText("Yes, clear it")).toBeNull();
+    expect(s.local.data["anything"]).toBe("kept");
+  });
+
+  it("follows reading position via IntersectionObserver when the platform has one", async () => {
+    const callbacks: IntersectionObserverCallback[] = [];
+    const observed: string[] = [];
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(cb: IntersectionObserverCallback) {
+          callbacks.push(cb);
+        }
+        observe(el: Element) {
+          observed.push(el.id);
+        }
+        disconnect = disconnect;
+      },
+    );
+    try {
+      const s = await setup();
+      await waitFor(() => expect(callbacks.length).toBe(1));
+      expect(observed).toContain("sync");
+
+      const io = {} as IntersectionObserver;
+      callbacks[0]!(
+        [
+          { isIntersecting: false, target: { id: "filter" } },
+          { isIntersecting: true, target: { id: "sync" } },
+        ] as unknown as IntersectionObserverEntry[],
+        io,
+      );
+      await waitFor(() => {
+        const active = s.container.querySelector('[aria-current="true"]');
+        expect(active?.textContent).toContain("Sync");
+      });
+
+      s.unmount();
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("OptionsApp — Sync saved acknowledgement", () => {
+  it("shows a transient Saved tick after persisting a Sync field", async () => {
+    const s = await setup();
+    const url = s.getByLabelText("Convex deployment URL") as HTMLInputElement;
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        url.value = "https://silent-crab-355.convex.cloud";
+        fireEvent.change(url);
+        // settings.set → syncedStore write → .then(setSyncSaved): drain the
+        // microtask chain by hand — waitFor can't run under fake timers.
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      expect(s.getByText("Saved")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(1600);
+      });
+      expect(s.queryByText("Saved")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

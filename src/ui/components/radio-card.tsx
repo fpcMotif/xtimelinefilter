@@ -44,7 +44,7 @@ export function RadioCard({
         {...(typeof children === "string" ? { "aria-label": children } : {})}
         checked={checked}
         onChange={() => onSelect()}
-        class="border-faint checked:border-primary mt-px size-[18px] shrink-0 cursor-pointer appearance-none rounded-full border-[1.5px] transition-[border-width,border-color] duration-150 checked:border-[5px]"
+        class="border-faint checked:border-primary focus-visible:ring-ring/55 mt-px size-[18px] shrink-0 cursor-pointer appearance-none rounded-full border-[1.5px] transition-[border-width,border-color] duration-150 outline-none checked:border-[5px] focus-visible:ring-2 focus-visible:ring-offset-1"
       />
       {children}
     </label>

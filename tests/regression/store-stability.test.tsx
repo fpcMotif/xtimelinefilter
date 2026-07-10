@@ -32,8 +32,9 @@ describe("store stability — no per-render store construction", () => {
     expect(filterSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("PopupApp (mounted prop-less, like the entry point) builds its store once", async () => {
+  it("PopupApp (mounted prop-less, like the entry point) builds each store once", async () => {
     const filterSpy = vi.spyOn(filterMod, "createFilterStore");
+    const settingsSpy = vi.spyOn(settingsMod, "createSettings");
 
     const r = render(
       <PopupApp queryState={async () => "active"} wake={async () => {}} openOptions={() => {}} />,
@@ -42,5 +43,6 @@ describe("store stability — no per-render store construction", () => {
     await new Promise((res) => setTimeout(res, 30));
 
     expect(filterSpy).toHaveBeenCalledTimes(1);
+    expect(settingsSpy).toHaveBeenCalledTimes(1);
   });
 });

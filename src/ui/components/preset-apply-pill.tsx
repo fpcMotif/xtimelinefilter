@@ -14,8 +14,9 @@ export function PresetApplyPill({ preset, onApply }: PresetApplyPillProps) {
   return (
     <button
       type="button"
+      data-slot="preset-apply-pill"
       onClick={() => onApply(preset.id)}
-      class="border-border text-muted-foreground hover:text-foreground hover:border-faint rounded-full border px-2.5 py-1 text-[12px] font-medium transition-colors"
+      class="border-border text-muted-foreground hover:text-foreground hover:border-faint focus-visible:ring-ring/55 rounded-full border px-2.5 py-1 text-xs font-medium transition-[transform,color,border-color] duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
     >
       {preset.name}
     </button>

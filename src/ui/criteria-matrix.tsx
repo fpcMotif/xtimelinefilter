@@ -4,11 +4,11 @@ import type { FilterMode } from "@/core/filter-types";
 import { useSignalValue } from "@/ui/use-signal-value";
 
 const CHIP_BASE =
-  "rounded-full border px-2.5 py-1 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]";
+  "focus-visible:ring-ring/55 rounded-full border px-2.5 py-1 text-xs font-medium transition-[transform,background-color,border-color,color] duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]";
 const CHIP_BY_MODE: Record<FilterMode, string> = {
   off: "border-border text-muted-foreground hover:text-foreground hover:border-faint",
-  only: "border-primary bg-primary text-primary-foreground shadow-sm",
-  hide: "border-destructive/50 text-destructive line-through",
+  only: "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
+  hide: "border-destructive/50 text-destructive line-through hover:bg-destructive/10",
 };
 
 export interface CriteriaMatrixProps {
@@ -43,7 +43,7 @@ export function CriteriaMatrix({ store, conduct, show = true }: CriteriaMatrixPr
 
   return (
     <>
-      <span class="text-faint text-[11px] tracking-wide">◯ off · ◉ only · ⊘ hide</span>
+      <span class="text-faint text-2xs tracking-wide">◯ off · ◉ only · ⊘ hide</span>
       {show &&
         CRITERIA_GROUPS.map(({ group, criteria }) => (
           <div key={group} class="flex flex-wrap items-center gap-1.5">

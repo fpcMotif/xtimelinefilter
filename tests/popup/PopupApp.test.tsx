@@ -1,24 +1,11 @@
-import { fireEvent, render, waitFor } from "@testing-library/preact";
+import { act, fireEvent, render, waitFor } from "@testing-library/preact";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFilterStore } from "@/core/filter-store";
-import type { StorageLike } from "@/core/settings";
+import { createSettings } from "@/core/settings";
 import { PopupApp } from "@/popup/PopupApp";
 
-/** In-memory storage.sync double: records the last persisted blob. */
-function fakeStorage(): StorageLike & { items: Record<string, unknown> } {
-  const items: Record<string, unknown> = {};
-  return {
-    items,
-    async get(keys) {
-      if (typeof keys === "string") return { [keys]: items[keys] };
-      return { ...items };
-    },
-    async set(next) {
-      Object.assign(items, next);
-    },
-  };
-}
+import { createMemoryArea as fakeStorage } from "../helpers/chrome-fake";
 
 const KEY = "lasso:filter";
 
@@ -113,7 +100,7 @@ describe("PopupApp — the toolbar remote", () => {
     fireEvent.click(box);
     expect(filter.state.value.enabled).toBe(false);
     await waitFor(() => {
-      const persisted = storage.items[KEY] as { enabled: boolean } | undefined;
+      const persisted = storage.data[KEY] as { enabled: boolean } | undefined;
       expect(persisted?.enabled).toBe(false);
     });
   });
@@ -142,9 +129,7 @@ describe("PopupApp — the toolbar remote", () => {
         filter={filter}
       />,
     );
-    const box = (await waitFor(() =>
-      r.getByLabelText("Hide filtered posts completely"),
-    )) as HTMLInputElement;
+    const box = (await waitFor(() => r.getByLabelText("Hide filtered posts"))) as HTMLInputElement;
     expect(box.checked).toBe(false);
     fireEvent.click(box);
     expect(filter.state.value.compactHidden).toBe(true);
@@ -162,26 +147,35 @@ describe("PopupApp — the toolbar remote", () => {
     await waitFor(() => expect(r.getByText("Save one from the funnel on x.com")).toBeTruthy());
   });
 
-  it("applies a saved preset on click and labels singular counts", async () => {
-    const filter = createFilterStore({ storage: fakeStorage() });
-    filter.setOnlyMyLanguages(true); // armed = 1 → "filter on"
-    filter.savePreset("Reading"); // presetCount = 1 → "preset"
-    const apply = vi.spyOn(filter, "applyPreset");
-    const r = render(
-      <PopupApp
-        queryState={async () => "active"}
-        wake={async () => {}}
-        openOptions={() => {}}
-        filter={filter}
-      />,
-    );
-    await waitFor(() => expect(r.getByText("filter on")).toBeTruthy());
-    expect(r.getByText("preset")).toBeTruthy();
-    fireEvent.click(r.getByRole("button", { name: "Reading" }));
-    expect(apply).toHaveBeenCalledTimes(1);
+  it("applies a saved preset on click, labels singular counts, and acknowledges", async () => {
+    vi.useFakeTimers();
+    try {
+      const filter = createFilterStore({ storage: fakeStorage() });
+      filter.setOnlyMyLanguages(true); // armed = 1 → "filter armed"
+      filter.savePreset("Reading");
+      const apply = vi.spyOn(filter, "applyPreset");
+      const r = render(
+        <PopupApp
+          queryState={async () => "active"}
+          wake={async () => {}}
+          openOptions={() => {}}
+          filter={filter}
+        />,
+      );
+      expect(r.getByText("filter armed")).toBeTruthy();
+      fireEvent.click(r.getByRole("button", { name: "Reading" }));
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(r.getByText("Applied · Reading")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(1600);
+      });
+      expect(r.queryByText("Applied · Reading")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("labels plural counts by default (0 filters, 0 presets)", async () => {
+  it("labels plural counts by default (0 filters armed)", async () => {
     const r = render(
       <PopupApp
         queryState={async () => "active"}
@@ -190,8 +184,50 @@ describe("PopupApp — the toolbar remote", () => {
         filter={createFilterStore({ storage: fakeStorage() })}
       />,
     );
-    await waitFor(() => expect(r.getByText("filters on")).toBeTruthy());
-    expect(r.getByText("presets")).toBeTruthy();
+    await waitFor(() => expect(r.getByText("filters armed")).toBeTruthy());
+  });
+
+  it("dims the armed count to 'filter off' when the master switch is off", async () => {
+    const filter = createFilterStore({ storage: fakeStorage() });
+    filter.setEnabled(false);
+    const r = render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        filter={filter}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("filter off")).toBeTruthy());
+    expect(r.queryByText(/filters? armed/)).toBeNull();
+  });
+
+  it("applies the high-contrast page attribute from settings", async () => {
+    const area = fakeStorage();
+    const settings = createSettings(area);
+    await settings.set({ highContrast: true });
+    render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        settings={settings}
+      />,
+    );
+    await waitFor(() => expect(document.documentElement.hasAttribute("data-hc")).toBe(true));
+
+    const plain = createSettings(fakeStorage());
+    render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        settings={plain}
+      />,
+    );
+    await waitFor(() => expect(document.documentElement.hasAttribute("data-hc")).toBe(false));
   });
 });
 
@@ -225,15 +261,19 @@ describe("Mirror status row — instant sync observability (ADR-0009)", () => {
     await waitFor(() => expect(r.getByText("Mirror synced just now")).toBeTruthy());
   });
 
-  it("flags a failing Mirror so a CSP-blocked/broken deployment is visible instantly", async () => {
+  it("flags a failing Mirror and clicks through to settings", async () => {
+    const openOptions = vi.fn();
     const r = render(
       <PopupApp
         {...base}
+        openOptions={openOptions}
         filter={createFilterStore({ storage: fakeStorage() })}
         mirrorStatus={async () => ({ ok: false, at: 1 })}
       />,
     );
-    await waitFor(() => expect(r.getByText("Mirror failing — check Convex settings")).toBeTruthy());
+    await waitFor(() => expect(r.getByText("Mirror failing — open settings")).toBeTruthy());
+    fireEvent.click(r.getByText("Mirror failing — open settings"));
+    expect(openOptions).toHaveBeenCalledTimes(1);
   });
 
   it("renders no Mirror row when the status is null or the reader is absent", async () => {

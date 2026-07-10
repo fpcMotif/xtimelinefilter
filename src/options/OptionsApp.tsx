@@ -10,8 +10,8 @@ import {
   createSettings,
   type LassoSettings,
   type SettingsStore,
-  type StorageLike,
 } from "@/core/settings";
+import { localArea, syncArea, type StorageLike } from "@/core/storage-areas";
 import { clearLassoData, STORAGE_KEYS } from "@/core/storage-keys";
 import { PRIVACY_LINE } from "@/core/strings";
 import type { XList } from "@/core/x-client/types";
@@ -72,7 +72,9 @@ const RAIL = [
   { label: "Lists", target: "lists" },
   { label: "Shortcuts", target: "shortcuts" },
   { label: "Timeline filter", target: "filter" },
+  { label: "Surfaces", target: "surfaces" },
   { label: "Sync", target: "sync" },
+  { label: "Accessibility", target: "access" },
   { label: "Privacy", target: "privacy" },
 ] as const;
 
@@ -95,8 +97,8 @@ export interface OptionsAppProps {
 export function OptionsApp({
   settings: settingsProp,
   coach: coachProp,
-  local = chrome.storage.local as unknown as StorageLike,
-  sync = chrome.storage.sync as unknown as StorageLike,
+  local = localArea(),
+  sync = syncArea(),
   keymap = DEFAULT_KEYMAP,
   platform = detectPlatform(),
   filter: filterProp,
@@ -118,8 +120,11 @@ export function OptionsApp({
   const [cleared, setCleared] = useState(false);
   const [replayed, setReplayed] = useState(false);
   const [urlError, setUrlError] = useState(false);
+  const [syncSaved, setSyncSaved] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [activeRail, setActiveRail] = useState<string>(RAIL[0].target);
   const filterState = useSignalValue(filter.state);
+  const loaded = current !== null;
 
   useEffect(() => {
     void settings.get().then(setCurrent);
@@ -129,9 +134,53 @@ export function OptionsApp({
     });
   }, [settings, local, filter]);
 
-  if (!current) return null;
+  // Rail scroll-spy: the highlight follows reading position, not just clicks.
+  // happy-dom has no IntersectionObserver; the rail then stays click-driven.
+  useEffect(() => {
+    if (!loaded || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveRail(entry.target.id);
+        }
+      },
+      { rootMargin: "-15% 0px -70% 0px" },
+    );
+    for (const { target } of RAIL) io.observe(document.getElementById(target)!);
+    return () => io.disconnect();
+  }, [loaded]);
+
+  useEffect(() => {
+    document.documentElement.toggleAttribute("data-hc", Boolean(current?.highContrast));
+  }, [current?.highContrast]);
+
+  useEffect(() => {
+    if (!syncSaved) return;
+    const timer = setTimeout(() => setSyncSaved(false), 1600);
+    return () => clearTimeout(timer);
+  }, [syncSaved]);
+
+  if (!current) {
+    return (
+      <div data-loading="" class="mx-auto flex w-full max-w-[920px] gap-8 px-6 py-10">
+        <aside class="hidden w-[196px] shrink-0 md:block">
+          <div class="bg-secondary h-44 animate-pulse rounded-xl" />
+        </aside>
+        <main class="flex min-w-0 flex-1 flex-col gap-5">
+          <div class="bg-secondary h-16 w-1/2 animate-pulse rounded-2xl" />
+          <div class="bg-secondary h-48 animate-pulse rounded-2xl" />
+          <div class="bg-secondary h-72 animate-pulse rounded-2xl" />
+        </main>
+      </div>
+    );
+  }
 
   const patch = (p: Partial<LassoSettings>) => void settings.set(p).then(setCurrent);
+  const patchSync = (p: Partial<LassoSettings>) =>
+    void settings.set(p).then((s) => {
+      setCurrent(s);
+      setSyncSaved(true);
+    });
 
   return (
     <div class="mx-auto flex w-full max-w-[920px] gap-8 px-6 py-10">
@@ -308,15 +357,19 @@ export function OptionsApp({
             />
           </div>
 
-          <Sub heading="Surfaces" class="mt-5">
-            Turn each filter surface on or off, and set the shortcut that opens the command palette.
-          </Sub>
-          <SurfaceOptions settings={settings} />
           <Sub heading="Presets" class="mt-5">
             Save the current selection, then apply it from the popup or funnel pill. Rename or
             remove saved presets here.
           </Sub>
           <PresetManager store={filter} />
+        </Section>
+
+        <Section
+          title="Surfaces"
+          id="surfaces"
+          helper="Where the filter shows up on x.com: the floating funnel pill, the command palette, and the palette's shortcut."
+        >
+          <SurfaceOptions settings={settings} />
         </Section>
 
         <Section
@@ -333,13 +386,14 @@ export function OptionsApp({
               <Input
                 type="url"
                 aria-label="Convex deployment URL"
+                aria-invalid={urlError}
                 placeholder="https://your-app.convex.cloud"
                 defaultValue={current.convexUrl ?? ""}
                 onChange={(e) => {
                   const raw = (e.currentTarget as HTMLInputElement).value.trim();
                   if (raw === "") {
                     setUrlError(false);
-                    patch({ convexUrl: undefined });
+                    patchSync({ convexUrl: undefined });
                     return;
                   }
                   if (!isValidConvexUrl(raw)) {
@@ -347,10 +401,10 @@ export function OptionsApp({
                     return;
                   }
                   setUrlError(false);
-                  patch({ convexUrl: raw });
+                  patchSync({ convexUrl: raw });
                 }}
               />
-              {urlError && <span class="text-destructive text-[12px]">{CONVEX_URL_ERROR}</span>}
+              {urlError && <span class="text-destructive text-xs">{CONVEX_URL_ERROR}</span>}
             </div>
             <div class="flex flex-1 flex-col gap-1.5">
               <span class="text-faint text-[11px] font-semibold tracking-wide uppercase">
@@ -359,10 +413,11 @@ export function OptionsApp({
               <Input
                 type="password"
                 aria-label="Convex device key"
+                autocomplete="off"
                 placeholder="matches LASSO_DEVICE_KEY"
                 defaultValue={current.convexDeviceKey ?? ""}
                 onChange={(e) =>
-                  patch({
+                  patchSync({
                     convexDeviceKey:
                       (e.currentTarget as HTMLInputElement).value.trim() || undefined,
                   })
@@ -370,6 +425,11 @@ export function OptionsApp({
               />
             </div>
           </div>
+          {syncSaved && (
+            <span aria-live="polite" class="text-success mt-2 block text-xs font-medium">
+              Saved
+            </span>
+          )}
         </Section>
 
         <Section title="Accessibility" id="access">
@@ -387,20 +447,37 @@ export function OptionsApp({
         <Section title="Privacy & data" id="privacy">
           <p class="text-[14px]">{PRIVACY_LINE}</p>
           <div class="border-destructive/30 bg-destructive/5 mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-4">
-            <Button
-              variant="destructive"
-              size="pill"
-              onClick={() =>
-                void clearLassoData(local, sync).then(() => {
-                  setCleared(true);
-                  setLists([]);
-                  void settings.get().then(setCurrent);
-                })
-              }
-            >
-              Clear Lasso data
-            </Button>
-            {cleared && <span class="text-muted-foreground text-[13px]">Cleared</span>}
+            {confirmClear ? (
+              <>
+                <span class="text-compact font-medium">
+                  Clear settings, cached Lists, and coach state?
+                </span>
+                <Button
+                  variant="destructive"
+                  size="pill"
+                  onClick={() =>
+                    void clearLassoData(local, sync).then(() => {
+                      setConfirmClear(false);
+                      setCleared(true);
+                      setLists([]);
+                      void settings.get().then(setCurrent);
+                    })
+                  }
+                >
+                  Yes, clear it
+                </Button>
+                <Button variant="ghost" size="pill" onClick={() => setConfirmClear(false)}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button variant="destructive" size="pill" onClick={() => setConfirmClear(true)}>
+                Clear Lasso data
+              </Button>
+            )}
+            {cleared && !confirmClear && (
+              <span class="text-muted-foreground text-compact">Cleared</span>
+            )}
             <Button
               variant="outline"
               size="pill"

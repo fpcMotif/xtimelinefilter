@@ -27,7 +27,7 @@ export function Switch({ checked, onChange, label, id, class: cls, className }: 
         {...(label ? { "aria-label": label } : {})}
         checked={checked}
         onChange={(e) => onChange((e.currentTarget as HTMLInputElement).checked)}
-        class="peer absolute inset-0 z-10 m-0 cursor-pointer appearance-none rounded-full"
+        class="peer focus-visible:ring-ring/55 absolute inset-0 z-10 m-0 cursor-pointer appearance-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
       />
       <span
         aria-hidden="true"
