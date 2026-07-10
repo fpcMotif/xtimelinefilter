@@ -14,49 +14,59 @@ describe("background service worker", () => {
 
   async function load() {
     previousChrome = globalThis.chrome;
-    let installed: InstalledListener | undefined;
-    let clicked: ClickedListener | undefined;
-    const sendMessage = vi.fn(async () => {});
+    let installed: ((details: { reason: string }) => void) | undefined;
+    let messageListener: ((msg: unknown, sender: { tab?: { id?: number } }) => void) | undefined;
+    const createTab = vi.fn();
+    const setUninstallURL = vi.fn();
+    const setBadgeText = vi.fn();
+    const setBadgeBackgroundColor = vi.fn();
+
     globalThis.chrome = {
       ...(previousChrome as typeof chrome),
       runtime: {
-        onInstalled: { addListener: vi.fn((cb: InstalledListener) => (installed = cb)) },
+        onInstalled: { addListener: vi.fn((cb: any) => (installed = cb)) },
+        onMessage: { addListener: vi.fn((cb: any) => (messageListener = cb)) },
+        setUninstallURL,
       },
       action: {
-        onClicked: { addListener: vi.fn((cb: ClickedListener) => (clicked = cb)) },
+        setBadgeText,
+        setBadgeBackgroundColor,
       },
-      tabs: { sendMessage },
+      tabs: { create: createTab },
     } as unknown as typeof chrome;
 
     await import("@/background/index");
     return {
-      installed: installed as InstalledListener,
-      clicked: clicked as ClickedListener,
-      sendMessage,
+      installed: installed!,
+      messageListener: messageListener!,
+      createTab,
+      setUninstallURL,
+      setBadgeText,
+      setBadgeBackgroundColor,
     };
   }
 
   it("logs installation and ignores toolbar clicks without a tab id", async () => {
-    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const { installed, clicked, sendMessage } = await load();
+    const { installed, messageListener, createTab, setUninstallURL, setBadgeText } = await load();
 
-    installed();
-    clicked({});
+    installed({ reason: "install" });
+    messageListener({ type: "lasso:badge", count: 1 }, {}); // no tab id
 
-    expect(debug).toHaveBeenCalledWith("[Lasso] installed");
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(createTab).toHaveBeenCalled();
+    expect(setUninstallURL).toHaveBeenCalled();
+    expect(setBadgeText).not.toHaveBeenCalled();
   });
 
   it("activates the clicked tab and swallows send failures", async () => {
-    const { clicked, sendMessage } = await load();
+    const { messageListener, setBadgeText, setBadgeBackgroundColor } = await load();
 
-    clicked({ id: 7 });
+    messageListener({ type: "lasso:badge", count: 7 }, { tab: { id: 7 } });
     await Promise.resolve();
-    expect(sendMessage).toHaveBeenCalledWith(7, { type: "lasso-activate" });
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 7, text: "7" });
+    expect(setBadgeBackgroundColor).toHaveBeenCalledWith({ tabId: 7, color: "#1d9bf0" });
 
-    sendMessage.mockRejectedValueOnce(new Error("tab closed"));
-    clicked({ id: 8 });
+    messageListener({ type: "lasso:state", state: "asleep" }, { tab: { id: 8 } });
     await Promise.resolve();
-    expect(sendMessage).toHaveBeenCalledWith(8, { type: "lasso-activate" });
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 8, text: "zz" });
   });
 });
