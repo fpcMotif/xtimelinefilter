@@ -90,7 +90,7 @@ export function FunnelPill({
   }, [open]);
 
   function onPointerDown(e: PointerEvent) {
-    const drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, moved: false };
+    const drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, moved: false, last: pos };
     const onMove = (ev: PointerEvent) => {
       const { w, h } = viewport();
       const next = {
@@ -98,13 +98,18 @@ export function FunnelPill({
         y: clamp(ev.clientY - drag.dy, 0, Math.max(0, h - PILL_SIZE)),
       };
       if (next.x !== pos.x || next.y !== pos.y) drag.moved = true;
-      setPos(next);
-      onPositionChange(next);
+      drag.last = next;
+      setPos(next); // live position is local state only — no persistence per move
     };
     const onUp = () => {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       suppressClick.current = drag.moved;
+      // Persist ONCE on drop. onPositionChange writes chrome.storage.sync, which
+      // Chrome caps at ~120 writes/min — reporting every pointermove burned the
+      // whole quota in one drag and made every later settings/filter write fail
+      // silently for minutes (the felt "state latency").
+      if (drag.moved) onPositionChange(drag.last);
     };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);

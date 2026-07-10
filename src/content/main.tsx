@@ -20,6 +20,7 @@ import { createListCache } from "@/core/list-cache";
 import { createListUsage } from "@/core/list-usage";
 import { buildConvexMembershipStore } from "@/core/membership-store/convex-client";
 import { createMembershipStore } from "@/core/membership-store/factory";
+import type { MirrorStatus } from "@/core/mirror-status";
 import { createPickerController } from "@/core/picker-controller";
 import {
   createSelectionStore,
@@ -27,6 +28,7 @@ import {
   type TweetAuthor,
 } from "@/core/selection-store";
 import { createSettings, type LassoSettings } from "@/core/settings";
+import { STORAGE_KEYS } from "@/core/storage-keys";
 import { createToastStore } from "@/core/toast-store";
 import * as tweetRead from "@/core/tweet-read";
 import { createUndoRegistry } from "@/core/undo";
@@ -53,6 +55,15 @@ function sendToBackground(msg: Record<string, unknown>): void {
   }
 }
 
+/** Best-effort Mirror-status publish (popup's Mirror row) — never load-bearing (ADR-0009). */
+function publishMirrorStatus(result: MirrorStatus): void {
+  try {
+    void chrome.storage?.local?.set?.({ [STORAGE_KEYS.mirrorStatus]: result })?.catch?.(() => {});
+  } catch {
+    // extension context gone (reload) — ignore
+  }
+}
+
 interface OverlayDeps {
   selection: SelectionStore;
   controller: LassoController;
@@ -61,11 +72,22 @@ interface OverlayDeps {
   highContrast: boolean;
 }
 
-/** 22px check at the avatar's bottom-right corner — exactly where X puts its own. */
-function injectOverlay(article: Element, author: TweetAuthor, deps: OverlayDeps): void {
+/**
+ * 22px check at the avatar's bottom-right corner — exactly where X puts its own.
+ * Returns a disposer that unmounts the Preact tree: the overlay subscribes to
+ * long-lived signals (selection.count/selectMode, the hover computed), so a cell
+ * X's virtualization prunes MUST be unmounted or its whole detached subtree stays
+ * reachable from the signal graph — memory grows with every scrolled-past post
+ * and each mousemove/selection edit pays for every overlay ever mounted.
+ */
+function injectOverlay(
+  article: Element,
+  author: TweetAuthor,
+  deps: OverlayDeps,
+): (() => void) | null {
   const avatar = article.querySelector<HTMLElement>(Selectors.AVATAR_CONTAINER);
   const anchor = avatar ?? article.querySelector('[data-testid="User-Name"]') ?? article;
-  if (anchor.querySelector(`[${OVERLAY_FLAG}]`)) return;
+  if (anchor.querySelector(`[${OVERLAY_FLAG}]`)) return null;
 
   const host = document.createElement("span");
   host.setAttribute(OVERLAY_FLAG, "");
@@ -91,6 +113,10 @@ function injectOverlay(article: Element, author: TweetAuthor, deps: OverlayDeps)
     />,
     mount,
   );
+  return () => {
+    render(null, mount); // unmount → useSignalValue effects drop their subscriptions
+    host.remove();
+  };
 }
 
 let started = false;
@@ -147,6 +173,7 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
 
   // Off-to-the-side Mirror (ADR-0009): built only when a device key is configured,
   // otherwise NullMembershipStore ⇒ the X flow is byte-for-byte unchanged.
+  const mirrorConfigured = !!(settings.convexUrl && settings.convexDeviceKey);
   const membershipStore = createMembershipStore(
     { convexUrl: settings.convexUrl, convexDeviceKey: settings.convexDeviceKey },
     buildConvexMembershipStore,
@@ -169,6 +196,9 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     settings: settingsStore,
     membershipStore,
     currentOwner: () => getCurrentAccount(),
+    // Status only makes sense for a real Mirror — the Null store "succeeding"
+    // must not paint a green "synced" row for users who never configured one.
+    ...(mirrorConfigured ? { onMirrorResult: publishMirrorStatus } : {}),
     usage: listUsage,
     quick: {
       mute: (screenName) => muteUser(creds(), screenName),
@@ -252,6 +282,9 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
 
   // Selector breakage detection (story beat 8).
   const health = createScannerHealth({ onBreakage: () => controller.reportBreakage() });
+  // Live overlays only: each pruned cell's disposer runs on removal, so the map —
+  // and the signal subscriber lists behind it — stay bounded by the visible timeline.
+  const overlayDisposers = new Map<Element, () => void>();
   createTweetScanner(
     document,
     (author, article) => {
@@ -259,15 +292,25 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
       filter.classify(article);
       const cell = article.closest(Selectors.CELL);
       if (cell && filter.isStubbed(cell)) return;
-      injectOverlay(article, author, {
+      const dispose = injectOverlay(article, author, {
         selection,
         controller,
         coach,
         visualHover,
         highContrast: settings.highContrast,
       });
+      if (dispose) overlayDisposers.set(article, dispose);
     },
-    { onScan: (mutations, matches) => health.record(mutations, matches) },
+    {
+      onScan: (mutations, matches) => health.record(mutations, matches),
+      onTweetRemoved: (article) => {
+        overlayDisposers.get(article)?.();
+        overlayDisposers.delete(article);
+        // Drop hover refs so the pruned subtree is GC-able immediately.
+        if (hoveredSticky === article) hoveredSticky = null;
+        if (visualHover.peek() === article) visualHover.value = null;
+      },
+    },
   ).start();
 
   // First run: the welcome card (story beat 3) — forced by the install hash,

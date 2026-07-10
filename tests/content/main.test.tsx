@@ -13,7 +13,7 @@ type Caps = {
   listCacheLoader?: AnyFn;
   pickerDeps?: { recentIds: AnyFn; memberships: AnyFn };
   scannerCb?: (author: unknown, article: Element) => void;
-  scannerOpts?: { onScan?: AnyFn };
+  scannerOpts?: { onScan?: AnyFn; onTweetRemoved?: (article: Element) => void };
   keyboardRun?: AnyFn;
   routeCb?: AnyFn;
   healthOnBreakage?: AnyFn;
@@ -209,11 +209,14 @@ vi.mock("@/ui/mount", () => ({
 
 let sendMessage: ReturnType<typeof vi.fn>;
 let addMessageListener: ReturnType<typeof vi.fn>;
+let storageLocalSet: ReturnType<typeof vi.fn>;
 let openSpy: ReturnType<typeof vi.spyOn>;
 let computedStyleSpy: ReturnType<typeof vi.spyOn>;
 let previousChrome: unknown;
 
-function setChrome(opts: { sendThrows?: boolean; addThrows?: boolean } = {}) {
+function setChrome(
+  opts: { sendThrows?: boolean; addThrows?: boolean; withStorage?: boolean } = {},
+) {
   sendMessage = vi.fn(() => {
     if (opts.sendThrows) throw new Error("sw gone");
     return { catch: (cb: AnyFn) => cb() }; // invoke the swallow-error arrow
@@ -222,9 +225,11 @@ function setChrome(opts: { sendThrows?: boolean; addThrows?: boolean } = {}) {
     if (opts.addThrows) throw new Error("no runtime");
     H.cap.onMessage = cb;
   });
+  storageLocalSet = vi.fn(() => ({ catch: (cb: AnyFn) => cb() }));
   globalThis.chrome = {
     ...(previousChrome as typeof chrome),
     runtime: { sendMessage, onMessage: { addListener: addMessageListener } },
+    ...(opts.withStorage === false ? {} : { storage: { local: { set: storageLocalSet } } }),
   } as unknown as typeof chrome;
 }
 
@@ -515,6 +520,91 @@ describe("content boot (main.tsx)", () => {
       stopImmediatePropagation: vi.fn(),
     });
     expect(H.fake.controller.toggleSelect.mock.calls.length).toBe(togglesBefore + 2);
+  });
+
+  it("disposes a pruned post's overlay and clears hover targeting (memory guard)", async () => {
+    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+
+    const a = cellTweet({ avatar: true });
+    H.cap.scannerCb!({ screenName: "a" }, a.article);
+    const rendersAfterMount = H.spy.render.mock.calls.length;
+    expect(rendersAfterMount).toBeGreaterThan(0);
+
+    // Hover the post so both the sticky target and the visual signal point at it.
+    a.article.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const target = H.cap.controllerDeps!.target as { tweet: () => Element | null };
+    expect(target.tweet()).toBe(a.article);
+
+    // A pruned post the user was NOT hovering leaves the hover target alone.
+    const b = cellTweet({ avatar: true });
+    H.cap.scannerCb!({ screenName: "b" }, b.article);
+    H.cap.scannerOpts!.onTweetRemoved!(b.article);
+    expect(target.tweet()).toBe(a.article);
+
+    // X prunes the hovered cell → overlay unmounted (render(null)) + hover refs dropped.
+    H.cap.scannerOpts!.onTweetRemoved!(a.article);
+    const lastRender = H.spy.render.mock.calls.at(-1)!;
+    expect(lastRender[0]).toBeNull();
+    // The article is still in the DOM here, so a null target proves the hook —
+    // not the document.contains guard — cleared the sticky hover ref.
+    expect(target.tweet()).toBeNull();
+
+    // A second removal report is a harmless no-op (disposer already gone).
+    const renders = H.spy.render.mock.calls.length;
+    H.cap.scannerOpts!.onTweetRemoved!(a.article);
+    expect(H.spy.render.mock.calls.length).toBe(renders);
+
+    // Re-mounted by X later → the overlay injects fresh (old host was removed).
+    H.cap.scannerCb!({ screenName: "a" }, a.article);
+    expect(H.spy.render.mock.calls.length).toBeGreaterThan(renders);
+  });
+
+  it("publishes Mirror outcomes to storage.local when the Mirror is configured", async () => {
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+      convexUrl: "https://x.convex.cloud",
+      convexDeviceKey: "k",
+    };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+    const onMirrorResult = H.cap.controllerDeps!.onMirrorResult as (r: unknown) => void;
+    expect(onMirrorResult).toBeTypeOf("function");
+
+    onMirrorResult({ ok: true, at: 1 });
+    expect(storageLocalSet).toHaveBeenCalledWith({ "lasso:mirror-status": { ok: true, at: 1 } });
+
+    // A dead extension context (set throwing synchronously) is swallowed.
+    storageLocalSet.mockImplementationOnce(() => {
+      throw new Error("ctx gone");
+    });
+    expect(() => onMirrorResult({ ok: false, at: 2 })).not.toThrow();
+  });
+
+  it("Mirror status publishing survives a chrome without storage, and stays unwired without creds", async () => {
+    setChrome({ withStorage: false });
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+      convexUrl: "https://x.convex.cloud",
+      convexDeviceKey: "k",
+    };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+    const onMirrorResult = H.cap.controllerDeps!.onMirrorResult as (r: unknown) => void;
+    expect(() => onMirrorResult({ ok: true, at: 3 })).not.toThrow(); // optional-chain path
+
+    // No Convex creds ⇒ the Null store's "success" must not paint a synced row.
+    setChrome();
+    H.cap = {};
+    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    await importMain();
+    await vi.waitFor(() => expect(H.cap.controllerDeps).toBeTypeOf("object"));
+    expect(H.cap.controllerDeps!.onMirrorResult).toBeUndefined();
   });
 
   it("auto activation boots immediately without a user wake", async () => {

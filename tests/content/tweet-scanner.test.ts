@@ -105,6 +105,110 @@ describe("createTweetScanner", () => {
   });
 });
 
+describe("virtualization pruning — onTweetRemoved (overlay disposal hook)", () => {
+  it("reports a pruned article once and re-reports the node if X re-adds it", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const onTweet = vi.fn();
+    const onTweetRemoved = vi.fn();
+    const scanner = createTweetScanner(root, onTweet, { onTweetRemoved });
+    scanner.start();
+
+    const cell = document.createElement("div");
+    cell.innerHTML = tweetHtml("bob", "3");
+    const article = cell.querySelector("article") as Element;
+    root.appendChild(cell);
+    await tick();
+    expect(onTweet).toHaveBeenCalledTimes(1);
+
+    cell.remove(); // X prunes the whole cell, not the bare article
+    await tick();
+    expect(onTweetRemoved).toHaveBeenCalledTimes(1);
+    expect(onTweetRemoved).toHaveBeenCalledWith(article);
+
+    root.appendChild(cell); // re-mounted → forgotten node is reported again
+    await tick();
+    expect(onTweet).toHaveBeenCalledTimes(2);
+    scanner.stop();
+  });
+
+  it("reports a directly-removed article node", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const onTweetRemoved = vi.fn();
+    const scanner = createTweetScanner(root, () => {}, { onTweetRemoved });
+    scanner.start();
+
+    const holder = document.createElement("div");
+    holder.innerHTML = tweetHtml("amy", "5");
+    const article = holder.querySelector("article") as Element;
+    root.appendChild(article);
+    await tick();
+
+    root.removeChild(article);
+    await tick();
+    expect(onTweetRemoved).toHaveBeenCalledWith(article);
+    scanner.stop();
+  });
+
+  it("keeps an article that was reparented within one mutation batch", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const onTweetRemoved = vi.fn();
+    const scanner = createTweetScanner(root, () => {}, { onTweetRemoved });
+    scanner.start();
+
+    const cellA = document.createElement("div");
+    cellA.innerHTML = tweetHtml("bob", "3");
+    const article = cellA.querySelector("article") as Element;
+    const cellB = document.createElement("div");
+    root.append(cellA, cellB);
+    await tick();
+
+    cellB.appendChild(article); // remove + re-add settle before the callback runs
+    await tick();
+    expect(onTweetRemoved).not.toHaveBeenCalled();
+    scanner.stop();
+  });
+
+  it("ignores removed nodes it never reported (and non-element removals)", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const onTweetRemoved = vi.fn();
+    const scanner = createTweetScanner(root, () => {}, { onTweetRemoved });
+    scanner.start();
+
+    // A childList-only observer never sees this article: it enters the DOM as a
+    // plain <article> and only *then* gains the tweet testid (attribute change).
+    const stealth = document.createElement("article");
+    root.appendChild(stealth);
+    const text = document.createTextNode("noise");
+    root.appendChild(text);
+    await tick();
+    stealth.setAttribute("data-testid", "tweet");
+
+    root.removeChild(stealth);
+    root.removeChild(text);
+    await tick();
+    expect(onTweetRemoved).not.toHaveBeenCalled();
+    scanner.stop();
+  });
+
+  it("prunes silently when no onTweetRemoved is wired", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const scanner = createTweetScanner(root, () => {});
+    scanner.start();
+    const cell = document.createElement("div");
+    cell.innerHTML = tweetHtml("bob", "3");
+    root.appendChild(cell);
+    await tick();
+    cell.remove();
+    await tick(); // must not throw
+    scanner.stop();
+  });
+});
+
 describe("scan stats — feeds the selector-health watchdog", () => {
   it("reports mutation batches with their match counts", async () => {
     const root = document.createElement("div");

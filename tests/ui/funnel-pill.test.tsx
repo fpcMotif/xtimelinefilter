@@ -218,13 +218,18 @@ describe("FunnelPill", () => {
     expect(style).toContain("234");
   });
 
-  it("reports a moved position via onPositionChange after a pointer drag", () => {
+  it("persists a moved position exactly once, on drop — never per pointermove", () => {
+    // onPositionChange writes chrome.storage.sync (~120 writes/min quota): one
+    // write per pointermove burned the whole quota in a single drag and starved
+    // every later settings/filter write (the felt "state latency").
     const onPositionChange = vi.fn();
     const { pill } = setup({ position: { x: 100, y: 100 }, onPositionChange });
     fireEvent.pointerDown(pill, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(document, { clientX: 130, clientY: 120, pointerId: 1 });
     fireEvent.pointerMove(document, { clientX: 160, clientY: 140, pointerId: 1 });
+    expect(onPositionChange).not.toHaveBeenCalled(); // mid-drag: local state only
     fireEvent.pointerUp(document, { clientX: 160, clientY: 140, pointerId: 1 });
-    expect(onPositionChange).toHaveBeenCalled();
+    expect(onPositionChange).toHaveBeenCalledTimes(1);
     const last = onPositionChange.mock.calls.at(-1)![0] as { x: number; y: number };
     expect(last.x).toBeGreaterThan(100);
     expect(last.y).toBeGreaterThan(100);
@@ -324,13 +329,14 @@ describe("FunnelPill", () => {
     }
   });
 
-  it("a pointer drag with no net movement does not flag the position as moved", () => {
+  it("a pointer drag with no net movement neither persists nor flags the position", () => {
     const onPositionChange = vi.fn();
     const { r, pill } = setup({ position: { x: 100, y: 100 }, onPositionChange });
     fireEvent.pointerDown(pill, { clientX: 100, clientY: 100, pointerId: 1 });
     // Same coordinates → next === pos, so `moved` stays false.
     fireEvent.pointerMove(document, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerUp(document, { clientX: 100, clientY: 100, pointerId: 1 });
+    expect(onPositionChange).not.toHaveBeenCalled(); // nothing moved → nothing written
     // Because the drag never moved, the trailing click still toggles the popover open.
     fireEvent.click(pill);
     expect(r.queryByRole("dialog")).toBeTruthy();
