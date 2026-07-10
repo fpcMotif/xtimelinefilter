@@ -1,42 +1,33 @@
 import { useState } from "preact/hooks";
 
-import { CRITERIA_GROUPS } from "@/core/filter-criteria";
 import type { FilterStore } from "@/core/filter-store";
-import type { FilterMode } from "@/core/filter-types";
-import { Button, Input, Switch } from "@/ui/components";
+import { Button, Input, PresetApplyPill, Switch } from "@/ui/components";
+import { CriteriaMatrix } from "@/ui/criteria-matrix";
 import { useSignalValue } from "@/ui/use-signal-value";
-
-const CHIP_BASE =
-  "rounded-full border px-2.5 py-1 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]";
-const CHIP_BY_MODE: Record<FilterMode, string> = {
-  off: "border-border text-muted-foreground hover:text-foreground hover:border-faint",
-  only: "border-primary bg-primary text-primary-foreground shadow-sm",
-  hide: "border-destructive/50 text-destructive line-through",
-};
 
 export interface FilterPanelProps {
   store: FilterStore;
-  /** When provided, render the "N hidden · show all / hide all" toggle. Omit for surfaces with no live count (popup). */
+  /** When provided, render the "N hidden · show all / hide all" toggle. Omit on surfaces with no live hidden count. */
   hiddenCount?: () => number;
   /**
    * Conduct in-page Filter *commands* (cycle a criterion, reveal/show-all) through
    * the controller's fail-open wall; preferences (master enable, languages, presets)
-   * stay direct. Omit (popup) ⇒ commands run directly on the store.
+   * stay direct. Omit ⇒ commands run directly on the store.
    */
   conduct?: (run: (s: FilterStore) => void) => void;
 }
 
 /**
- * The Filter's shared, placement-agnostic body: family-grouped tri-state chips, a
- * legend, the master toggle, the single "only my languages" gate, an optional
- * hidden-count line with a persistent "show all" / "hide all" reveal toggle, and
- * a presets row (apply + save only — rename/delete live in Options). Every
- * surface (popover, popup) hosts this; positioning is the mount's
- * job. No innerHTML of page data (ADR-0003).
+ * The Filter's shared, placement-agnostic body for the in-page funnel pill: the
+ * master toggle, the "only my languages" gate, an optional hidden-count line
+ * with a persistent "show all" / "hide all" reveal toggle, the shared
+ * <CriteriaMatrix> chips, and a presets row (apply + save only — rename/delete
+ * live in Options). Positioning is the mount's job. No innerHTML of page data
+ * (ADR-0003).
  */
 export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
   // Commands route through the conductor's fail-open wall in-page; with no
-  // conductor (popup) they run directly on the store.
+  // conductor they run directly on the store.
   const cmd = conduct ?? ((run: (s: FilterStore) => void) => run(store));
   const state = useSignalValue(store.state);
   const revealed = useSignalValue(store.revealed);
@@ -100,46 +91,18 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
         )}
       </div>
 
-      <span class="text-faint text-[11px] tracking-wide">◯ off · ◉ only · ⊘ hide</span>
-
-      {state.enabled &&
-        CRITERIA_GROUPS.map(({ group, criteria }) => (
-          <div key={group} class="flex flex-wrap items-center gap-1.5">
-            <span class="text-faint w-12 shrink-0 text-[10px] font-bold tracking-wider uppercase">
-              {group}
-            </span>
-            {criteria.map((chip) => {
-              const mode: FilterMode = state.criteria[chip.id] ?? "off";
-              return (
-                <button
-                  key={chip.id}
-                  type="button"
-                  aria-label={chip.label}
-                  title={mode === "off" ? chip.label : `${chip.label}: ${mode}`}
-                  data-mode={mode}
-                  onClick={() => cmd((s) => s.cycle(chip.id))}
-                  class={`${CHIP_BASE} ${CHIP_BY_MODE[mode]}`}
-                >
-                  {chip.label}
-                </button>
-              );
-            })}
-          </div>
-        ))}
+      <CriteriaMatrix store={store} conduct={conduct} show={state.enabled} />
 
       <div class="border-border flex flex-wrap items-center gap-1.5 border-t pt-3">
         <span class="text-faint w-12 shrink-0 text-[10px] font-bold tracking-wider uppercase">
           Presets
         </span>
         {state.presets.map((preset) => (
-          <button
+          <PresetApplyPill
             key={preset.id}
-            type="button"
-            onClick={() => store.applyPreset(preset.id)}
-            class="border-border text-muted-foreground hover:text-foreground hover:border-faint rounded-full border px-2.5 py-1 text-[12px] font-medium transition-colors"
-          >
-            {preset.name}
-          </button>
+            preset={preset}
+            onApply={(id) => store.applyPreset(id)}
+          />
         ))}
         <Input
           type="text"

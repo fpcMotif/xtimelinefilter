@@ -15,11 +15,13 @@ type PopupProps = {
   queryState(): Promise<TabState>;
   wake(): Promise<void>;
   openOptions(): void;
+  mirrorStatus(): Promise<{ ok: boolean; at: number } | null>;
 };
 
 let query: ReturnType<typeof vi.fn>;
 let sendMessage: ReturnType<typeof vi.fn>;
 let openOptionsPage: ReturnType<typeof vi.fn>;
+let storageLocalGet: ReturnType<typeof vi.fn>;
 let previousChrome: unknown;
 
 async function loadProps(): Promise<PopupProps> {
@@ -36,10 +38,12 @@ beforeEach(() => {
   query = vi.fn(async () => [{ id: 1 }]);
   sendMessage = vi.fn(async () => ({ awake: true }));
   openOptionsPage = vi.fn();
+  storageLocalGet = vi.fn(async () => ({}));
   globalThis.chrome = {
     ...(previousChrome as typeof chrome),
     tabs: { query, sendMessage },
     runtime: { openOptionsPage },
+    storage: { local: { get: storageLocalGet } },
   } as unknown as typeof chrome;
 });
 
@@ -105,5 +109,23 @@ describe("popup entry", () => {
     const { openOptions } = await loadProps();
     openOptions();
     expect(openOptionsPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("mirrorStatus reads and parses the storage.local record", async () => {
+    const { mirrorStatus } = await loadProps();
+    storageLocalGet.mockResolvedValueOnce({ "lasso:mirror-status": { ok: true, at: 7 } });
+    expect(await mirrorStatus()).toEqual({ ok: true, at: 7 });
+    expect(storageLocalGet).toHaveBeenCalledWith("lasso:mirror-status");
+  });
+
+  it("mirrorStatus is null when nothing was ever mirrored", async () => {
+    const { mirrorStatus } = await loadProps();
+    expect(await mirrorStatus()).toBeNull(); // empty storage → parse rejects undefined
+  });
+
+  it("mirrorStatus swallows a storage failure as null", async () => {
+    const { mirrorStatus } = await loadProps();
+    storageLocalGet.mockRejectedValueOnce(new Error("storage dead"));
+    expect(await mirrorStatus()).toBeNull();
   });
 });

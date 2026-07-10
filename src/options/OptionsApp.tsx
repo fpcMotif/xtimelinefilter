@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 
 import { DEFAULT_KEYMAP, type KeyBinding } from "@/content/keyboard";
 import { type Coach, createCoach } from "@/core/coach";
@@ -31,7 +31,9 @@ import {
   RadioCard,
   Switch,
 } from "@/ui/components";
+import { CriteriaMatrix } from "@/ui/criteria-matrix";
 import { COMMAND_LABELS } from "@/ui/ShortcutsSheet";
+import { useSignalValue } from "@/ui/use-signal-value";
 
 /** Story beat 9: the promised backend disclosure, verbatim. */
 export const ACTIVATION_COPY = {
@@ -49,10 +51,22 @@ export const BACKEND_COPY: Record<BackendStrategy, string> = {
 export const DEFAULT_LIST_NONE = "None — always ask";
 export const DEFAULT_LIST_HINT = "Alt+Shift+L adds straight to this List.";
 
+export const CONVEX_URL_ERROR = "Enter a full URL starting with https://";
+
+/**
+ * A deployment URL ConvexHttpClient can construct without throwing. A scheme-less
+ * or unparseable URL makes its constructor throw synchronously — validating here
+ * stops a boot-bricking value from ever being persisted (H1; the factory's
+ * fail-open guard is the load-bearing net, this is the visible-feedback channel).
+ */
+export function isValidConvexUrl(url: string): boolean {
+  return (url.startsWith("https://") || url.startsWith("http://")) && URL.canParse(url);
+}
+
 const SELECT =
   "border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 w-full rounded-lg border px-3 text-sm outline-none transition-[color,box-shadow,border-color] focus-visible:ring-2";
 
-const RAIL: ReadonlyArray<{ label: string; target: string }> = [
+const RAIL = [
   { label: "General", target: "activation" },
   { label: "Connection", target: "connection" },
   { label: "Lists", target: "lists" },
@@ -60,7 +74,7 @@ const RAIL: ReadonlyArray<{ label: string; target: string }> = [
   { label: "Timeline filter", target: "filter" },
   { label: "Sync", target: "sync" },
   { label: "Privacy", target: "privacy" },
-];
+] as const;
 
 export interface OptionsAppProps {
   settings?: SettingsStore;
@@ -79,18 +93,33 @@ export interface OptionsAppProps {
  * user-facing copy, and the data Lasso keeps is named and wipeable.
  */
 export function OptionsApp({
-  settings = createSettings(),
-  coach = createCoach(),
+  settings: settingsProp,
+  coach: coachProp,
   local = chrome.storage.local as unknown as StorageLike,
   sync = chrome.storage.sync as unknown as StorageLike,
   keymap = DEFAULT_KEYMAP,
   platform = detectPlatform(),
-  filter = createFilterStore(),
+  filter: filterProp,
 }: OptionsAppProps) {
+  // Create the stores ONCE per mount — never as parameter defaults. A
+  // `createSettings()`/`createFilterStore()` default re-runs on every render,
+  // yielding a fresh store (and signal) each time; fed into the useEffect deps
+  // below and useSignalValue, each fresh reference triggers setCurrent/setValue
+  // → re-render → new store → an infinite render loop that pegs the main thread
+  // (live-verified: the prop-less entry mounts painted once, then froze, so
+  // edits never persisted — "flips then reverts"). Tests inject stable stores,
+  // so they never tripped it.
+  const settings = useMemo(() => settingsProp ?? createSettings(), [settingsProp]);
+  const coach = useMemo(() => coachProp ?? createCoach(), [coachProp]);
+  const filter = useMemo(() => filterProp ?? createFilterStore(), [filterProp]);
+
   const [current, setCurrent] = useState<LassoSettings | null>(null);
   const [lists, setLists] = useState<XList[]>([]);
   const [cleared, setCleared] = useState(false);
   const [replayed, setReplayed] = useState(false);
+  const [urlError, setUrlError] = useState(false);
+  const [activeRail, setActiveRail] = useState<string>(RAIL[0].target);
+  const filterState = useSignalValue(filter.state);
 
   useEffect(() => {
     void settings.get().then(setCurrent);
@@ -115,8 +144,14 @@ export function OptionsApp({
             </div>
             <span class="text-faint text-[12px] font-medium">Settings</span>
           </div>
-          {RAIL.map((item, i) => (
-            <RailItem key={item.target} label={item.label} target={item.target} active={i === 0} />
+          {RAIL.map((item) => (
+            <RailItem
+              key={item.target}
+              label={item.label}
+              target={item.target}
+              active={item.target === activeRail}
+              onActivate={() => setActiveRail(item.target)}
+            />
           ))}
           <div class="mt-4 px-3">
             <Badge variant="success">Local-first</Badge>
@@ -214,23 +249,72 @@ export function OptionsApp({
         <Section
           title="Timeline filter"
           id="filter"
-          helper="Narrow Home and List timelines by content. Open the funnel pill on x.com to set the on/off chips; these lists configure the language gate and how links are categorized."
+          helper="Narrow Home and List timelines by content type. The chips, the language gate, and link categories all live here — and sync to the funnel pill on x.com and the toolbar popup."
         >
-          <Sub heading="My languages">
+          <div class="mb-4 flex items-center justify-between gap-3 text-[15px]">
+            Filter the timeline
+            <Switch
+              label="Filter the timeline"
+              checked={filterState.enabled}
+              onChange={(on) => filter.setEnabled(on)}
+            />
+          </div>
+
+          <Sub heading="What to filter">
+            Cycle each chip off → only → hide. “Only” keeps just those posts; “hide” drops them.
+          </Sub>
+          <div class="flex flex-col gap-3">
+            <CriteriaMatrix store={filter} />
+            {!filterState.enabled && (
+              <p class="text-faint text-[12px]">
+                The filter is off — these chips apply once you turn it on above.
+              </p>
+            )}
+          </div>
+
+          <Sub heading="My languages" class="mt-5">
             When “only my languages” is on, posts outside this allowlist are hidden.
           </Sub>
+          <div class="mb-3 flex items-center justify-between gap-3 text-[14px]">
+            Only my languages
+            <Switch
+              label="Only my languages"
+              checked={filterState.onlyMyLanguages}
+              onChange={(on) => filter.setOnlyMyLanguages(on)}
+            />
+          </div>
           <MyLanguagesEditor store={filter} />
+
           <Sub heading="Link rules" class="mt-5">
             Map a host to a category; your rules win over the built-ins. Anything unmatched is
             Article/Blog.
           </Sub>
           <LinkRulesEditor store={filter} />
+
+          <Sub heading="Display" class="mt-5">
+            How filtered posts leave the timeline.
+          </Sub>
+          <div class="flex items-center justify-between gap-3 text-[14px]">
+            <span>
+              Hide filtered posts completely
+              <span class="text-faint mt-0.5 block text-[12px]">
+                Collapse rows to nothing — off keeps the slim placeholders.
+              </span>
+            </span>
+            <Switch
+              label="Hide filtered posts completely"
+              checked={filterState.compactHidden}
+              onChange={(on) => filter.setCompactHidden(on)}
+            />
+          </div>
+
           <Sub heading="Surfaces" class="mt-5">
             Turn each filter surface on or off, and set the shortcut that opens the command palette.
           </Sub>
           <SurfaceOptions settings={settings} />
           <Sub heading="Presets" class="mt-5">
-            Rename or remove the filter selections you've saved.
+            Save the current selection, then apply it from the popup or funnel pill. Rename or
+            remove saved presets here.
           </Sub>
           <PresetManager store={filter} />
         </Section>
@@ -251,12 +335,22 @@ export function OptionsApp({
                 aria-label="Convex deployment URL"
                 placeholder="https://your-app.convex.cloud"
                 defaultValue={current.convexUrl ?? ""}
-                onChange={(e) =>
-                  patch({
-                    convexUrl: (e.currentTarget as HTMLInputElement).value.trim() || undefined,
-                  })
-                }
+                onChange={(e) => {
+                  const raw = (e.currentTarget as HTMLInputElement).value.trim();
+                  if (raw === "") {
+                    setUrlError(false);
+                    patch({ convexUrl: undefined });
+                    return;
+                  }
+                  if (!isValidConvexUrl(raw)) {
+                    setUrlError(true); // surface the error; never persist a boot-bricking URL
+                    return;
+                  }
+                  setUrlError(false);
+                  patch({ convexUrl: raw });
+                }}
               />
+              {urlError && <span class="text-destructive text-[12px]">{CONVEX_URL_ERROR}</span>}
             </div>
             <div class="flex flex-1 flex-col gap-1.5">
               <span class="text-faint text-[11px] font-semibold tracking-wide uppercase">
@@ -324,13 +418,25 @@ export function OptionsApp({
   );
 }
 
-function RailItem({ label, target, active }: { label: string; target: string; active: boolean }) {
+function RailItem({
+  label,
+  target,
+  active,
+  onActivate,
+}: {
+  label: string;
+  target: string;
+  active: boolean;
+  onActivate: () => void;
+}) {
   return (
     <button
       type="button"
-      onClick={() =>
-        document.getElementById(target)?.scrollIntoView?.({ behavior: "smooth", block: "start" })
-      }
+      aria-current={active ? "true" : undefined}
+      onClick={() => {
+        onActivate();
+        document.getElementById(target)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      }}
       class={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
         active
           ? "bg-secondary text-foreground font-semibold"

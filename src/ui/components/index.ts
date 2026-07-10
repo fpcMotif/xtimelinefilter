@@ -4,5 +4,6 @@ export { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./car
 export { Input } from "./input";
 export { Kbd } from "./kbd";
 export { LassoMark } from "./lasso-mark";
+export { PresetApplyPill, type PresetApplyPillProps } from "./preset-apply-pill";
 export { RadioCard, type RadioCardProps } from "./radio-card";
 export { Switch, type SwitchProps } from "./switch";

@@ -111,4 +111,23 @@ describe("PresetManager", () => {
     const r = render(<PresetManager store={store} />);
     expect(r.getByText(/no saved presets yet/i)).toBeTruthy();
   });
+
+  it("saves the current selection as a new named preset", () => {
+    const store = createFilterStore({ navLanguages: ["en"] });
+    const spy = vi.spyOn(store, "savePreset");
+    const r = render(<PresetManager store={store} />);
+    fireEvent.input(r.getByLabelText(/new preset name/i), { target: { value: "Focus" } });
+    fireEvent.click(r.getByLabelText(/save preset/i));
+    expect(spy).toHaveBeenCalledWith("Focus");
+    expect(r.getByText("Focus")).toBeTruthy();
+  });
+
+  it("ignores a blank / whitespace-only preset name on save", () => {
+    const store = createFilterStore({ navLanguages: ["en"] });
+    const spy = vi.spyOn(store, "savePreset");
+    const r = render(<PresetManager store={store} />);
+    fireEvent.input(r.getByLabelText(/new preset name/i), { target: { value: "   " } });
+    fireEvent.click(r.getByLabelText(/save preset/i));
+    expect(spy).not.toHaveBeenCalled();
+  });
 });

@@ -56,43 +56,65 @@ export function SurfaceOptions({ settings }: { settings: SettingsStore }) {
   );
 }
 
-/** Lists saved filter presets with rename + delete, bound to the filter store. */
+/** Saves, lists, renames, and deletes filter presets, bound to the filter store. */
 export function PresetManager({ store }: { store: FilterStore }) {
   const { presets } = useSignalValue(store.state);
+  const [draftName, setDraftName] = useState("");
 
   const rename = (id: string, current: string) => {
     const next = window.prompt("Rename preset", current)?.trim();
     if (next) store.renamePreset(id, next);
   };
 
+  const save = () => {
+    const name = draftName.trim();
+    if (!name) return;
+    store.savePreset(name);
+    setDraftName("");
+  };
+
   return (
-    <ul class="flex flex-col gap-1.5">
-      {presets.map((preset) => (
-        <li
-          key={preset.id}
-          class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[14px]"
-        >
-          <span class="font-medium">{preset.name}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            class="ml-auto"
-            aria-label={`Rename ${preset.name}`}
-            onClick={() => rename(preset.id, preset.name)}
+    <div class="flex flex-col gap-2.5">
+      <div class="flex gap-2">
+        <Input
+          aria-label="New preset name"
+          placeholder="Save the current selection as…"
+          value={draftName}
+          onInput={(e) => setDraftName((e.currentTarget as HTMLInputElement).value)}
+          class="flex-1"
+        />
+        <Button variant="secondary" aria-label="Save preset" onClick={save}>
+          Save
+        </Button>
+      </div>
+      <ul class="flex flex-col gap-1.5">
+        {presets.map((preset) => (
+          <li
+            key={preset.id}
+            class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[14px]"
           >
-            Rename
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label={`Delete ${preset.name}`}
-            onClick={() => store.deletePreset(preset.id)}
-          >
-            Delete
-          </Button>
-        </li>
-      ))}
-      {presets.length === 0 && <li class="text-faint text-[13px]">No saved presets yet.</li>}
-    </ul>
+            <span class="font-medium">{preset.name}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              class="ml-auto"
+              aria-label={`Rename ${preset.name}`}
+              onClick={() => rename(preset.id, preset.name)}
+            >
+              Rename
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label={`Delete ${preset.name}`}
+              onClick={() => store.deletePreset(preset.id)}
+            >
+              Delete
+            </Button>
+          </li>
+        ))}
+        {presets.length === 0 && <li class="text-faint text-[13px]">No saved presets yet.</li>}
+      </ul>
+    </div>
   );
 }
