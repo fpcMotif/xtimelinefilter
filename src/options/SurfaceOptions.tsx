@@ -29,7 +29,7 @@ export function SurfaceOptions({ settings }: { settings: SettingsStore }) {
       {SURFACES.map((surface) => (
         <div
           key={surface}
-          class="border-border flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-[14px]"
+          class="border-border flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-sm"
         >
           {SURFACE_COPY[surface]}
           <Switch
@@ -40,7 +40,7 @@ export function SurfaceOptions({ settings }: { settings: SettingsStore }) {
         </div>
       ))}
       <div class="mt-1 flex flex-col gap-1.5">
-        <span class="text-faint text-[11px] font-semibold tracking-wide uppercase">
+        <span class="text-faint text-2xs font-semibold tracking-wide uppercase">
           Palette hotkey
         </span>
         <Input
@@ -67,9 +67,7 @@ export function PresetManager({ store }: { store: FilterStore }) {
   };
 
   const save = () => {
-    const name = draftName.trim();
-    if (!name) return;
-    store.savePreset(name);
+    store.savePreset(draftName.trim());
     setDraftName("");
   };
 
@@ -83,7 +81,12 @@ export function PresetManager({ store }: { store: FilterStore }) {
           onInput={(e) => setDraftName((e.currentTarget as HTMLInputElement).value)}
           class="flex-1"
         />
-        <Button variant="secondary" aria-label="Save preset" onClick={save}>
+        <Button
+          variant="secondary"
+          aria-label="Save preset"
+          disabled={!draftName.trim()}
+          onClick={save}
+        >
           Save
         </Button>
       </div>
@@ -91,7 +94,7 @@ export function PresetManager({ store }: { store: FilterStore }) {
         {presets.map((preset) => (
           <li
             key={preset.id}
-            class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[14px]"
+            class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm"
           >
             <span class="font-medium">{preset.name}</span>
             <Button
@@ -113,7 +116,7 @@ export function PresetManager({ store }: { store: FilterStore }) {
             </Button>
           </li>
         ))}
-        {presets.length === 0 && <li class="text-faint text-[13px]">No saved presets yet.</li>}
+        {presets.length === 0 && <li class="text-faint text-compact">No saved presets yet.</li>}
       </ul>
     </div>
   );

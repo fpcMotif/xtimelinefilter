@@ -10,7 +10,7 @@ const DEST_LABELS = LINK_DEST_LABELS;
 const DESTS = Object.keys(DEST_LABELS) as LinkDest[];
 
 const CHIP =
-  "border-border bg-secondary flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[13px] font-medium";
+  "border-border bg-secondary flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-compact font-medium";
 const SELECT =
   "border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 rounded-lg border px-3 text-sm outline-none transition-[color,box-shadow,border-color] focus-visible:ring-2";
 
@@ -20,9 +20,7 @@ export function MyLanguagesEditor({ store }: { store: FilterStore }) {
   const [draft, setDraft] = useState("");
 
   const add = () => {
-    const value = draft.trim();
-    if (!value) return;
-    store.setMyLanguages([...myLanguages, value]);
+    store.setMyLanguages([...myLanguages, draft.trim()]);
     setDraft("");
   };
 
@@ -43,7 +41,7 @@ export function MyLanguagesEditor({ store }: { store: FilterStore }) {
           </span>
         ))}
         {myLanguages.length === 0 && (
-          <span class="text-faint text-[13px]">No languages — gate shows everything.</span>
+          <span class="text-faint text-compact">No languages — gate shows everything.</span>
         )}
       </div>
       <div class="flex gap-2">
@@ -53,7 +51,12 @@ export function MyLanguagesEditor({ store }: { store: FilterStore }) {
           value={draft}
           onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
         />
-        <Button variant="secondary" aria-label="Add language" onClick={add}>
+        <Button
+          variant="secondary"
+          aria-label="Add language"
+          disabled={!draft.trim()}
+          onClick={add}
+        >
           Add
         </Button>
       </div>
@@ -68,9 +71,8 @@ export function LinkRulesEditor({ store }: { store: FilterStore }) {
   const [dest, setDest] = useState<LinkDest>("article");
 
   const add = () => {
-    const h = host.trim().toLowerCase();
-    if (!h || !DESTS.includes(dest)) return;
-    store.setLinkRules([...linkRules, { host: h, dest }]);
+    if (!DESTS.includes(dest)) return; // storage hygiene: the select can't be trusted forever
+    store.setLinkRules([...linkRules, { host: host.trim().toLowerCase(), dest }]);
     setHost("");
     setDest("article");
   };
@@ -81,7 +83,7 @@ export function LinkRulesEditor({ store }: { store: FilterStore }) {
         {linkRules.map((rule) => (
           <li
             key={`${rule.host}:${rule.dest}`}
-            class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[14px]"
+            class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm"
           >
             <span class="font-mono">{rule.host}</span>
             <span class="text-muted-foreground">→ {DEST_LABELS[rule.dest]}</span>
@@ -116,7 +118,7 @@ export function LinkRulesEditor({ store }: { store: FilterStore }) {
             </option>
           ))}
         </select>
-        <Button variant="secondary" aria-label="Add rule" onClick={add}>
+        <Button variant="secondary" aria-label="Add rule" disabled={!host.trim()} onClick={add}>
           Add rule
         </Button>
       </div>

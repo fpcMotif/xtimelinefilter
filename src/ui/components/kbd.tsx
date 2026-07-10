@@ -7,7 +7,7 @@ export function Kbd({ class: cls, className, ...props }: JSX.IntrinsicElements["
     <kbd
       data-slot="kbd"
       class={cn(
-        "border-border bg-secondary text-foreground inline-flex h-5 min-w-5 items-center justify-center rounded-md border px-1.5 text-[11px] font-medium",
+        "border-border bg-secondary text-foreground inline-flex h-5 min-w-5 items-center justify-center rounded-md border px-1.5 text-2xs font-medium",
         cls,
         className,
       )}

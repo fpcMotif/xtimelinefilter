@@ -191,7 +191,7 @@ export function OptionsApp({
               <LassoMark size={22} class="text-primary" />
               <span class="text-[17px] font-bold tracking-tight">Lasso</span>
             </div>
-            <span class="text-faint text-[12px] font-medium">Settings</span>
+            <span class="text-faint text-xs font-medium">Settings</span>
           </div>
           {RAIL.map((item) => (
             <RailItem
@@ -211,7 +211,7 @@ export function OptionsApp({
       <main class="flex min-w-0 flex-1 flex-col gap-5">
         <header class="flex flex-col gap-1">
           <h1 class="text-[24px] font-bold tracking-tight">Settings</h1>
-          <p class="text-muted-foreground text-[14px]">How and when Lasso runs on x.com.</p>
+          <p class="text-muted-foreground text-sm">How and when Lasso runs on x.com.</p>
         </header>
 
         <Section title="Activation" id="activation">
@@ -266,10 +266,10 @@ export function OptionsApp({
             ))}
           </select>
           {current.defaultListId && (
-            <p class="text-muted-foreground mt-2 text-[13px]">{DEFAULT_LIST_HINT}</p>
+            <p class="text-muted-foreground text-compact mt-2">{DEFAULT_LIST_HINT}</p>
           )}
           {lists.length === 0 && (
-            <p class="text-muted-foreground mt-2 text-[13px]">
+            <p class="text-muted-foreground text-compact mt-2">
               Open x.com once so Lasso can see your Lists.
             </p>
           )}
@@ -280,7 +280,7 @@ export function OptionsApp({
             <tbody>
               {keymap.map((binding) => (
                 <tr key={binding.combo} class="border-border/60 border-b last:border-0">
-                  <td class="py-2 text-[14px]">{COMMAND_LABELS[binding.command]}</td>
+                  <td class="py-2 text-sm">{COMMAND_LABELS[binding.command]}</td>
                   <td class="py-2 text-right">
                     {keycaps(binding.combo, platform).map((cap) => (
                       <Kbd key={cap} class="ml-1">
@@ -292,7 +292,7 @@ export function OptionsApp({
               ))}
             </tbody>
           </table>
-          <p class="text-faint mt-3 text-[13px]">Press ? on x.com anytime.</p>
+          <p class="text-faint text-compact mt-3">Press ? on x.com anytime.</p>
         </Section>
 
         <Section
@@ -300,7 +300,7 @@ export function OptionsApp({
           id="filter"
           helper="Narrow Home and List timelines by content type. The chips, the language gate, and link categories all live here — and sync to the funnel pill on x.com and the toolbar popup."
         >
-          <div class="mb-4 flex items-center justify-between gap-3 text-[15px]">
+          <div class="text-md mb-4 flex items-center justify-between gap-3">
             Filter the timeline
             <Switch
               label="Filter the timeline"
@@ -315,7 +315,7 @@ export function OptionsApp({
           <div class="flex flex-col gap-3">
             <CriteriaMatrix store={filter} />
             {!filterState.enabled && (
-              <p class="text-faint text-[12px]">
+              <p class="text-faint text-xs">
                 The filter is off — these chips apply once you turn it on above.
               </p>
             )}
@@ -324,7 +324,7 @@ export function OptionsApp({
           <Sub heading="My languages" class="mt-5">
             When “only my languages” is on, posts outside this allowlist are hidden.
           </Sub>
-          <div class="mb-3 flex items-center justify-between gap-3 text-[14px]">
+          <div class="mb-3 flex items-center justify-between gap-3 text-sm">
             Only my languages
             <Switch
               label="Only my languages"
@@ -343,10 +343,10 @@ export function OptionsApp({
           <Sub heading="Display" class="mt-5">
             How filtered posts leave the timeline.
           </Sub>
-          <div class="flex items-center justify-between gap-3 text-[14px]">
+          <div class="flex items-center justify-between gap-3 text-sm">
             <span>
               Hide filtered posts completely
-              <span class="text-faint mt-0.5 block text-[12px]">
+              <span class="text-faint mt-0.5 block text-xs">
                 Collapse rows to nothing — off keeps the slim placeholders.
               </span>
             </span>
@@ -380,7 +380,7 @@ export function OptionsApp({
         >
           <div class="flex flex-col gap-3 sm:flex-row">
             <div class="flex flex-1 flex-col gap-1.5">
-              <span class="text-faint text-[11px] font-semibold tracking-wide uppercase">
+              <span class="text-faint text-2xs font-semibold tracking-wide uppercase">
                 Deployment URL
               </span>
               <Input
@@ -407,7 +407,7 @@ export function OptionsApp({
               {urlError && <span class="text-destructive text-xs">{CONVEX_URL_ERROR}</span>}
             </div>
             <div class="flex flex-1 flex-col gap-1.5">
-              <span class="text-faint text-[11px] font-semibold tracking-wide uppercase">
+              <span class="text-faint text-2xs font-semibold tracking-wide uppercase">
                 Device key
               </span>
               <Input
@@ -433,7 +433,7 @@ export function OptionsApp({
         </Section>
 
         <Section title="Accessibility" id="access">
-          <div class="flex items-center justify-between gap-3 text-[15px]">
+          <div class="text-md flex items-center justify-between gap-3">
             Higher-contrast buttons
             <Switch
               label="Higher-contrast buttons"
@@ -441,11 +441,11 @@ export function OptionsApp({
               onChange={(on) => patch({ highContrast: on })}
             />
           </div>
-          <p class="text-faint mt-1 text-[13px]">AA-safe deeper amber on the accent controls.</p>
+          <p class="text-faint text-compact mt-1">AA-safe deeper amber on the accent controls.</p>
         </Section>
 
         <Section title="Privacy & data" id="privacy">
-          <p class="text-[14px]">{PRIVACY_LINE}</p>
+          <p class="text-sm">{PRIVACY_LINE}</p>
           <div class="border-destructive/30 bg-destructive/5 mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-4">
             {confirmClear ? (
               <>
@@ -486,7 +486,7 @@ export function OptionsApp({
               Replay intro
             </Button>
             {replayed && (
-              <span class="text-muted-foreground text-[13px]">On your next visit to x.com</span>
+              <span class="text-muted-foreground text-compact">On your next visit to x.com</span>
             )}
           </div>
         </Section>
@@ -514,7 +514,7 @@ function RailItem({
         onActivate();
         document.getElementById(target)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
       }}
-      class={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
+      class={`text-compact flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
         active
           ? "bg-secondary text-foreground font-semibold"
           : "text-muted-foreground hover:text-foreground"
@@ -564,8 +564,8 @@ function Sub({
 }) {
   return (
     <div class={`mb-2 ${cls ?? ""}`}>
-      <h3 class="mb-1 text-[14px] font-semibold">{heading}</h3>
-      <p class="text-muted-foreground text-[13px]">{children}</p>
+      <h3 class="mb-1 text-sm font-semibold">{heading}</h3>
+      <p class="text-muted-foreground text-compact">{children}</p>
     </div>
   );
 }

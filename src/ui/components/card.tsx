@@ -47,7 +47,7 @@ export function CardDescription({ class: cls, className, ...props }: JSX.Intrins
   return (
     <p
       data-slot="card-description"
-      class={cn("text-muted-foreground text-[13px] leading-relaxed", cls, className)}
+      class={cn("text-muted-foreground text-compact leading-relaxed", cls, className)}
       {...props}
     />
   );

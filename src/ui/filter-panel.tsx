@@ -44,7 +44,7 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
   return (
     <div class="bg-card text-card-foreground border-border flex flex-col gap-3 rounded-2xl border p-3.5 text-sm">
       <div class="flex items-center gap-4">
-        <span class="flex items-center gap-2 text-[12px] font-medium">
+        <span class="flex items-center gap-2 text-xs font-medium">
           <Switch
             label="Timeline filter enabled"
             checked={state.enabled}
@@ -52,7 +52,7 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
           />
           Filter
         </span>
-        <span class="flex items-center gap-2 text-[12px] font-medium">
+        <span class="flex items-center gap-2 text-xs font-medium">
           <Switch
             label="Only my languages"
             checked={state.onlyMyLanguages}
@@ -61,7 +61,7 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
           Languages
         </span>
         {hidden !== undefined && (
-          <span class="text-muted-foreground ml-auto text-[12px] tabular-nums">
+          <span class="text-muted-foreground ml-auto text-xs tabular-nums">
             {revealed ? (
               <>
                 showing all
@@ -110,9 +110,9 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
           placeholder="Name…"
           value={draftName}
           onInput={(e) => setDraftName((e.currentTarget as HTMLInputElement).value)}
-          class="ml-auto h-7 w-24 rounded-lg px-2 text-[12px]"
+          class="ml-auto h-7 w-24 rounded-lg px-2 text-xs"
         />
-        <Button size="sm" class="h-7 px-2.5 text-[12px]" onClick={onSave}>
+        <Button size="sm" class="h-7 px-2.5 text-xs" onClick={onSave}>
           Save
         </Button>
       </div>
