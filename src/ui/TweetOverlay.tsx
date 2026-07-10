@@ -26,10 +26,10 @@ export function TweetOverlay({ selected, visible, onToggle, tooltip }: TweetOver
           e.preventDefault();
           onToggle();
         }}
-        class={`group relative grid h-[22px] w-[22px] place-items-center rounded-full border-2 text-[12px] leading-none transition-[opacity,border-color] duration-150 ease-out before:absolute before:-inset-2 before:content-[''] active:scale-[0.96] ${
+        class={`group focus-visible:ring-ring/55 relative grid h-[22px] w-[22px] place-items-center rounded-full border-2 text-xs leading-none transition-[opacity,border-color] duration-150 ease-out outline-none before:absolute before:-inset-2 before:content-[''] focus-visible:ring-2 active:scale-[0.96] ${
           selected
-            ? "border-accent bg-accent text-accent-ink"
-            : "border-line bg-surface text-ink hover:border-accent"
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-card text-foreground hover:border-primary"
         } ${shown ? "opacity-100" : "pointer-events-none opacity-0"}`}
       >
         <span
@@ -41,7 +41,7 @@ export function TweetOverlay({ selected, visible, onToggle, tooltip }: TweetOver
       {tooltip && (
         <span
           role="tooltip"
-          class="bg-ink text-surface shadow-elevated absolute top-full left-1/2 z-10 mt-1.5 w-max max-w-[240px] -translate-x-1/2 rounded-md px-2 py-1 text-[12px]"
+          class="bg-foreground text-background shadow-elevated absolute top-full left-1/2 z-10 mt-1.5 w-max max-w-[240px] -translate-x-1/2 rounded-md px-2 py-1 text-xs"
         >
           {tooltip}
         </span>

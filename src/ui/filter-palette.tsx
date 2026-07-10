@@ -122,8 +122,8 @@ export function FilterPalette({
   return (
     <div
       role="presentation"
-      class="fixed inset-0 grid place-items-start justify-center pt-[12vh]"
-      style={{ zIndex: PALETTE_Z, background: "oklch(0 0 0 / 0.32)" }}
+      class="bg-scrim fixed inset-0 grid place-items-start justify-center pt-[12vh]"
+      style={{ zIndex: PALETTE_Z }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -131,7 +131,7 @@ export function FilterPalette({
       <div
         role="dialog"
         aria-label="Filter command palette"
-        class="bg-surface text-ink shadow-elevated w-[28rem] max-w-[92vw] overflow-hidden rounded-2xl"
+        class="bg-card text-card-foreground shadow-elevated w-[28rem] max-w-[92vw] overflow-hidden rounded-2xl"
       >
         <input
           ref={inputRef}
@@ -144,11 +144,11 @@ export function FilterPalette({
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          class="border-line bg-surface text-ink placeholder:text-muted w-full border-b px-4 py-3 text-sm outline-none"
+          class="border-border bg-card text-foreground placeholder:text-faint w-full border-b px-4 py-3 text-sm outline-none"
         />
         <ul role="listbox" class="max-h-[50vh] overflow-y-auto py-1" aria-label="Commands">
           {matches.length === 0 && (
-            <li class="text-muted px-4 py-2 text-[13px]">No matching commands</li>
+            <li class="text-muted-foreground text-compact px-4 py-2">No matching commands</li>
           )}
           {matches.map((item, i) => (
             <li
@@ -162,8 +162,8 @@ export function FilterPalette({
                 e.preventDefault();
                 run(item);
               }}
-              class={`cursor-pointer px-4 py-2 text-[13px] ${
-                i === active ? "bg-accent text-accent-ink" : "text-ink"
+              class={`text-compact cursor-pointer px-4 py-2 ${
+                i === active ? "bg-primary text-primary-foreground" : "text-foreground"
               }`}
             >
               {item.label}

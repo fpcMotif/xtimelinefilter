@@ -22,7 +22,7 @@ export interface ActionBarProps {
 }
 
 const BAR_CLASS =
-  "bg-surface shadow-elevated fixed bottom-6 left-1/2 z-[2147483646] flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2";
+  "bg-card shadow-elevated fixed bottom-6 left-1/2 z-[2147483646] flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2";
 
 /**
  * The floating bar (story beats 4 & 7): facepile · "N people selected" ·
@@ -42,15 +42,15 @@ function ProgressBar({ running, onStop }: { running: RunningAssign; onStop(): vo
     <section aria-label="Lasso progress" class={BAR_CLASS}>
       <span
         aria-hidden="true"
-        class="border-line border-t-accent h-4 w-4 animate-spin rounded-full border-2"
+        class="border-border border-t-primary h-4 w-4 animate-spin rounded-full border-2"
       />
-      <span class="text-ink text-sm tabular-nums">
+      <span class="text-foreground text-sm tabular-nums">
         {progressLine(running.current, running.total, running.listName)}
       </span>
       <button
         type="button"
         onClick={onStop}
-        class="border-line text-ink hover:bg-elevated rounded-full border px-3 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out active:scale-[0.96]"
+        class="border-border text-foreground hover:bg-secondary focus-visible:ring-ring/55 rounded-full border px-3 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
       >
         {STOP}
       </button>
@@ -62,11 +62,11 @@ function SelectModeBar({ onDone }: { onDone(): void }) {
   return (
     <section aria-label="Lasso select mode" class={BAR_CLASS}>
       <CrosshairGlyph />
-      <span class="text-muted text-sm">{SELECT_MODE_BAR}</span>
+      <span class="text-muted-foreground text-sm">{SELECT_MODE_BAR}</span>
       <button
         type="button"
         onClick={onDone}
-        class="bg-accent text-accent-ink hover:bg-accent/90 rounded-full px-4 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out active:scale-[0.96]"
+        class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/55 rounded-full px-4 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
       >
         Done
       </button>
@@ -84,19 +84,19 @@ function SelectionBar(props: ActionBarProps) {
         aria-label="Review selected people"
         aria-expanded={props.reviewOpen}
         onClick={() => props.onToggleReview(!props.reviewOpen)}
-        class="flex items-center -space-x-2"
+        class="focus-visible:ring-ring/55 flex items-center -space-x-2 rounded-full outline-none focus-visible:ring-2"
       >
         {props.authors.slice(0, 3).map((a) => (
           <Avatar key={a.screenName} author={a} size={24} />
         ))}
         {props.authors.length > 3 && (
-          <span class="bg-elevated text-muted border-surface z-10 grid h-6 w-6 place-items-center rounded-full border-2 text-[11px] font-semibold tabular-nums">
+          <span class="bg-secondary text-muted-foreground border-card text-2xs z-10 grid h-6 w-6 place-items-center rounded-full border-2 font-semibold tabular-nums">
             +{formatCount(props.authors.length - 3)}
           </span>
         )}
       </button>
       <span
-        class="text-muted relative text-sm tabular-nums"
+        class="text-muted-foreground relative text-sm tabular-nums"
         onMouseEnter={() => void props.onCountHover?.().then(setTooltip)}
         onMouseLeave={() => setTooltip(null)}
       >
@@ -104,7 +104,7 @@ function SelectionBar(props: ActionBarProps) {
         {tooltip && (
           <span
             role="tooltip"
-            class="bg-ink text-surface shadow-elevated absolute bottom-full left-1/2 z-10 mb-1.5 w-max -translate-x-1/2 rounded-md px-2 py-1 text-[12px]"
+            class="bg-foreground text-background shadow-elevated absolute bottom-full left-1/2 z-10 mb-1.5 w-max -translate-x-1/2 rounded-md px-2 py-1 text-xs"
           >
             {tooltip}
           </span>
@@ -113,13 +113,13 @@ function SelectionBar(props: ActionBarProps) {
       <button
         type="button"
         onClick={props.onAssign}
-        class="bg-accent text-accent-ink hover:bg-accent/90 flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out active:scale-[0.96]"
+        class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/55 flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
       >
         Add to List
         {props.hintKeycaps && (
           <span class="flex items-center gap-0.5">
             {props.hintKeycaps.map((k) => (
-              <kbd key={k} class="rounded border border-white/40 px-1 text-[11px] leading-4">
+              <kbd key={k} class="text-2xs rounded border border-white/40 px-1 leading-4">
                 {k}
               </kbd>
             ))}
@@ -130,7 +130,7 @@ function SelectionBar(props: ActionBarProps) {
         type="button"
         aria-label="Clear selection"
         onClick={props.onClear}
-        class="text-muted hover:bg-elevated hover:text-ink rounded-full px-2 py-1 text-sm transition-transform duration-150 ease-out active:scale-[0.96]"
+        class="text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:ring-ring/55 rounded-full px-2 py-1 text-sm transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
       >
         ✕
       </button>
@@ -150,20 +150,20 @@ function ReviewPopover({
     <div
       role="dialog"
       aria-label="Selected people"
-      class="bg-surface shadow-elevated absolute bottom-full left-0 mb-2 max-h-[280px] w-64 overflow-y-auto rounded-2xl p-1"
+      class="bg-card shadow-elevated absolute bottom-full left-0 mb-2 max-h-[280px] w-64 overflow-y-auto rounded-2xl p-1"
     >
       {authors.map((a) => (
         <div
           key={a.screenName}
-          class="hover:bg-elevated flex items-center gap-2 rounded-lg px-2 py-1.5"
+          class="hover:bg-secondary flex items-center gap-2 rounded-lg px-2 py-1.5"
         >
           <Avatar author={a} size={28} />
-          <span class="text-ink min-w-0 flex-1 truncate text-sm">@{a.screenName}</span>
+          <span class="text-foreground min-w-0 flex-1 truncate text-sm">@{a.screenName}</span>
           <button
             type="button"
             aria-label={`Remove @${a.screenName}`}
             onClick={() => onRemove(a.screenName)}
-            class="text-muted hover:text-ink rounded-full px-1.5"
+            class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/55 rounded-full px-1.5 outline-none focus-visible:ring-2"
           >
             ✕
           </button>
@@ -182,7 +182,7 @@ function Avatar({ author, size }: { author: TweetAuthor; size: number }) {
         alt={`@${author.screenName}`}
         width={size}
         height={size}
-        class="border-surface z-10 rounded-full border-2"
+        class="border-card z-10 rounded-full border-2"
         style={{ width: dim, height: dim }}
       />
     );
@@ -190,7 +190,7 @@ function Avatar({ author, size }: { author: TweetAuthor; size: number }) {
   return (
     <span
       aria-label={`@${author.screenName}`}
-      class="bg-elevated text-muted border-surface z-10 grid place-items-center rounded-full border-2 text-[11px] font-semibold uppercase"
+      class="bg-secondary text-muted-foreground border-card text-2xs z-10 grid place-items-center rounded-full border-2 font-semibold uppercase"
       style={{ width: dim, height: dim }}
     >
       {author.screenName.slice(0, 1)}
@@ -200,7 +200,13 @@ function Avatar({ author, size }: { author: TweetAuthor; size: number }) {
 
 function CrosshairGlyph() {
   return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" class="text-muted">
+    <svg
+      aria-hidden="true"
+      width="16"
+      height="16"
+      viewBox="0 0 20 20"
+      class="text-muted-foreground"
+    >
       <circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.5" />
       <path
         d="M10 1v4M10 15v4M1 10h4M15 10h4"
