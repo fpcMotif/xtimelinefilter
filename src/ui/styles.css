@@ -126,20 +126,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-
-  /* Legacy aliases — the surfaces not yet migrated to shadcn names (ActionBar,
-     ListPicker, Toast, funnel-pill …) keep resolving against the same vars, so
-     they inherit the Lariat palette for free. */
-  --color-canvas: var(--background);
-  --color-surface: var(--card);
-  --color-elevated: var(--secondary);
-  --color-ink: var(--foreground);
-  --color-muted: var(--muted-foreground);
-  --color-line: var(--border);
-  --color-accent: var(--primary);
-  --color-accent-ink: var(--primary-foreground);
-  --color-danger: var(--destructive);
-  --color-good: var(--success);
 }
 
 @layer base {
