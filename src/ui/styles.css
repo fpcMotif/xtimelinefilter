@@ -22,6 +22,7 @@
 
 :root {
   --radius: 0.75rem;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
   --background: oklch(0.98 0.006 84.6);
   --foreground: oklch(0.23 0.008 264.4);
@@ -43,6 +44,8 @@
 
   --shadow-elevated: 0 0 0 1px oklch(0 0 0 / 0.05), 0 12px 34px oklch(0 0 0 / 0.14);
   --shadow-pop: 0 0 0 1px oklch(0 0 0 / 0.04), 0 18px 48px oklch(0 0 0 / 0.18);
+
+  --scrim: oklch(0 0 0 / 0.4);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -67,12 +70,22 @@
 
     --shadow-elevated: 0 0 0 1px oklch(1 0 0 / 0.06), 0 14px 40px oklch(0 0 0 / 0.55);
     --shadow-pop: 0 0 0 1px oklch(1 0 0 / 0.07), 0 22px 60px oklch(0 0 0 / 0.62);
+
+    --scrim: oklch(0 0 0 / 0.5);
   }
 }
 
-/* Strong ease-out (Emil): stronger than the CSS default. Static across themes. */
+/* Strong ease-out (Emil): stronger than the CSS default. Static across themes.
+   Redeclaring Tailwind's own token name means every `ease-out` utility in the
+   app already renders with this curve. Type scale: the three sizes the app
+   actually repeats (11/13/15px); 12px and 14px use Tailwind's text-xs/text-sm.
+   Font-size only (no paired line-height) to match the arbitrary-value classes
+   they replace. */
 @theme {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --text-2xs: 11px;
+  --text-compact: 13px;
+  --text-md: 15px;
 }
 
 /* Elevation utilities. These MUST be explicit box-shadow utilities: a
@@ -107,6 +120,7 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-scrim: var(--scrim);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -134,8 +148,7 @@
   }
 
   :host {
-    font-family:
-      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     color: var(--foreground);
   }
@@ -147,21 +160,34 @@
     margin: 0;
     background-color: var(--background);
     color: var(--foreground);
-    font-family:
-      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
 
   /* Accessibility (Settings → Higher-contrast buttons): deepen the amber so the
-     primary fills clear AA. Theme-aware to match the primary-foreground direction. */
+     primary fills clear AA. Theme-aware to match the primary-foreground direction.
+     Two selectors on purpose: `:host([data-hc])` for the on-x.com shadow roots,
+     `:root[data-hc]` for popup/options (<html data-hc>). They must stay separate
+     rules — mount.tsx's :root→:host rewrite would turn a combined list into the
+     never-matching compound `:host[data-hc]` (:host is featureless). */
   :host([data-hc]) {
     --primary: oklch(0.494 0.11 57.8);
     --ring: oklch(0.494 0.11 57.8);
   }
 }
 
+:root[data-hc] {
+  --primary: oklch(0.494 0.11 57.8);
+  --ring: oklch(0.494 0.11 57.8);
+}
+
 @media (prefers-color-scheme: dark) {
   :host([data-hc]) {
+    --primary: oklch(0.849 0.123 72.1);
+    --ring: oklch(0.849 0.123 72.1);
+  }
+
+  :root[data-hc] {
     --primary: oklch(0.849 0.123 72.1);
     --ring: oklch(0.849 0.123 72.1);
   }
