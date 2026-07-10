@@ -8,6 +8,7 @@ import type { ListCache } from "@/core/list-cache";
 import type { ListUsage } from "@/core/list-usage";
 import { NullMembershipStore } from "@/core/membership-store/null";
 import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
+import type { MirrorStatus } from "@/core/mirror-status";
 import type { PickerController } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
 import type { SettingsStore } from "@/core/settings";
@@ -41,7 +42,8 @@ export type AssignSource = "pointer" | "keyboard";
 export interface QuickActions {
   mute(screenName: string): Promise<void>;
   unmute(screenName: string): Promise<void>;
-  notInterested(tweetEl: Element): Promise<void>;
+  /** "hidden" on success, "unavailable" when X offers no "not interested" here (silent no-op). */
+  notInterested(tweetEl: Element): Promise<"hidden" | "unavailable">;
   block?(screenName: string): Promise<void>;
 }
 
@@ -70,6 +72,13 @@ export interface ControllerDeps {
   membershipStore?: MembershipStore;
   /** The Owner logged in at action time; absent/returns null ⇒ the Mirror is skipped. */
   currentOwner?: () => Owner | null;
+  /**
+   * Observability hook for the Mirror: called after every recordAssign attempt with
+   * its outcome, so a surface (popup) can show "synced/failing" instantly instead of
+   * the user inferring it from a once-only console.warn. Fire-and-forget like the
+   * write itself — never load-bearing (ADR-0009).
+   */
+  onMirrorResult?: (result: MirrorStatus) => void;
   usage?: ListUsage;
   /** The one global filter store; absent ⇒ filter commands are no-ops (ADR-0010 — never load-bearing). */
   filter?: FilterStore;
@@ -122,6 +131,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   let stopRequested = false;
   let lastSource: AssignSource = "pointer";
   let individualSelections = 0; // session-scoped, feeds the select-mode nudge
+  let mirrorWarned = false; // C1: first Mirror failure is surfaced once, then silent
 
   const nudge = (): void => {
     toasts.show({ kind: "info", title: NO_TARGET_NUDGE });
@@ -130,13 +140,29 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   /**
    * Mirror the changes from a run, stamped with the Owner logged in right now.
    * Fire-and-forget: the Mirror is off-to-the-side and must never block or break
-   * the X flow — no Owner skips it, and a failure is swallowed (ADR-0009).
+   * the X flow — no Owner skips it, and a failure is swallowed (ADR-0009). The
+   * try/catch also absorbs a *synchronous* throw from the seam (.catch alone only
+   * attaches to a returned promise), and the first failure is surfaced once
+   * so a silently-blocked Mirror — e.g. a page-CSP-rejected POST — is observable.
    */
   function recordToMirror(list: XList, changes: MembershipChange[]): void {
     if (changes.length === 0) return;
     const owner = currentOwner();
     if (!owner) return;
-    void membershipStore.recordAssign(owner, list, changes).catch(() => {});
+    const onFail = (err: unknown): void => {
+      deps.onMirrorResult?.({ ok: false, at: now() });
+      if (mirrorWarned) return;
+      mirrorWarned = true;
+      console.warn("[Lasso] Mirror write failed (off-to-the-side; X flow unaffected)", err);
+    };
+    try {
+      void membershipStore
+        .recordAssign(owner, list, changes)
+        .then(() => deps.onMirrorResult?.({ ok: true, at: now() }))
+        .catch(onFail);
+    } catch (err) {
+      onFail(err);
+    }
   }
 
   function openPicker(source: AssignSource = "pointer"): void {
@@ -308,7 +334,9 @@ export function createLassoController(deps: ControllerDeps): LassoController {
 
   async function hideTweet(tweetEl: Element): Promise<void> {
     try {
-      await quick.notInterested(tweetEl);
+      // "unavailable" = X offers no "not interested" for this post (off the home feed):
+      // stay fully silent — no toast, no Retry — instead of a futile failure.
+      if ((await quick.notInterested(tweetEl)) === "unavailable") return;
       toasts.show({ kind: "success", title: HIDDEN_LINE });
     } catch {
       toasts.show({
@@ -367,6 +395,18 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       case "toggle-select-mode":
         selection.setSelectMode(!selection.selectMode.value);
         return true;
+      // The two filter keys return false when no filter store is wired, so the
+      // bare keys fall through to X untouched (ADR-0010 — never load-bearing).
+      case "toggle-filter": {
+        if (!filter) return false;
+        filterCommand((f) => f.setEnabled(!f.state.value.enabled));
+        return true;
+      }
+      case "toggle-reveal": {
+        if (!filter) return false;
+        filterCommand((f) => f.setRevealed(!f.revealed.value));
+        return true;
+      }
       case "toggle-select": {
         const author = target.author();
         if (author) toggleSelect(author);

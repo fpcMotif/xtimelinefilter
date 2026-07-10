@@ -395,7 +395,7 @@ describe("createCaretActions", () => {
     expect(clicked).toEqual(["fresh", "irrelevant"]);
   });
 
-  it("reports the rows it saw when no row matches", async () => {
+  it("reports the rows it saw when a required row is missing (mute)", async () => {
     document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
     const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
     caret.addEventListener("click", () => {
@@ -404,8 +404,31 @@ describe("createCaretActions", () => {
       menu.innerHTML = `<div role="menuitem">跟隨 @someone</div>`;
       document.body.appendChild(menu);
     });
+    // mute surfaces the missing-row diagnostic; notInterested swallows it (unavailable).
     const a = createCaretActions({ doc: document, settle: async () => {}, timeoutMs: 60 });
-    await expect(a.notInterested(tweet())).rejects.toThrow(/跟隨 @someone/);
+    await expect(a.mute(tweet())).rejects.toThrow(/跟隨 @someone/);
+  });
+
+  it("notInterested resolves 'unavailable' (and toggles the menu shut) where X offers no row", async () => {
+    document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
+    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
+    let menu: HTMLElement | null = null;
+    caret.addEventListener("click", () => {
+      if (menu?.isConnected) {
+        menu.remove(); // X toggles its own menu shut on a second caret click
+        menu = null;
+        return;
+      }
+      menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.innerHTML = `<div role="menuitem">跟隨 @someone</div>`; // no "not interested" here
+      document.body.appendChild(menu);
+    });
+    // No keydown→Escape listener: synthetic Escape can't dismiss X's menu (like live),
+    // so the caret-toggle fallback in dismissMenu must close it.
+    const a = createCaretActions({ doc: document, settle: async () => {}, timeoutMs: 60 });
+    await expect(a.notInterested(tweet())).resolves.toBe("unavailable");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 
   it("dismisses the menu and fails honestly when X never accepts the click", async () => {
@@ -873,9 +896,9 @@ describe("createCaretActions", () => {
     expect(clicked).toEqual(["not"]);
   });
 
-  it("lists rows that have no text in the no-match error", async () => {
-    // A row whose textContent is empty exercises the `?? \"\"` label fallback
-    // (line 314) inside the diagnostic message builder.
+  it("lists rows that have no text in the no-match error (mute)", async () => {
+    // A row whose textContent is empty exercises the label fallback inside the
+    // diagnostic message builder; mute surfaces it as a thrown error.
     document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
     const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
     caret.addEventListener("click", () => {
@@ -887,6 +910,6 @@ describe("createCaretActions", () => {
       document.body.appendChild(menu);
     });
     const a = createCaretActions({ doc: document, settle: async () => {}, timeoutMs: 60 });
-    await expect(a.notInterested(tweet())).rejects.toThrow(/target menu item not found/i);
+    await expect(a.mute(tweet())).rejects.toThrow(/target menu item not found/i);
   });
 });

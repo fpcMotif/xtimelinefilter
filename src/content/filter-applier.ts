@@ -1,6 +1,7 @@
 import { effect } from "@preact/signals-core";
 
 import { FacetSelectors, Selectors } from "@/content/selectors";
+import { activeCriteriaCount } from "@/core/filter-projection";
 import type { FilterStore } from "@/core/filter-store";
 import { decide } from "@/core/timeline-filter";
 import * as tweetRead from "@/core/tweet-read";
@@ -16,6 +17,12 @@ const FILTERED = "data-lasso-filtered";
 const SHOW = "data-lasso-show";
 /** Marks the injected stub element so we can find/remove it. */
 const STUB = "data-lasso-filter-stub";
+/**
+ * Per-cell "traceless" mark: this post is hidden because the Owner already liked it,
+ * so its stub is dropped (CSS) and it collapses to 0 height with no visible trace —
+ * "already liked → erase it." Distinct from the global compact toggle.
+ */
+const TRACELESS = "data-lasso-traceless";
 /** The acted-on action-bar button whose appearance/flip means "Owner just liked". */
 const ENGAGEMENT_SEL = FacetSelectors.LIKED;
 
@@ -50,6 +57,7 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
 
   function restore(cell: Element): void {
     cell.removeAttribute(FILTERED);
+    cell.removeAttribute(TRACELESS);
     cell.querySelector(`[${STUB}]`)?.remove();
   }
 
@@ -86,8 +94,20 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
         }
         cell.removeAttribute(SHOW); // recycled to a different tweet — drop it, re-decide
       }
-      if (decide(tweetRead.facets(article), store.state.value) === "hide") collapse(cell, article);
-      else restore(cell);
+      const state = store.state.value;
+      // Fast path: zero armed criteria (and no language gate) ⇒ decide() is
+      // provably "show" for every post — skip the per-cell facet DOM reads, which
+      // otherwise run for every scanned tweet while the filter idles enabled.
+      if (activeCriteriaCount(state) === 0) {
+        restore(cell);
+        return;
+      }
+      const f = tweetRead.facets(article);
+      if (decide(f, state) === "hide") {
+        // Erase already-liked posts without a trace (no stub), even outside compact mode.
+        cell.toggleAttribute(TRACELESS, f.liked && state.criteria["engagement:liked"] === "hide");
+        collapse(cell, article);
+      } else restore(cell);
     } catch {
       // fail-open: never hide a post we couldn't process
       const cell = article.closest?.(Selectors.CELL);

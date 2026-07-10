@@ -10,6 +10,8 @@ export const COMMAND_LABELS: Record<CommandId, string> = {
   block: "Block the author",
   "toggle-select": "Select the focused post",
   "toggle-select-mode": "Select mode on / off",
+  "toggle-filter": "Timeline filter on / off",
+  "toggle-reveal": "Peek hidden posts / re-hide",
   help: "Show this sheet",
   escape: "Dismiss, one layer at a time",
   undo: "Undo the last action",

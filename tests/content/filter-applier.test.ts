@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createFilterApplier } from "@/content/filter-applier";
 import { createFilterStore } from "@/core/filter-store";
+import * as tweetRead from "@/core/tweet-read";
+
+// Real implementations, recorded calls — lets the fast-path test prove the
+// per-cell facet DOM reads are skipped without changing any behavior.
+vi.mock("@/core/tweet-read", { spy: true });
 
 /** A timeline cell wrapping one tweet article, attached under a fresh root. */
 function makeRoot(): Element {
@@ -52,6 +57,26 @@ describe("createFilterApplier", () => {
     expect(stub?.textContent?.toLowerCase()).toContain("hidden");
     expect(stub?.textContent?.toLowerCase()).toContain("show");
     expect(applier.hiddenCount()).toBe(1);
+  });
+
+  it("zero armed criteria: shows every post without reading its facets (fast path)", () => {
+    const store = createFilterStore({ navLanguages: ["ja"] }); // enabled, nothing armed
+    const root = makeRoot();
+    const cell = addCell(root, "en");
+    const applier = createFilterApplier({ store, root, inScope: () => true });
+    const facets = vi.mocked(tweetRead.facets);
+    facets.mockClear();
+
+    applier.classify(articleOf(cell));
+    expect(applier.isStubbed(cell)).toBe(false);
+    // The per-cell DOM reads are skipped entirely while the filter idles enabled.
+    expect(facets).not.toHaveBeenCalled();
+
+    // Arming a criterion leaves the fast path — facets are read again.
+    store.setMode("kind:video", "only");
+    applier.classify(articleOf(cell));
+    expect(facets).toHaveBeenCalled();
+    expect(applier.isStubbed(cell)).toBe(true);
   });
 
   it("keeps a matching cell visible", () => {
@@ -537,6 +562,61 @@ describe("createFilterApplier", () => {
       lone.setAttribute("data-testid", "bar"); // attribute mutation, no enclosing tweet
       await tick();
       expect(() => applier.reapplyAll()).not.toThrow();
+      applier.dispose();
+    });
+  });
+
+  describe("traceless hide for already-liked posts (no stub trace)", () => {
+    const TRACELESS = "data-lasso-traceless";
+
+    it("marks a liked post hidden under hide:liked as traceless", () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const cell = addCell(root, "en", { liked: true });
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+      applier.reapplyAll();
+      expect(applier.isStubbed(cell)).toBe(true);
+      expect(cell.hasAttribute(TRACELESS)).toBe(true);
+      applier.dispose();
+    });
+
+    it("does NOT mark a post hidden by a non-engagement criterion as traceless", () => {
+      const store = createFilterStore({ navLanguages: ["ja"] });
+      store.setOnlyMyLanguages(true);
+      store.setMyLanguages(["ja"]);
+      const root = makeRoot();
+      const cell = addCell(root, "en"); // hidden by the language gate, not liked
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+      applier.classify(articleOf(cell));
+      expect(applier.isStubbed(cell)).toBe(true);
+      expect(cell.hasAttribute(TRACELESS)).toBe(false);
+      applier.dispose();
+    });
+
+    it("does NOT mark a liked post traceless when hide:liked is inactive (hidden for another reason)", () => {
+      const store = createFilterStore({ navLanguages: ["ja"] });
+      store.setOnlyMyLanguages(true);
+      store.setMyLanguages(["ja"]);
+      const root = makeRoot();
+      const cell = addCell(root, "en", { liked: true }); // liked, but hidden by lang gate; no engagement:liked
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+      applier.classify(articleOf(cell));
+      expect(applier.isStubbed(cell)).toBe(true);
+      expect(cell.hasAttribute(TRACELESS)).toBe(false);
+      applier.dispose();
+    });
+
+    it("clears the traceless mark when the post is restored", () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const cell = addCell(root, "en", { liked: true });
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+      applier.reapplyAll();
+      expect(cell.hasAttribute(TRACELESS)).toBe(true);
+      applier.restoreAll();
+      expect(cell.hasAttribute(TRACELESS)).toBe(false);
       applier.dispose();
     });
   });

@@ -63,6 +63,7 @@ function harness(
     omitNow?: boolean;
     usage?: { record: (listId: string) => Promise<void> };
     filter?: FilterStore;
+    onMirrorResult?: (result: { ok: boolean; at: number }) => void;
   } = {},
 ) {
   const selection = createSelectionStore();
@@ -77,7 +78,7 @@ function harness(
   const quick = {
     mute: vi.fn(async (_s: string) => {}),
     unmute: vi.fn(async (_s: string) => {}),
-    notInterested: vi.fn(async (_el: Element) => {}),
+    notInterested: vi.fn(async (_el: Element): Promise<"hidden" | "unavailable"> => "hidden"),
     ...(opts.withBlock || opts.block
       ? { block: opts.block ? vi.fn(opts.block) : vi.fn(async (_s: string) => {}) }
       : {}),
@@ -103,6 +104,7 @@ function harness(
     openUrl,
     membershipStore: opts.membershipStore,
     currentOwner: opts.currentOwner,
+    onMirrorResult: opts.onMirrorResult,
     anchorFor: opts.anchorFor,
     usage: opts.usage as Parameters<typeof createLassoController>[0]["usage"],
     filter: opts.filter,
@@ -288,6 +290,13 @@ describe("quick actions report back (story beat 6)", () => {
     await h.controller.hideTweet(document.createElement("article"));
     expect(titles(h)).toEqual(["Hidden — told X you're not interested"]);
   });
+
+  it("not-interested stays fully silent where X offers no 'not interested'", async () => {
+    const h = harness();
+    h.quick.notInterested.mockResolvedValueOnce("unavailable");
+    await h.controller.hideTweet(document.createElement("article"));
+    expect(titles(h)).toEqual([]); // no success, no failure, no Retry
+  });
 });
 
 describe("escape / help / selection coaching", () => {
@@ -417,6 +426,30 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     expect(h.backend.removed).toEqual(["a", "b"]);
   });
 
+  it("a synchronously-throwing Mirror leaves the assign + undo flow intact and warns once (C3/C1)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store: MembershipStore = {
+      // NOT async — throws synchronously, before returning a promise .catch could attach to.
+      recordAssign: () => {
+        throw new Error("sync boom");
+      },
+      reconcileAuthor: async () => {},
+      reconcileCatalog: async () => {},
+      listsContaining: async () => [],
+      catalog: async () => [],
+    };
+    const h = harness({ membershipStore: store, currentOwner: () => owner });
+    h.selection.add({ screenName: "a" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList); // recordToMirror #1 (sync throw)
+    await flush();
+    expect(h.backend.added).toEqual(["a"]); // X flow unaffected by the sync throw
+    expect(h.controller.command("undo")).toBe(true);
+    await flush();
+    expect(h.backend.removed).toEqual(["a"]); // undo path #2 also survives
+    expect(warn).toHaveBeenCalledTimes(1); // one-time: the second failure is silent
+    warn.mockRestore();
+  });
+
   it("mirrors undo removals as remove changes", async () => {
     const { store, calls } = recordingStore();
     const h = harness({ membershipStore: store, currentOwner: () => owner });
@@ -443,6 +476,49 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     expect(removal?.changes).toEqual([
       { screenName: "a", userId: "9", action: "remove", outcome: "failed" },
     ]);
+  });
+
+  it("reports a settled Mirror write via onMirrorResult (popup's instant status row)", async () => {
+    const { store } = recordingStore();
+    const onMirrorResult = vi.fn();
+    const h = harness({ membershipStore: store, currentOwner: () => owner, onMirrorResult });
+    h.selection.add({ screenName: "a" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush();
+    expect(onMirrorResult).toHaveBeenCalledWith({ ok: true, at: Date.UTC(2026, 5, 10) });
+  });
+
+  it("reports async and sync Mirror failures via onMirrorResult", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onMirrorResult = vi.fn();
+    const asyncFail: MembershipStore = {
+      recordAssign: async () => {
+        throw new Error("convex down");
+      },
+      reconcileAuthor: async () => {},
+      reconcileCatalog: async () => {},
+      listsContaining: async () => [],
+      catalog: async () => [],
+    };
+    const h = harness({ membershipStore: asyncFail, currentOwner: () => owner, onMirrorResult });
+    h.selection.add({ screenName: "a" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush();
+    expect(onMirrorResult).toHaveBeenCalledWith({ ok: false, at: Date.UTC(2026, 5, 10) });
+
+    const syncFail: MembershipStore = {
+      ...asyncFail,
+      recordAssign: () => {
+        throw new Error("sync boom");
+      },
+    };
+    const h2 = harness({ membershipStore: syncFail, currentOwner: () => owner, onMirrorResult });
+    h2.selection.add({ screenName: "b" });
+    await h2.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush();
+    expect(onMirrorResult).toHaveBeenCalledTimes(2);
+    expect(onMirrorResult).toHaveBeenLastCalledWith({ ok: false, at: Date.UTC(2026, 5, 10) });
+    warn.mockRestore();
   });
 
   it("skips the Mirror when a run produces no changes (stopped before the first add)", async () => {
@@ -561,6 +637,34 @@ describe("keyboard command surface (story beat 6)", () => {
     expect(h.selection.selectMode.value).toBe(true);
     expect(h.controller.command("toggle-select-mode")).toBe(true);
     expect(h.selection.selectMode.value).toBe(false);
+  });
+
+  it("toggle-filter flips the master filter, arms undo, and Z reverts it", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    expect(filter.state.value.enabled).toBe(true);
+    expect(h.controller.command("toggle-filter")).toBe(true);
+    expect(filter.state.value.enabled).toBe(false);
+    expect(h.controller.command("undo")).toBe(true); // Z
+    expect(filter.state.value.enabled).toBe(true);
+    expect(h.controller.command("toggle-filter")).toBe(true); // and back off again
+    expect(filter.state.value.enabled).toBe(false);
+  });
+
+  it("toggle-reveal peeks hidden posts and re-hides on the second press (no undo armed)", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    expect(h.controller.command("toggle-reveal")).toBe(true);
+    expect(filter.revealed.value).toBe(true);
+    expect(h.controller.command("undo")).toBe(false); // transient — nothing armed
+    expect(h.controller.command("toggle-reveal")).toBe(true);
+    expect(filter.revealed.value).toBe(false);
+  });
+
+  it("toggle-filter / toggle-reveal fall through to X when no filter store is wired", () => {
+    const h = harness(); // no filter
+    expect(h.controller.command("toggle-filter")).toBe(false);
+    expect(h.controller.command("toggle-reveal")).toBe(false);
   });
 
   it("toggle-select selects the focused author", () => {

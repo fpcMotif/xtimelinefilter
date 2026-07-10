@@ -38,6 +38,22 @@ describe("createUndoRegistry", () => {
     expect(reg.trigger()).toBe(false);
   });
 
+  it("swallows a throwing undo callback and still disarms (shared registry, ADR-0010)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reg = createUndoRegistry(manualTimers());
+    reg.arm(() => {
+      throw new Error("filter restore blew up");
+    }, 10_000);
+    let result: boolean | undefined;
+    expect(() => {
+      result = reg.trigger();
+    }).not.toThrow(); // the throw never escapes into the keyboard flow
+    expect(result).toBe(true);
+    expect(reg.trigger()).toBe(false); // disarmed even though the callback threw
+    expect(warn).toHaveBeenCalledWith("[Lasso] undo callback threw", expect.any(Error));
+    warn.mockRestore();
+  });
+
   it("expires after its window", () => {
     const timers = manualTimers();
     const reg = createUndoRegistry(timers);

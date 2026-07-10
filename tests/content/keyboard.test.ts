@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   canonicalCombo,
+  CHORD_WINDOW_MS,
   DEFAULT_KEYMAP,
   eventToCombo,
   isTypingTarget,
@@ -261,12 +262,80 @@ describe("story beats 5 & 6 — the full keyboard layer", () => {
     const commands = Object.fromEntries(DEFAULT_KEYMAP.map((b) => [b.combo, b.command]));
     expect(commands["Alt+l"]).toBe("add-to-list");
     expect(commands["Alt+Shift+l"]).toBe("add-to-default-list");
-    expect(commands["Alt+m"]).toBe("mute");
+    expect(commands["Alt+m"]).toBeUndefined(); // mute is intentionally unbound
     expect(commands["Alt+n"]).toBe("not-interested");
     expect(commands["s"]).toBe("toggle-select-mode");
     expect(commands["x"]).toBe("toggle-select");
+    expect(commands["f"]).toBe("toggle-filter");
+    expect(commands["h"]).toBe("toggle-reveal");
     expect(commands["?"]).toBe("help");
     expect(commands["Escape"]).toBe("escape");
     expect(commands["z"]).toBe("undo");
+  });
+
+  it("never binds X's own action/navigation keys (i/k/l/j/b/u/r/t/o/n stay native)", () => {
+    const bound = new Set(DEFAULT_KEYMAP.map((b) => b.combo));
+    for (const native of ["i", "k", "l", "j", "b", "u", "r", "t", "o", "n", "g", "."]) {
+      expect(bound.has(native)).toBe(false);
+    }
+  });
+});
+
+describe("X g-chord passthrough (g+h Home, g+s Settings, g+f Drafts, …)", () => {
+  const chordMap: KeyBinding[] = [
+    { combo: "s", command: "toggle-select-mode" },
+    { combo: "h", command: "toggle-reveal" },
+    { combo: "f", command: "toggle-filter" },
+  ];
+  let dispose: (() => void) | undefined;
+  afterEach(() => {
+    dispose?.();
+    dispose = undefined;
+  });
+
+  function press(key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+    const e = new KeyboardEvent("keydown", { key, cancelable: true, ...init });
+    document.dispatchEvent(e);
+    return e;
+  }
+
+  it("leaves the second key of a g-chord for X (g then s = Settings, not select mode)", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({ keymap: chordMap, run, doc: document });
+    const g = press("g");
+    expect(g.defaultPrevented).toBe(false); // g itself always passes through
+    const s = press("s");
+    expect(run).not.toHaveBeenCalled();
+    expect(s.defaultPrevented).toBe(false);
+    // The chord is concluded — a plain s afterwards is Lasso's again.
+    press("s");
+    expect(run).toHaveBeenCalledWith("toggle-select-mode");
+  });
+
+  it("an expired chord window hands the key back to Lasso", () => {
+    const run = vi.fn();
+    let t = 0;
+    dispose = installKeyboardLayer({ keymap: chordMap, run, doc: document, now: () => t });
+    press("g");
+    t = CHORD_WINDOW_MS + 1;
+    press("h");
+    expect(run).toHaveBeenCalledWith("toggle-reveal");
+  });
+
+  it("an unbound key concludes the chord without blocking the next binding", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({ keymap: chordMap, run, doc: document });
+    press("g");
+    press("j"); // X's cursor key ends the chord
+    press("f");
+    expect(run).toHaveBeenCalledWith("toggle-filter");
+  });
+
+  it("a modified g (Ctrl+g) does not arm the chord", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({ keymap: chordMap, run, doc: document });
+    press("g", { ctrlKey: true });
+    press("f");
+    expect(run).toHaveBeenCalledWith("toggle-filter");
   });
 });

@@ -36,7 +36,11 @@ export const COLLAPSE_CSS =
   // Compact mode (opt-in `compactHidden`, popup toggle): also drop the stub so the
   // cell collapses to ~0 height — ADR-0010's deferred upgrade, pending live-DOM
   // virtualization verification. The cell node stays in layout (never removed).
-  "[data-lasso-compact] [data-lasso-filter-stub]{display:none !important}";
+  "[data-lasso-compact] [data-lasso-filter-stub]{display:none !important}" +
+  // Per-cell traceless hide: a post hidden because the Owner already liked it drops
+  // its stub regardless of compact mode ("already liked → erase it, no trace"). Same
+  // safe 0-height collapse — the cell node stays in layout. Set by the applier.
+  "[data-lasso-traceless] [data-lasso-filter-stub]{display:none !important}";
 
 /**
  * Installs the Filter capability (ADR-0010, spec §3) as one self-contained unit:

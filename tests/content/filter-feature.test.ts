@@ -48,6 +48,13 @@ describe("COLLAPSE_CSS", () => {
     expect(getComputedStyle(article).display).toBe("none");
     expect(getComputedStyle(stub).display).toBe("none");
   });
+
+  it("hides the stub when the cell itself is data-lasso-traceless (per-cell, no compact)", () => {
+    const { article, stub } = mountCollapsedCell();
+    (stub.parentElement as HTMLElement).setAttribute("data-lasso-traceless", "");
+    expect(getComputedStyle(article).display).toBe("none"); // content still gone
+    expect(getComputedStyle(stub).display).toBe("none"); // and the stub too → 0-height, no trace
+  });
 });
 
 /** Let the surface manager settle its initial async settings.get(). */
