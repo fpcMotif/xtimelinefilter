@@ -6,7 +6,7 @@
 
 ## Why this task exists
 
-MISSION.md / ADR-0008: a green local test means nothing if the fixtures encoded our assumptions instead of X's real DOM. Every facet selector and the stub's effect on virtualization must be confirmed on **live x.com** before we trust them. This is the gate that turns "green-dot" facets from assumed to verified.
+MISSION.md: a green local test means nothing if the fixtures encoded our assumptions instead of X's real DOM. Every facet selector and the stub's effect on virtualization must be confirmed on **live x.com** before we trust them. This is the gate that turns "green-dot" facets from assumed to verified.
 
 ## BDD Scenario
 
