@@ -142,14 +142,14 @@ export function FunnelPill({
         data-enabled={String(enabled)}
         onPointerDown={onPointerDown}
         onClick={onClick}
-        class="bg-surface text-ink shadow-elevated relative grid h-11 w-11 place-items-center rounded-full transition-[opacity,transform] duration-150 ease-out active:scale-[0.96]"
+        class="bg-card text-card-foreground shadow-elevated focus-visible:ring-ring/55 relative grid h-11 w-11 place-items-center rounded-full transition-[opacity,transform] duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
         style={{ opacity: enabled ? 1 : 0.5, touchAction: "none", cursor: "grab" }}
       >
         <FunnelGlyph />
         {enabled && badge > 0 && (
           <span
             aria-hidden="true"
-            class="bg-accent text-accent-ink absolute -top-1 -right-1 grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[11px] font-semibold tabular-nums"
+            class="bg-primary text-primary-foreground text-2xs absolute -top-1 -right-1 grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 font-semibold tabular-nums"
           >
             {badge}
           </span>
@@ -160,7 +160,7 @@ export function FunnelPill({
         <div
           role="dialog"
           aria-label="Timeline filter"
-          class="bg-surface shadow-elevated absolute w-80 overflow-hidden rounded-2xl"
+          class="bg-card shadow-elevated absolute w-80 overflow-hidden rounded-2xl transition-[opacity,transform] duration-150 ease-out starting:translate-y-1 starting:opacity-0"
           style={popover}
         >
           <FilterPanel store={store} hiddenCount={hiddenCount} conduct={conduct} />
@@ -190,7 +190,7 @@ function popoverStyle(pos: { x: number; y: number }): Record<string, string> {
 
 function FunnelGlyph() {
   return (
-    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" class="text-ink">
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" class="text-foreground">
       <path
         d="M3 4h14l-5.2 6.2v4.3L8.2 17v-6.8L3 4z"
         fill="none"
