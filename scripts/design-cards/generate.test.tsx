@@ -504,19 +504,17 @@ describe("design-card generator", () => {
         group: "Filter surfaces",
         name: "FilterPalette",
         file: "filter-palette.html",
-        legacy: true,
         minHeight: 420,
       },
       () => snap(<FilterPalette store={seededFilter()} open onClose={noop} />),
     );
 
-    /* List-assign surfaces (legacy tier — pre-Lariat tokens, migration pending) */
+    /* List-assign surfaces */
     await card(
       {
         group: "List-assign surfaces",
         name: "Toast",
         file: "assign-toast.html",
-        legacy: true,
         minHeight: 260,
       },
       async () => {
@@ -549,7 +547,6 @@ describe("design-card generator", () => {
         group: "List-assign surfaces",
         name: "ListPicker — 4 of 5 states",
         file: "assign-list-picker.html",
-        legacy: true,
         wide: true,
         minHeight: 460,
       },
@@ -600,7 +597,6 @@ describe("design-card generator", () => {
         group: "List-assign surfaces",
         name: "ActionBar",
         file: "assign-action-bar.html",
-        legacy: true,
         minHeight: 340,
       },
       async () => {
@@ -647,7 +643,6 @@ describe("design-card generator", () => {
         group: "List-assign surfaces",
         name: "TweetOverlay",
         file: "assign-tweet-overlay.html",
-        legacy: true,
       },
       async () => {
         const ghost = await snap(<TweetOverlay selected={false} visible onToggle={noop} />);
@@ -664,7 +659,6 @@ describe("design-card generator", () => {
         group: "List-assign surfaces",
         name: "WelcomeCard",
         file: "assign-welcome-card.html",
-        legacy: true,
         minHeight: 460,
       },
       () => snap(<WelcomeCard onTrySelectMode={noop} onSkip={noop} />),
@@ -675,7 +669,6 @@ describe("design-card generator", () => {
         group: "List-assign surfaces",
         name: "ShortcutsSheet",
         file: "assign-shortcuts-sheet.html",
-        legacy: true,
         minHeight: 560,
       },
       () => snap(<ShortcutsSheet keymap={DEFAULT_KEYMAP} platform="mac" onClose={noop} />),
