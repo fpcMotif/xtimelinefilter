@@ -40,11 +40,15 @@ export const DEFAULT_SETTINGS: LassoSettings = {
   hotkeySelectMode: "s",
   activation: "auto",
   highContrast: false,
-  // Mirror config falls back to the build-time Convex env (.env.local) so a fresh
-  // profile reaches the deployment with no manual setup; the Options page still
-  // overrides both fields, and an absent env keeps the Mirror off (ADR-0009).
-  convexUrl: import.meta.env.VITE_CONVEX_URL || undefined,
-  convexDeviceKey: import.meta.env.VITE_LASSO_DEVICE_KEY || undefined,
+  // Mirror config falls back to the build-time Convex env (.env.local) ONLY in dev
+  // builds, so a contributor's fresh profile reaches the deployment with no manual
+  // setup. Production builds never inline the credential (M1: a shipped device key
+  // is one extracted key = full read/write) — prod users enter the URL + device key
+  // in Options, and an absent key keeps the Mirror off (ADR-0009).
+  convexUrl: import.meta.env.DEV ? import.meta.env.VITE_CONVEX_URL || undefined : undefined,
+  convexDeviceKey: import.meta.env.DEV
+    ? import.meta.env.VITE_LASSO_DEVICE_KEY || undefined
+    : undefined,
   surfaces: { pill: true, palette: false },
   pillPosition: { x: 24, y: 96 },
   paletteHotkey: "mod+shift+f",

@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { StorageLike } from "@/core/settings";
 import { clearLassoData, STORAGE_KEYS } from "@/core/storage-keys";
 
-const LOCAL_KEYS = [STORAGE_KEYS.lists, STORAGE_KEYS.listUsage, STORAGE_KEYS.coach];
+const LOCAL_KEYS = [
+  STORAGE_KEYS.lists,
+  STORAGE_KEYS.listUsage,
+  STORAGE_KEYS.coach,
+  STORAGE_KEYS.mirrorStatus,
+];
 const SYNC_KEYS = [STORAGE_KEYS.settings, STORAGE_KEYS.filter];
 
 describe("STORAGE_KEYS", () => {
@@ -11,6 +16,7 @@ describe("STORAGE_KEYS", () => {
     expect(Object.values(STORAGE_KEYS).every((k) => k.startsWith("lasso:"))).toBe(true);
     expect(STORAGE_KEYS.settings).toBe("lasso:settings");
     expect(STORAGE_KEYS.filter).toBe("lasso:filter");
+    expect(STORAGE_KEYS.mirrorStatus).toBe("lasso:mirror-status");
   });
 });
 

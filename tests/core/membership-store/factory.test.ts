@@ -33,4 +33,22 @@ describe("createMembershipStore", () => {
     );
     expect(buildConvex).not.toHaveBeenCalled();
   });
+
+  it("degrades to Null (never throws) when buildConvex throws — e.g. a malformed URL (H1, ADR-0009)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const buildConvex = vi.fn(() => {
+      throw new Error("Invalid deployment address: convex.cloud");
+    });
+    const store = createMembershipStore(
+      { convexUrl: "convex.cloud", convexDeviceKey: "k" },
+      buildConvex,
+    );
+    expect(store).toBeInstanceOf(NullMembershipStore); // boot never aborts
+    expect(buildConvex).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      "[Lasso] Mirror disabled — Convex client construction failed",
+      expect.any(Error),
+    );
+    warn.mockRestore();
+  });
 });

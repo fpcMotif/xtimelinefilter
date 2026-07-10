@@ -17,7 +17,16 @@ export function createMembershipStore(
   buildConvex: (cfg: { url: string; deviceKey: string }) => MembershipStore,
 ): MembershipStore {
   if (config.convexUrl && config.convexDeviceKey) {
-    return buildConvex({ url: config.convexUrl, deviceKey: config.convexDeviceKey });
+    try {
+      return buildConvex({ url: config.convexUrl, deviceKey: config.convexDeviceKey });
+    } catch (err) {
+      // ADR-0009: the Mirror is never load-bearing. A malformed URL makes
+      // ConvexHttpClient's constructor throw synchronously; without this guard
+      // that throw unwinds the whole content-script boot (overlay/filter/keyboard/
+      // scanner). Degrade to Null instead — the X flow stays bit-for-bit unchanged.
+      console.warn("[Lasso] Mirror disabled — Convex client construction failed", err);
+      return new NullMembershipStore();
+    }
   }
   return new NullMembershipStore();
 }

@@ -15,9 +15,16 @@ export const STORAGE_KEYS = {
   filter: "lasso:filter",
   /** chrome.storage.local — onboarding + decaying-hint state */
   coach: "lasso:coach",
+  /** chrome.storage.local — last Mirror write outcome ({ok, at}; popup's Mirror row) */
+  mirrorStatus: "lasso:mirror-status",
 } as const;
 
-const LOCAL_KEYS = [STORAGE_KEYS.lists, STORAGE_KEYS.listUsage, STORAGE_KEYS.coach];
+const LOCAL_KEYS = [
+  STORAGE_KEYS.lists,
+  STORAGE_KEYS.listUsage,
+  STORAGE_KEYS.coach,
+  STORAGE_KEYS.mirrorStatus,
+];
 const SYNC_KEYS = [STORAGE_KEYS.settings, STORAGE_KEYS.filter];
 
 /** Wipes everything Lasso keeps ("Clear Lasso data"), local and sync alike. */
