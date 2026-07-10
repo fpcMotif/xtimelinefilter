@@ -1,64 +1,14 @@
 import type { TweetAuthor } from "@/core/selection-store";
 
 import { fetchOwnedLists } from "./lists-provider";
-import { type Credentials, XApiError, type XList, type XListApi } from "./types";
+import { type Credentials, type XList, type XListApi } from "./types";
+import { authHeaders, ensureOk, REST_PROFILE } from "./x-http";
 
 const BASE = "https://x.com/i/api/1.1";
 
 export interface RestDeps {
   fetch: typeof fetch;
   creds: Credentials;
-}
-
-function authHeaders(creds: Credentials): Record<string, string> {
-  return {
-    authorization: `Bearer ${creds.bearer}`,
-    "x-csrf-token": creds.csrf,
-    "x-twitter-active-user": "yes",
-    "x-twitter-auth-type": "OAuth2Session",
-  };
-}
-
-/** Epoch seconds from the x-rate-limit-reset header, if present and numeric. */
-export function rateLimitResetOf(res: Response): number | undefined {
-  const raw = Number(res.headers.get("x-rate-limit-reset"));
-  return Number.isFinite(raw) && raw > 0 ? raw : undefined;
-}
-
-async function ensureOk(res: Response): Promise<unknown> {
-  if (res.status === 429) {
-    throw new XApiError("rate-limited", "Rate limited (HTTP 429)", {
-      resetAt: rateLimitResetOf(res),
-    });
-  }
-  if (res.status === 401 || res.status === 403) {
-    throw new XApiError("auth", `Auth error (HTTP ${res.status})`);
-  }
-  let json: unknown;
-  try {
-    json = await res.json();
-  } catch {
-    json = undefined;
-  }
-  const errors = (json as { errors?: Array<{ code?: number; message?: string }> } | undefined)
-    ?.errors;
-  if (Array.isArray(errors) && errors.length > 0) {
-    const message = errors.map((e) => e.message ?? "").join("; ");
-    const codes = errors.map((e) => e.code);
-    if (/already a member|already added/i.test(message)) {
-      throw new XApiError("already-member", message);
-    }
-    if (codes.includes(104) || /protected|aren't allowed to add this member/i.test(message)) {
-      throw new XApiError("protected", message);
-    }
-    if (codes.includes(88)) {
-      throw new XApiError("rate-limited", message, { resetAt: rateLimitResetOf(res) });
-    }
-    if (codes.includes(32) || codes.includes(89)) throw new XApiError("auth", message);
-    throw new XApiError("unknown", message || "v1.1 error");
-  }
-  if (!res.ok) throw new XApiError("unknown", `HTTP ${res.status}`);
-  return json;
 }
 
 /** POST a v1.1 endpoint with form-encoded params + the session auth headers. */
@@ -69,7 +19,7 @@ async function post(deps: RestDeps, path: string, params: Record<string, string>
     headers: { ...authHeaders(deps.creds), "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params).toString(),
   });
-  await ensureOk(res);
+  await ensureOk(res, REST_PROFILE);
 }
 
 export const addToList = (deps: RestDeps, listId: string, screenName: string): Promise<void> =>

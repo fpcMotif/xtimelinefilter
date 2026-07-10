@@ -7,6 +7,7 @@ import {
   type XList,
   type XListApi,
 } from "./types";
+import { authHeaders, ensureOk, GRAPHQL_PROFILE } from "./x-http";
 
 export interface GraphqlDeps {
   fetch: typeof fetch;
@@ -55,9 +56,9 @@ export class GraphqlXListApi implements XListApi {
     const res = await this.deps.fetch(url, {
       method: "GET",
       credentials: "include",
-      headers: this.authHeaders(),
+      headers: authHeaders(this.creds),
     });
-    const json = (await this.ensureOk(res)) as {
+    const json = (await ensureOk(res, GRAPHQL_PROFILE)) as {
       data?: { user?: { result?: { rest_id?: string } } };
     };
     const restId = json?.data?.user?.result?.rest_id;
@@ -80,51 +81,12 @@ export class GraphqlXListApi implements XListApi {
     const res = await this.deps.fetch(url, {
       method: "POST",
       credentials: "include",
-      headers: { ...this.authHeaders(), "content-type": "application/json" },
+      headers: { ...authHeaders(this.creds), "content-type": "application/json" },
       body: JSON.stringify({
         variables: { listId: String(listId), userId: String(userId) },
         queryId,
       }),
     });
-    await this.ensureOk(res);
+    await ensureOk(res, GRAPHQL_PROFILE);
   }
-
-  private authHeaders(): Record<string, string> {
-    return {
-      authorization: `Bearer ${this.creds.bearer}`,
-      "x-csrf-token": this.creds.csrf,
-      "x-twitter-active-user": "yes",
-      "x-twitter-auth-type": "OAuth2Session",
-    };
-  }
-
-  /** Throws a typed XApiError on any failure; returns parsed JSON on success. */
-  private async ensureOk(res: Response): Promise<unknown> {
-    if (res.status === 429) throw new XApiError("rate-limited", "Rate limited (HTTP 429)");
-    if (res.status === 401 || res.status === 403) {
-      throw new XApiError("auth", `Auth error (HTTP ${res.status})`);
-    }
-    let json: unknown;
-    try {
-      json = await res.json();
-    } catch {
-      json = undefined;
-    }
-    const errors = (json as { errors?: Array<{ message?: string; code?: number }> } | undefined)
-      ?.errors;
-    if (Array.isArray(errors) && errors.length > 0) throw classifyErrors(errors);
-    if (!res.ok) throw new XApiError("unknown", `HTTP ${res.status}`);
-    return json;
-  }
-}
-
-function classifyErrors(errors: Array<{ message?: string; code?: number }>): XApiError {
-  const message = errors.map((e) => e.message ?? "").join(" ; ");
-  const lower = message.toLowerCase();
-  const codes = errors.map((e) => e.code);
-  if (lower.includes("already a member")) return new XApiError("already-member", message);
-  if (codes.includes(88)) return new XApiError("rate-limited", message);
-  if (codes.includes(104)) return new XApiError("protected", message);
-  if (codes.includes(353) || codes.includes(32)) return new XApiError("auth", message);
-  return new XApiError("unknown", message || "Unknown GraphQL error");
 }

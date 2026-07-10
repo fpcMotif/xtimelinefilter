@@ -69,6 +69,31 @@ describe("GraphqlXListApi.addMember", () => {
     ).rejects.toMatchObject({ kind: "rate-limited" });
   });
 
+  // 2026-06-21: reconciled with REST — GraphQL now carries x-rate-limit-reset so the
+  // toast can say "try again in N min" (previously dropped; see x-http.ts GRAPHQL_PROFILE).
+  it("carries x-rate-limit-reset on HTTP 429", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("{}", { status: 429, headers: { "x-rate-limit-reset": "1750000000" } }),
+    );
+    await expect(
+      makeApi(fetchMock as unknown as typeof fetch).addMember(list, author),
+    ).rejects.toMatchObject({ kind: "rate-limited", resetAt: 1750000000 });
+  });
+
+  it("carries x-rate-limit-reset on error code 88", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ errors: [{ code: 88, message: "slow down" }] }), {
+          status: 200,
+          headers: { "x-rate-limit-reset": "1750000456" },
+        }),
+    );
+    await expect(
+      makeApi(fetchMock as unknown as typeof fetch).addMember(list, author),
+    ).rejects.toMatchObject({ kind: "rate-limited", resetAt: 1750000456 });
+  });
+
   it("maps HTTP auth, non-ok, and malformed-json responses", async () => {
     const auth = vi.fn(async () => jsonResponse({}, 401));
     await expect(

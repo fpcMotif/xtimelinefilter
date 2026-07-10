@@ -150,8 +150,9 @@ describe("ensureOk — success and non-envelope failures", () => {
   });
 
   it("an ok response with an unparseable body resolves to undefined (not a throw)", async () => {
-    await expect(ensureOk(new Response("not json", { status: 200 }), REST_PROFILE)).resolves
-      .toBeUndefined();
+    await expect(
+      ensureOk(new Response("not json", { status: 200 }), REST_PROFILE),
+    ).resolves.toBeUndefined();
   });
 
   it("a non-ok response without an errors[] envelope → unknown with the bare status", async () => {
