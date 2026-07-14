@@ -30,7 +30,7 @@ import {
   VIEW_LIST,
   WAKE_TOAST,
 } from "@/core/strings";
-import type { ToastAction, ToastStore } from "@/core/toast-store";
+import type { ToastAction, ToastSpec, ToastStore } from "@/core/toast-store";
 import type { UndoRegistry } from "@/core/undo";
 import type { XList, XListApi } from "@/core/x-client/types";
 
@@ -110,11 +110,8 @@ export interface LassoController {
   filterCommand(run: (filter: FilterStore) => void): void;
   openPicker(source?: AssignSource): void;
   assignSelectedTo(list: XList): Promise<void>;
-  addToDefaultList(): Promise<void>;
   stopRun(): void;
   toggleSelect(author: TweetAuthor): void;
-  muteAuthor(author: TweetAuthor): Promise<void>;
-  hideTweet(tweetEl: Element): Promise<void>;
   trySelectMode(): void;
   skipWelcome(): void;
   wake(): void;
@@ -282,11 +279,38 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     await runAssign([author], list, "keyboard");
   }
 
-  async function muteAuthor(author: TweetAuthor): Promise<void> {
+  interface QuickActionOptions<T> {
+    attempt(): Promise<T>;
+    /** Side effect run on success before the toast (e.g. arming an undo). */
+    onOk?(result: T): void;
+    /** null = stay fully silent (no success, no failure copy applies here). */
+    successToast(result: T): ToastSpec | null;
+    failTitle: string;
+    /** Absent = the no-retry variant (danger toast with no actions). */
+    retry?(): void;
+  }
+
+  /** Shared try/catch → toast → undo-or-retry shape behind mute/unmute/block/hide. */
+  async function quickAction<T>(opts: QuickActionOptions<T>): Promise<void> {
     try {
-      await quick.mute(author.screenName);
-      undo.arm(() => void unmuteAuthor(author), UNDO_WINDOW_MS);
+      const result = await opts.attempt();
+      opts.onOk?.(result);
+      const toast = opts.successToast(result);
+      if (toast) toasts.show(toast);
+    } catch {
       toasts.show({
+        kind: "danger",
+        title: opts.failTitle,
+        ...(opts.retry ? { actions: [{ label: RETRY, run: opts.retry }] } : {}),
+      });
+    }
+  }
+
+  function muteAuthor(author: TweetAuthor): Promise<void> {
+    return quickAction({
+      attempt: () => quick.mute(author.screenName),
+      onOk: () => undo.arm(() => void unmuteAuthor(author), UNDO_WINDOW_MS),
+      successToast: () => ({
         kind: "success",
         title: mutedLine(author.screenName),
         durationMs: UNDO_WINDOW_MS,
@@ -299,52 +323,41 @@ export function createLassoController(deps: ControllerDeps): LassoController {
             },
           },
         ],
-      });
-    } catch {
-      toasts.show({
-        kind: "danger",
-        title: muteFailedLine(author.screenName),
-        actions: [{ label: RETRY, run: () => void muteAuthor(author) }],
-      });
-    }
+      }),
+      failTitle: muteFailedLine(author.screenName),
+      retry: () => void muteAuthor(author),
+    });
   }
 
-  async function unmuteAuthor(author: TweetAuthor): Promise<void> {
-    try {
-      await quick.unmute(author.screenName);
-      toasts.show({ kind: "info", title: unmutedLine(author.screenName) });
-    } catch {
-      toasts.show({ kind: "danger", title: muteFailedLine(author.screenName) });
-    }
+  function unmuteAuthor(author: TweetAuthor): Promise<void> {
+    return quickAction({
+      attempt: () => quick.unmute(author.screenName),
+      successToast: () => ({ kind: "info", title: unmutedLine(author.screenName) }),
+      failTitle: muteFailedLine(author.screenName),
+    });
   }
 
-  async function blockAuthor(author: TweetAuthor): Promise<void> {
-    if (!quick.block) return;
-    try {
-      await quick.block(author.screenName);
-      toasts.show({ kind: "success", title: blockedLine(author.screenName) });
-    } catch {
-      toasts.show({
-        kind: "danger",
-        title: blockFailedLine(author.screenName),
-        actions: [{ label: RETRY, run: () => void blockAuthor(author) }],
-      });
-    }
+  function blockAuthor(author: TweetAuthor): Promise<void> {
+    const block = quick.block;
+    if (!block) return Promise.resolve();
+    return quickAction({
+      attempt: () => block(author.screenName),
+      successToast: () => ({ kind: "success", title: blockedLine(author.screenName) }),
+      failTitle: blockFailedLine(author.screenName),
+      retry: () => void blockAuthor(author),
+    });
   }
 
-  async function hideTweet(tweetEl: Element): Promise<void> {
-    try {
+  function hideTweet(tweetEl: Element): Promise<void> {
+    return quickAction({
+      attempt: () => quick.notInterested(tweetEl),
       // "unavailable" = X offers no "not interested" for this post (off the home feed):
       // stay fully silent — no toast, no Retry — instead of a futile failure.
-      if ((await quick.notInterested(tweetEl)) === "unavailable") return;
-      toasts.show({ kind: "success", title: HIDDEN_LINE });
-    } catch {
-      toasts.show({
-        kind: "danger",
-        title: hideFailedLine,
-        actions: [{ label: RETRY, run: () => void hideTweet(tweetEl) }],
-      });
-    }
+      successToast: (result) =>
+        result === "unavailable" ? null : { kind: "success", title: HIDDEN_LINE },
+      failTitle: hideFailedLine,
+      retry: () => void hideTweet(tweetEl),
+    });
   }
 
   function toggleSelect(author: TweetAuthor): void {
@@ -456,13 +469,10 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     filterCommand,
     openPicker,
     assignSelectedTo,
-    addToDefaultList,
     stopRun() {
       stopRequested = true;
     },
     toggleSelect,
-    muteAuthor,
-    hideTweet,
     trySelectMode() {
       selection.setSelectMode(true);
       app.welcomeOpen.value = false;

@@ -250,7 +250,8 @@ describe("Alt+Shift+L — the graduation chord (story beat 6)", () => {
   it("adds the hovered author straight to the default List, no picker", async () => {
     const h = harness();
     await h.settings.set({ defaultListId: "L1" });
-    await h.controller.addToDefaultList();
+    h.controller.command("add-to-default-list");
+    await flush();
     expect(h.backend.added).toEqual(["jane"]);
     expect(h.app.pickerOpen.value).toBe(false);
     expect(titles(h)).toContain("Added 1 to Design Folks");
@@ -258,7 +259,8 @@ describe("Alt+Shift+L — the graduation chord (story beat 6)", () => {
 
   it("falls back to the picker when no default List is set", async () => {
     const h = harness();
-    await h.controller.addToDefaultList();
+    h.controller.command("add-to-default-list");
+    await flush();
     expect(h.backend.added).toEqual([]);
     expect(h.app.pickerOpen.value).toBe(true);
   });
@@ -267,7 +269,8 @@ describe("Alt+Shift+L — the graduation chord (story beat 6)", () => {
 describe("quick actions report back (story beat 6)", () => {
   it("mute: past-tense toast with Undo; Z unmutes", async () => {
     const h = harness();
-    await h.controller.muteAuthor({ screenName: "jane" });
+    h.controller.command("mute");
+    await flush();
     expect(h.quick.mute).toHaveBeenCalledWith("jane");
     expect(titles(h)).toEqual(["Muted @jane"]);
     expect(h.controller.command("undo")).toBe(true);
@@ -278,7 +281,8 @@ describe("quick actions report back (story beat 6)", () => {
   it("mute failure: literal danger toast with Retry", async () => {
     const h = harness();
     h.quick.mute.mockRejectedValueOnce(new Error("boom"));
-    await h.controller.muteAuthor({ screenName: "jane" });
+    h.controller.command("mute");
+    await flush();
     const toast = h.toasts.toasts.value[0];
     expect(toast?.kind).toBe("danger");
     expect(toast?.title).toBe("Couldn't mute @jane");
@@ -287,14 +291,16 @@ describe("quick actions report back (story beat 6)", () => {
 
   it("not-interested confirms that X received the feedback", async () => {
     const h = harness();
-    await h.controller.hideTweet(document.createElement("article"));
+    h.controller.command("not-interested");
+    await flush();
     expect(titles(h)).toEqual(["Hidden — told X you're not interested"]);
   });
 
   it("not-interested stays fully silent where X offers no 'not interested'", async () => {
     const h = harness();
     h.quick.notInterested.mockResolvedValueOnce("unavailable");
-    await h.controller.hideTweet(document.createElement("article"));
+    h.controller.command("not-interested");
+    await flush();
     expect(titles(h)).toEqual([]); // no success, no failure, no Retry
   });
 });
@@ -760,7 +766,8 @@ describe("block quick action (story beat 6)", () => {
 describe("mute / unmute / hide failure + retry seams", () => {
   it("mute Undo action triggers the armed unmute", async () => {
     const h = harness();
-    await h.controller.muteAuthor({ screenName: "jane" });
+    h.controller.command("mute");
+    await flush();
     const id = h.toasts.toasts.value[0]?.id as number;
     h.toasts.act(id, 0); // the Undo action
     await flush();
@@ -770,7 +777,8 @@ describe("mute / unmute / hide failure + retry seams", () => {
   it("mute failure Retry re-attempts the mute", async () => {
     const h = harness();
     h.quick.mute.mockRejectedValueOnce(new Error("boom"));
-    await h.controller.muteAuthor({ screenName: "jane" });
+    h.controller.command("mute");
+    await flush();
     const danger = h.toasts.toasts.value[0];
     expect(danger?.kind).toBe("danger");
     danger?.actions?.[0]?.run(); // Retry
@@ -781,7 +789,8 @@ describe("mute / unmute / hide failure + retry seams", () => {
   it("a failing unmute reports the literal failure copy", async () => {
     const h = harness();
     h.quick.unmute.mockRejectedValueOnce(new Error("boom"));
-    await h.controller.muteAuthor({ screenName: "jane" });
+    h.controller.command("mute");
+    await flush();
     h.controller.command("undo");
     await flush();
     expect(titles(h)).toContain("Couldn't mute @jane");
@@ -790,8 +799,8 @@ describe("mute / unmute / hide failure + retry seams", () => {
   it("hide failure: literal danger toast with a working Retry", async () => {
     const h = harness();
     h.quick.notInterested.mockRejectedValueOnce(new Error("boom"));
-    const el = document.createElement("article");
-    await h.controller.hideTweet(el);
+    h.controller.command("not-interested");
+    await flush();
     const toast = h.toasts.toasts.value[0];
     expect(toast?.kind).toBe("danger");
     expect(toast?.title).toBe("Couldn't hide that post");
@@ -827,7 +836,8 @@ describe("assign toast Undo action + default-list cache fallback", () => {
     h.cache.lists = async () => {
       throw new Error("offline");
     };
-    await h.controller.addToDefaultList();
+    h.controller.command("add-to-default-list");
+    await flush();
     expect(h.backend.added).toEqual([]);
     expect(h.app.pickerOpen.value).toBe(true);
     expect(h.selection.isSelected("jane")).toBe(true);
@@ -836,15 +846,17 @@ describe("assign toast Undo action + default-list cache fallback", () => {
   it("default list set but the id is missing from the cache: falls back to the picker", async () => {
     const h = harness();
     await h.settings.set({ defaultListId: "does-not-exist" });
-    await h.controller.addToDefaultList();
+    h.controller.command("add-to-default-list");
+    await flush();
     expect(h.backend.added).toEqual([]);
     expect(h.app.pickerOpen.value).toBe(true);
     expect(h.selection.isSelected("jane")).toBe(true);
   });
 
-  it("addToDefaultList nudges when there is no focused author", async () => {
+  it("add-to-default-list nudges when there is no focused author", async () => {
     const h = harness({ targetAuthor: null });
-    await h.controller.addToDefaultList();
+    h.controller.command("add-to-default-list");
+    await flush();
     expect(titles(h)).toEqual(["Hover a post first — or press j to focus one"]);
   });
 });

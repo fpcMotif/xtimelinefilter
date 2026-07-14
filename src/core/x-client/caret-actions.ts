@@ -10,13 +10,15 @@ import {
   SYNTHETIC_EVENT_FLAG,
   UNDO_TEXT,
 } from "@/content/selectors";
+import {
+  PAGE_ACTIVATE_CHANNEL,
+  PAGE_ACTIVATE_READY,
+  PAGE_ACTIVATE_REQUEST,
+  PAGE_ACTIVATE_RESPONSE,
+  PAGE_ACTIVATE_TARGET,
+} from "@/core/protocol";
 
 const textOf = (el: Element): string => el.textContent as string;
-const PAGE_ACTIVATE_CHANNEL = "__lasso_x_main_world_activate__";
-const PAGE_ACTIVATE_REQUEST = "activate";
-const PAGE_ACTIVATE_RESPONSE = "activated";
-const PAGE_ACTIVATE_READY = "data-lasso-main-world-activate";
-const PAGE_ACTIVATE_TARGET = "data-lasso-activate-target";
 
 let activateSeq = 0;
 

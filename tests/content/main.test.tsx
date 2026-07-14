@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // collaborators together. We mock every collaborator, capture the closures they
 // receive (the deps objects, scanner/keyboard/route callbacks, the rendered App
 // and Overlay vnodes), then drive each one — the only honest way to cover an
-// import-time entry point (unit-test-design.md §11).
+// import-time entry point (unit-test-design.md §11). The hover/select-tap/overlay
+// mechanics themselves live in their own dedicated suites (hover-tracker.test.ts,
+// select-tap.test.ts, overlay-lifecycle.test.ts); here we only verify main.tsx
+// wires the right deps into them.
 
 type AnyFn = (...args: unknown[]) => unknown;
 type Caps = {
@@ -22,7 +25,16 @@ type Caps = {
   onMessage?: (msg: unknown, sender: unknown, send: AnyFn) => void;
   shadowHost?: HTMLElement;
   selection?: { setSelectMode: (on: boolean) => void };
-  clickHandler?: AnyFn;
+  hoverDeps?: {
+    resolve: (el: Element | null) => Element | null;
+    onHover: (article: Element | null) => void;
+    fallback: () => Element | null;
+  };
+  selectTapDeps?: {
+    isActive: () => boolean;
+    resolveTarget: (t: EventTarget | null) => Element | null;
+    onToggle: (article: Element) => boolean | void;
+  };
 };
 
 const H = vi.hoisted(() => {
@@ -68,6 +80,21 @@ const H = vi.hoisted(() => {
         root: null as unknown as HTMLElement,
       },
       scanner: { start: vi.fn() },
+      hover: {
+        targetTweet: vi.fn(() => null as Element | null),
+        release: vi.fn(),
+        dispose: vi.fn(),
+      },
+      overlays: {
+        attach: vi.fn(),
+        releaseFor: vi.fn(),
+        disposeAll: vi.fn(),
+      },
+      mirrorStore: {
+        publish: vi.fn(),
+        read: vi.fn(),
+      },
+      selectTapDispose: vi.fn(),
     },
     spy: {
       render: vi.fn(),
@@ -112,11 +139,20 @@ vi.mock("@/content/filter-feature", () => ({
 }));
 vi.mock("@/content/get-current-account", () => ({ getCurrentAccount: H.spy.getCurrentAccount }));
 vi.mock("@/content/get-focused-tweet", () => ({ getFocusedTweet: H.spy.getFocusedTweet }));
+vi.mock("@/content/hover-tracker", () => ({
+  installHoverTracker: (deps: Caps["hoverDeps"]) => {
+    H.cap.hoverDeps = deps;
+    return H.fake.hover;
+  },
+}));
 vi.mock("@/content/keyboard", () => ({
   DEFAULT_KEYMAP: [],
   installKeyboardLayer: (opts: { run: AnyFn }) => {
     H.cap.keyboardRun = opts.run;
   },
+}));
+vi.mock("@/content/overlay-lifecycle", () => ({
+  createOverlayLifecycle: () => H.fake.overlays,
 }));
 vi.mock("@/content/route", () => ({
   isInScope: H.spy.isInScope,
@@ -128,6 +164,12 @@ vi.mock("@/content/scanner-health", () => ({
   createScannerHealth: (opts: { onBreakage: AnyFn }) => {
     H.cap.healthOnBreakage = opts.onBreakage;
     return H.fake.health;
+  },
+}));
+vi.mock("@/content/select-tap", () => ({
+  installSelectTap: (deps: Caps["selectTapDeps"]) => {
+    H.cap.selectTapDeps = deps;
+    return H.fake.selectTapDispose;
   },
 }));
 vi.mock("@/content/tweet-scanner", () => ({
@@ -154,6 +196,9 @@ vi.mock("@/core/membership-store/factory", () => ({
     H.cap.membershipArgs = [cfg, builder];
     return H.fake.membership;
   },
+}));
+vi.mock("@/core/mirror-status", () => ({
+  createMirrorStatusStore: () => H.fake.mirrorStore,
 }));
 vi.mock("@/core/picker-controller", () => ({
   createPickerController: (deps: Caps["pickerDeps"]) => {
@@ -209,14 +254,11 @@ vi.mock("@/ui/mount", () => ({
 
 let sendMessage: ReturnType<typeof vi.fn>;
 let addMessageListener: ReturnType<typeof vi.fn>;
-let storageLocalSet: ReturnType<typeof vi.fn>;
 let openSpy: ReturnType<typeof vi.spyOn>;
 let computedStyleSpy: ReturnType<typeof vi.spyOn>;
 let previousChrome: unknown;
 
-function setChrome(
-  opts: { sendThrows?: boolean; addThrows?: boolean; withStorage?: boolean } = {},
-) {
+function setChrome(opts: { sendThrows?: boolean; addThrows?: boolean } = {}) {
   sendMessage = vi.fn(() => {
     if (opts.sendThrows) throw new Error("sw gone");
     return { catch: (cb: AnyFn) => cb() }; // invoke the swallow-error arrow
@@ -225,11 +267,9 @@ function setChrome(
     if (opts.addThrows) throw new Error("no runtime");
     H.cap.onMessage = cb;
   });
-  storageLocalSet = vi.fn(() => ({ catch: (cb: AnyFn) => cb() }));
   globalThis.chrome = {
     ...(previousChrome as typeof chrome),
     runtime: { sendMessage, onMessage: { addListener: addMessageListener } },
-    ...(opts.withStorage === false ? {} : { storage: { local: { set: storageLocalSet } } }),
   } as unknown as typeof chrome;
 }
 
@@ -247,6 +287,11 @@ beforeEach(() => {
   H.config.computedPosition = "static";
   for (const m of Object.values(H.fake.controller)) m.mockClear();
   for (const m of Object.values(H.fake.filter)) m.mockClear();
+  for (const m of Object.values(H.fake.hover)) m.mockClear();
+  for (const m of Object.values(H.fake.overlays)) m.mockClear();
+  for (const m of Object.values(H.fake.mirrorStore)) m.mockClear();
+  H.fake.selectTapDispose.mockClear();
+  H.fake.hover.targetTweet.mockReturnValue(null);
   H.fake.filter.isStubbed.mockImplementation(() => H.config.stubbed);
   H.fake.coach.isOnboarded.mockImplementation(async () => H.config.onboarded);
   H.fake.settings.get.mockImplementation(async () => H.config.settings);
@@ -262,18 +307,6 @@ beforeEach(() => {
     .mockImplementation(() => ({ position: H.config.computedPosition }) as CSSStyleDeclaration);
   document.body.innerHTML = "";
   window.location.hash = "";
-  // Capture the document-level click handler start() installs, so its
-  // composedPath-absent branch can be driven directly (happy-dom's dispatch
-  // requires a real composedPath, so it can't be exercised through dispatch).
-  const origAdd = document.addEventListener.bind(document);
-  vi.spyOn(document, "addEventListener").mockImplementation(((
-    type: string,
-    cb: EventListenerOrEventListenerObject,
-    opts?: boolean | AddEventListenerOptions,
-  ) => {
-    if (type === "click") H.cap.clickHandler = cb as unknown as AnyFn;
-    return origAdd(type, cb, opts);
-  }) as typeof document.addEventListener);
   setChrome();
 });
 
@@ -305,6 +338,11 @@ function cellTweet(opts: { avatar?: boolean; userName?: boolean } = {}): {
   cell.appendChild(article);
   document.body.appendChild(cell);
   return { cell, article };
+}
+
+/** Grabs the mount() closure main.tsx handed to the most recent overlays.attach() call. */
+function lastMount(): () => (() => void) | null {
+  return H.fake.overlays.attach.mock.calls.at(-1)![1] as () => (() => void) | null;
 }
 
 describe("content boot (main.tsx)", () => {
@@ -340,8 +378,10 @@ describe("content boot (main.tsx)", () => {
     H.cap.onMessage!({ type: "lasso:status" }, {}, afterWake);
     expect(afterWake).toHaveBeenCalledWith({ awake: true });
     expect(H.fake.controller.wake).toHaveBeenCalledTimes(1);
-    // an unrelated message is ignored.
+    // an unrelated message is ignored (isLassoMessage narrowing rejects it).
     H.cap.onMessage!({ type: "noise" }, {}, vi.fn());
+    // a well-formed but non-status/activate LassoMessage is also a no-op here.
+    H.cap.onMessage!({ type: "lasso:badge", count: 3 }, {}, vi.fn());
 
     // highContrast marked the UI host.
     expect(H.fake.uiHost.host.getAttribute("data-hc")).toBe("");
@@ -388,10 +428,15 @@ describe("content boot (main.tsx)", () => {
     (deps.currentOwner as AnyFn)();
     expect(H.spy.getCurrentAccount).toHaveBeenCalled();
 
-    // target.author with no hover → getFocusedTweet (null) → null.
+    // target.tweet is the hover tracker's targetTweet; target.author derives from it.
     const target = deps.target as { author: AnyFn; tweet: AnyFn };
+    expect(target.tweet()).toBeNull(); // hover tracker's default mock: nothing hovered
     expect(target.author()).toBeNull();
-    expect(target.tweet()).toBeNull();
+    const focused = cellTweet({}).article;
+    H.fake.hover.targetTweet.mockReturnValue(focused);
+    expect(target.tweet()).toBe(focused);
+    expect(target.author()).toEqual({ screenName: "a" });
+    H.fake.hover.targetTweet.mockReturnValue(null);
 
     // anchorFor: a caret with a real rect clamps to the viewport; a zero rect → null.
     const anchorFor = deps.anchorFor as (el: Element) => unknown;
@@ -426,38 +471,9 @@ describe("content boot (main.tsx)", () => {
     appVnode.props.openUrl("https://app.example");
     expect(openSpy).toHaveBeenCalledWith("https://app.example", "_blank", "noopener");
 
-    // ---- scanner callback drives classify + overlay injection ----
-    const a = cellTweet({ avatar: true });
-    H.cap.scannerCb!({ screenName: "a" }, a.article);
-    expect(H.fake.filter.classify).toHaveBeenCalledWith(a.article);
-    // overlay injected into the avatar; the OverlayBinding vnode wires onToggle.
-    const overlayCall = H.spy.render.mock.calls.at(-1) as [
-      { props: { onToggle: AnyFn; hovered: { value: unknown } } },
-      unknown,
-    ];
-    overlayCall[0].props.onToggle();
-    void overlayCall[0].props.hovered.value; // evaluate the hovered computed
-    expect(H.fake.controller.toggleSelect).toHaveBeenCalled();
-    // a second scan on the same article is a no-op (overlay already present).
-    const renders = H.spy.render.mock.calls.length;
-    H.cap.scannerCb!({ screenName: "a" }, a.article);
-    expect(H.spy.render.mock.calls.length).toBe(renders);
-
-    // non-static avatar position branch.
-    H.config.computedPosition = "relative";
-    H.cap.scannerCb!({ screenName: "a" }, cellTweet({ avatar: true }).article);
-    // avatar-absent: anchor falls back to User-Name, then to the article itself.
-    H.cap.scannerCb!({ screenName: "a" }, cellTweet({ userName: true }).article);
-    H.cap.scannerCb!({ screenName: "a" }, cellTweet({}).article);
-
-    // stubbed cell: overlay is skipped.
-    H.config.stubbed = true;
-    const stub = cellTweet({ avatar: true });
-    const before = H.spy.render.mock.calls.length;
-    H.cap.scannerCb!({ screenName: "a" }, stub.article);
-    expect(H.spy.render.mock.calls.length).toBe(before); // no overlay rendered
-
-    // ---- mousemove: hover tracking incl. the quoted-tweet outer-article walk ----
+    // ---- hover-tracker wiring: resolve does the outermost-tweet walk, fallback
+    // delegates to X's native cursor, onHover mirrors onto visualHover (observed
+    // via a mounted overlay's `hovered` computed) ----
     const outer = cellTweet({ avatar: true }).article;
     const innerCell = document.createElement("div");
     const inner = document.createElement("article");
@@ -466,102 +482,128 @@ describe("content boot (main.tsx)", () => {
     inner.appendChild(innerChild);
     innerCell.appendChild(inner);
     outer.appendChild(innerCell);
-    innerChild.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    // now target.tweet resolves to the hovered (in-document) article.
-    expect(target.tweet()).toBe(outer);
-    expect(target.author()).toEqual({ screenName: "a" });
-    // mousemove off any tweet clears the hover target.
-    document.body.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(H.cap.hoverDeps!.resolve(innerChild)).toBe(outer);
+    expect(H.cap.hoverDeps!.resolve(null)).toBeNull();
+    H.spy.getFocusedTweet.mockReturnValueOnce(outer);
+    expect(H.cap.hoverDeps!.fallback()).toBe(outer);
 
-    // ---- click handler: every guard branch on the real selection store ----
-    const togglesBefore = H.fake.controller.toggleSelect.mock.calls.length;
-    const sel = cellTweet({ avatar: true }).article;
+    // ---- scanner callback drives classify + overlay attach ----
+    const a = cellTweet({ avatar: true });
+    H.cap.scannerCb!({ screenName: "a" }, a.article);
+    expect(H.fake.filter.classify).toHaveBeenCalledWith(a.article);
+    expect(H.fake.filter.isStubbed).toHaveBeenCalledWith(a.article);
+    expect(H.fake.overlays.attach).toHaveBeenCalledWith(a.article, expect.any(Function));
+    let mountFn = lastMount();
+    const disposeA = mountFn();
+    expect(disposeA).toBeTypeOf("function");
+    // overlay injected into the avatar; the OverlayBinding vnode wires onToggle
+    // and its hovered computed tracks visualHover (which onHover mirrors into).
+    const overlayCall = H.spy.render.mock.calls.at(-1) as [
+      { props: { onToggle: AnyFn; hovered: { value: unknown } } },
+      unknown,
+    ];
+    overlayCall[0].props.onToggle();
+    expect(H.fake.controller.toggleSelect).toHaveBeenCalled();
+    expect(overlayCall[0].props.hovered.value).toBe(false);
+    H.cap.hoverDeps!.onHover(a.article);
+    expect(overlayCall[0].props.hovered.value).toBe(true);
+    H.cap.hoverDeps!.onHover(null);
+    expect(overlayCall[0].props.hovered.value).toBe(false);
 
-    // select mode OFF → click ignored.
-    sel.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(H.fake.controller.toggleSelect.mock.calls.length).toBe(togglesBefore);
+    // re-mounting the same host is injectOverlay's own guard (overlay flag present).
+    expect(mountFn()).toBeNull();
 
+    // the disposer unmounts the Preact tree (drops signal subscriptions) and
+    // removes the host, matching the map-registry contract overlay-lifecycle relies on.
+    disposeA!();
+    expect(H.spy.render.mock.calls.at(-1)).toEqual([null, expect.anything()]);
+    expect(a.article.querySelector("[data-lasso-overlay]")).toBeNull();
+
+    // non-static avatar position branch.
+    H.config.computedPosition = "relative";
+    H.cap.scannerCb!({ screenName: "a" }, cellTweet({ avatar: true }).article);
+    lastMount()();
+
+    // avatar-absent: anchor falls back to User-Name, then to the article itself.
+    H.cap.scannerCb!({ screenName: "a" }, cellTweet({ userName: true }).article);
+    lastMount()();
+    H.cap.scannerCb!({ screenName: "a" }, cellTweet({}).article);
+    lastMount()();
+
+    // stubbed cell: overlay attach is skipped entirely.
+    H.config.stubbed = true;
+    const stub = cellTweet({ avatar: true });
+    const attachCallsBefore = H.fake.overlays.attach.mock.calls.length;
+    H.cap.scannerCb!({ screenName: "a" }, stub.article);
+    expect(H.fake.overlays.attach.mock.calls.length).toBe(attachCallsBefore);
+    H.config.stubbed = false;
+
+    // ---- select-tap wiring: isActive mirrors selectMode; resolveTarget applies
+    // the overlay/lasso-root/no-tweet guards; onToggle extracts the author and
+    // toggles, returning false when extraction fails (nothing to suppress) ----
+    const selectTap = H.cap.selectTapDeps!;
+    expect(selectTap.isActive()).toBe(false); // selectMode starts off
     H.cap.selection!.setSelectMode(true);
+    expect(selectTap.isActive()).toBe(true);
 
-    // origin inside the overlay check → ignored (the check handles itself).
+    const sel = cellTweet({ avatar: true }).article;
+    expect(selectTap.resolveTarget(sel)).toBe(sel);
+    expect(selectTap.resolveTarget(null)).toBeNull();
+    expect(selectTap.resolveTarget(document.body)).toBeNull(); // no enclosing tweet
+
     const overlayHost = document.createElement("span");
     overlayHost.setAttribute("data-lasso-overlay", "");
     const inOverlay = document.createElement("i");
     overlayHost.appendChild(inOverlay);
     document.body.appendChild(overlayHost);
-    inOverlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(selectTap.resolveTarget(inOverlay)).toBeNull(); // the check handles itself
 
-    // origin inside Lasso's own UI root → passes through.
     const root = document.createElement("div");
     root.id = "lasso-root";
     const inRoot = document.createElement("i");
     root.appendChild(inRoot);
     document.body.appendChild(root);
-    inRoot.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(selectTap.resolveTarget(inRoot)).toBeNull(); // Lasso UI passes through
 
-    // click off any tweet → nothing to toggle.
-    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    // click on a tweet whose author can't be extracted → ignored.
+    const togglesBefore = H.fake.controller.toggleSelect.mock.calls.length;
     H.spy.extractAuthor.mockReturnValueOnce(null);
-    sel.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(selectTap.onToggle(sel)).toBe(false); // no author → nothing to toggle
     expect(H.fake.controller.toggleSelect.mock.calls.length).toBe(togglesBefore);
 
-    // click on a real tweet author → toggles the selection (composedPath arm).
-    sel.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    selectTap.onToggle(sel);
     expect(H.fake.controller.toggleSelect.mock.calls.length).toBe(togglesBefore + 1);
-
-    // drive the handler with an event lacking composedPath → the `?.()`
-    // short-circuit + `?? e.target` fallback, then a normal toggle.
-    H.cap.clickHandler!({
-      composedPath: undefined,
-      target: sel,
-      preventDefault: vi.fn(),
-      stopImmediatePropagation: vi.fn(),
-    });
-    expect(H.fake.controller.toggleSelect.mock.calls.length).toBe(togglesBefore + 2);
   });
 
-  it("disposes a pruned post's overlay and clears hover targeting (memory guard)", async () => {
+  it("wires onTweetRemoved to release the overlay + hover seams, clearing visualHover only on a match", async () => {
     H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
     await importMain();
     await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
 
     const a = cellTweet({ avatar: true });
     H.cap.scannerCb!({ screenName: "a" }, a.article);
-    const rendersAfterMount = H.spy.render.mock.calls.length;
-    expect(rendersAfterMount).toBeGreaterThan(0);
+    lastMount()();
+    const overlayCall = H.spy.render.mock.calls.at(-1) as [
+      { props: { hovered: { value: unknown } } },
+      unknown,
+    ];
+    const hoveredA = overlayCall[0].props.hovered;
 
-    // Hover the post so both the sticky target and the visual signal point at it.
-    a.article.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    const target = H.cap.controllerDeps!.target as { tweet: () => Element | null };
-    expect(target.tweet()).toBe(a.article);
+    H.cap.hoverDeps!.onHover(a.article); // visualHover now points at a.article
+    expect(hoveredA.value).toBe(true);
 
-    // A pruned post the user was NOT hovering leaves the hover target alone.
-    const b = cellTweet({ avatar: true });
-    H.cap.scannerCb!({ screenName: "b" }, b.article);
-    H.cap.scannerOpts!.onTweetRemoved!(b.article);
-    expect(target.tweet()).toBe(a.article);
+    const b = document.createElement("article");
+    H.cap.scannerOpts!.onTweetRemoved!(b); // unrelated removal — visualHover untouched
+    expect(H.fake.overlays.releaseFor).toHaveBeenCalledWith(b);
+    expect(H.fake.hover.release).toHaveBeenCalledWith(b);
+    expect(hoveredA.value).toBe(true);
 
-    // X prunes the hovered cell → overlay unmounted (render(null)) + hover refs dropped.
-    H.cap.scannerOpts!.onTweetRemoved!(a.article);
-    const lastRender = H.spy.render.mock.calls.at(-1)!;
-    expect(lastRender[0]).toBeNull();
-    // The article is still in the DOM here, so a null target proves the hook —
-    // not the document.contains guard — cleared the sticky hover ref.
-    expect(target.tweet()).toBeNull();
-
-    // A second removal report is a harmless no-op (disposer already gone).
-    const renders = H.spy.render.mock.calls.length;
-    H.cap.scannerOpts!.onTweetRemoved!(a.article);
-    expect(H.spy.render.mock.calls.length).toBe(renders);
-
-    // Re-mounted by X later → the overlay injects fresh (old host was removed).
-    H.cap.scannerCb!({ screenName: "a" }, a.article);
-    expect(H.spy.render.mock.calls.length).toBeGreaterThan(renders);
+    H.cap.scannerOpts!.onTweetRemoved!(a.article); // the hovered article is pruned
+    expect(H.fake.overlays.releaseFor).toHaveBeenCalledWith(a.article);
+    expect(H.fake.hover.release).toHaveBeenCalledWith(a.article);
+    expect(hoveredA.value).toBe(false);
   });
 
-  it("publishes Mirror outcomes to storage.local when the Mirror is configured", async () => {
+  it("wires onMirrorResult to the mirror-status store's publish when the Mirror is configured", async () => {
     H.config.settings = {
       backend: "rest",
       activation: "auto",
@@ -575,32 +617,10 @@ describe("content boot (main.tsx)", () => {
     expect(onMirrorResult).toBeTypeOf("function");
 
     onMirrorResult({ ok: true, at: 1 });
-    expect(storageLocalSet).toHaveBeenCalledWith({ "lasso:mirror-status": { ok: true, at: 1 } });
-
-    // A dead extension context (set throwing synchronously) is swallowed.
-    storageLocalSet.mockImplementationOnce(() => {
-      throw new Error("ctx gone");
-    });
-    expect(() => onMirrorResult({ ok: false, at: 2 })).not.toThrow();
+    expect(H.fake.mirrorStore.publish).toHaveBeenCalledWith({ ok: true, at: 1 });
   });
 
-  it("Mirror status publishing survives a chrome without storage, and stays unwired without creds", async () => {
-    setChrome({ withStorage: false });
-    H.config.settings = {
-      backend: "rest",
-      activation: "auto",
-      highContrast: false,
-      convexUrl: "https://x.convex.cloud",
-      convexDeviceKey: "k",
-    };
-    await importMain();
-    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
-    const onMirrorResult = H.cap.controllerDeps!.onMirrorResult as (r: unknown) => void;
-    expect(() => onMirrorResult({ ok: true, at: 3 })).not.toThrow(); // optional-chain path
-
-    // No Convex creds ⇒ the Null store's "success" must not paint a synced row.
-    setChrome();
-    H.cap = {};
+  it("stays unwired without Convex creds (the Null store's success must not paint a synced row)", async () => {
     H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
     await importMain();
     await vi.waitFor(() => expect(H.cap.controllerDeps).toBeTypeOf("object"));
@@ -615,9 +635,10 @@ describe("content boot (main.tsx)", () => {
     expect(sendMessage).toHaveBeenCalledWith({ type: "lasso:state", state: "awake" });
     // highContrast=false: the UI host is not marked.
     expect(H.fake.uiHost.host.hasAttribute("data-hc")).toBe(false);
-    // overlay injection with highContrast off + non-avatar fallback path.
+    // overlay attach with highContrast off + non-avatar fallback path.
     H.config.computedPosition = "relative";
     H.cap.scannerCb!({ screenName: "a" }, cellTweet({ userName: true }).article);
+    lastMount()();
   });
 
   it("forces the welcome card when the install hash is present", async () => {

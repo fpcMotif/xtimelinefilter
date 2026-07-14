@@ -78,6 +78,26 @@ describe("fetchOwnedLists", () => {
   });
 });
 
+describe("fetchOwnedLists — ensureOk adoption (accepted behavior changes)", () => {
+  it("throws rate-limited for a 200 response carrying errors:[{code:88}], instead of silently returning []", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ errors: [{ code: 88, message: "Rate limit exceeded" }] }, 200),
+    );
+    await expect(
+      fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+    ).rejects.toMatchObject({ kind: "rate-limited" });
+  });
+
+  it("classifies non-429/401/403 statuses through REST_PROFILE's body-error rules", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ errors: [{ code: 32, message: "Could not authenticate you" }] }, 400),
+    );
+    await expect(
+      fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+    ).rejects.toMatchObject({ kind: "auth" });
+  });
+});
+
 describe("story beat 4 — picker anatomy data", () => {
   it("marks private Lists so the picker can show lock icons", async () => {
     const fetchMock = vi.fn(async () =>

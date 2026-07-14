@@ -1,5 +1,5 @@
-import { type Credentials, XApiError, type XList } from "./types";
-import { authHeaders, rateLimitResetOf } from "./x-http";
+import { type Credentials, type XList } from "./types";
+import { authHeaders, ensureOk, REST_PROFILE } from "./x-http";
 
 export interface ListsProviderDeps {
   fetch: typeof fetch;
@@ -27,17 +27,7 @@ export async function fetchOwnedLists(deps: ListsProviderDeps): Promise<XList[]>
     credentials: "include",
     headers: authHeaders(deps.creds),
   });
-  if (res.status === 429) {
-    throw new XApiError("rate-limited", "lists/ownerships rate limited", {
-      resetAt: rateLimitResetOf(res),
-    });
-  }
-  if (res.status === 401 || res.status === 403) {
-    throw new XApiError("auth", `lists/ownerships auth error (HTTP ${res.status})`);
-  }
-  if (!res.ok) throw new XApiError("unknown", `lists/ownerships HTTP ${res.status}`);
-
-  const json = (await res.json()) as { lists?: RawList[] };
+  const json = (await ensureOk(res, REST_PROFILE)) as { lists?: RawList[] };
   return (json.lists ?? [])
     .map((l) => ({
       id: l.id_str ?? (l.id !== undefined ? String(l.id) : ""),

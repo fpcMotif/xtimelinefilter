@@ -1,15 +1,21 @@
 import { createFilterApplier } from "@/content/filter-applier";
+import { FilterAttributes } from "@/content/filter-attributes";
 import { mountFilterSurfaces, type SurfaceManager } from "@/content/surface-mount";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { SettingsStore } from "@/core/settings";
 import { createUiRoot } from "@/ui/mount";
 
+const { FILTERED, STUB, COMPACT, TRACELESS } = FilterAttributes;
+
 /** The slice of the Filter the content boot path interacts with after install. */
 export interface FilterFeature {
   /** Classify one article's cell — called by the tweet scanner per post. */
   classify(article: Element): void;
-  /** Whether a cell is collapsed by the Filter (overlay / select-mode gate). */
-  isStubbed(cell: Element): boolean;
+  /**
+   * Whether a cell is collapsed by the Filter (overlay / select-mode gate).
+   * Accepts either the article or its enclosing cell.
+   */
+  isStubbed(el: Element): boolean;
   /** Re-evaluate surfaces + re-apply collapses (call on SPA route change). */
   sync(): void;
   /** Tear down every surface and its Shadow host. */
@@ -31,16 +37,16 @@ export interface FilterFeatureDeps {
 // Shadow DOM, so this style goes in the page. Hiding the cell's content while
 // keeping the stub's height stays gentle on X's virtualization (ADR-0010).
 export const COLLAPSE_CSS =
-  "[data-lasso-filtered] > *:not([data-lasso-filter-stub]){display:none !important}" +
-  "[data-lasso-filter-stub]{display:block;padding:6px 12px;font-size:13px;color:#536471;cursor:pointer}" +
+  `[${FILTERED}] > *:not([${STUB}]){display:none !important}` +
+  `[${STUB}]{display:block;padding:6px 12px;font-size:13px;color:#536471;cursor:pointer}` +
   // Compact mode (opt-in `compactHidden`, popup toggle): also drop the stub so the
   // cell collapses to ~0 height — ADR-0010's deferred upgrade, pending live-DOM
   // virtualization verification. The cell node stays in layout (never removed).
-  "[data-lasso-compact] [data-lasso-filter-stub]{display:none !important}" +
+  `[${COMPACT}] [${STUB}]{display:none !important}` +
   // Per-cell traceless hide: a post hidden because the Owner already liked it drops
   // its stub regardless of compact mode ("already liked → erase it, no trace"). Same
   // safe 0-height collapse — the cell node stays in layout. Set by the applier.
-  "[data-lasso-traceless] [data-lasso-filter-stub]{display:none !important}";
+  `[${TRACELESS}] [${STUB}]{display:none !important}`;
 
 /**
  * Installs the Filter capability (ADR-0010, spec §3) as one self-contained unit:
@@ -84,7 +90,7 @@ export async function installFilterFeature(deps: FilterFeatureDeps): Promise<Fil
 
   return {
     classify: (article) => applier.classify(article),
-    isStubbed: (cell) => applier.isStubbed(cell),
+    isStubbed: (el) => applier.isStubbed(el),
     sync,
     unmount() {
       surfaces.unmount();

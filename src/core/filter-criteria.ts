@@ -1,4 +1,5 @@
-import type { CriterionId, Family, LinkDest } from "@/core/filter-types";
+import type { CriterionId, Facets, FilterState, Family, LinkDest } from "@/core/filter-types";
+import { classifyHost } from "@/core/link-classifier";
 
 /**
  * Display names for each link destination — the one catalog of dest labels,
@@ -14,7 +15,13 @@ export const LINK_DEST_LABELS: Record<LinkDest, string> = {
   article: "Article/Blog",
 };
 
-/** One filterable criterion: its id, family, UI group, and the labels surfaces show. */
+/**
+ * One filterable criterion: its id, family, UI group, the labels surfaces show,
+ * and the matcher that decides whether a post's facets satisfy it. The catalog
+ * owns matching — timeline-filter.ts is just a lookup over {@link CRITERIA_BY_ID}.
+ * A criterion sourced from a facet the engine doesn't yet read (e.g. a future
+ * GraphQL-backed "bookmarked") only ever grows this file plus filter-types.ts.
+ */
 export interface CriterionDef {
   id: CriterionId;
   family: Family;
@@ -24,7 +31,17 @@ export interface CriterionDef {
   label: string;
   /** Short label for the palette's "Only · …" / "Hide · …" rows. */
   short: string;
+  /** Whether a post's facets satisfy this criterion under the given filter state. */
+  matches(facets: Facets, state: FilterState): boolean;
 }
+
+const KIND_MATCHERS: Record<string, (f: Facets) => boolean> = {
+  text: (f) => f.hasText && !f.hasPhoto && !f.hasVideo && !f.hasQuote && !f.hasLink,
+  photo: (f) => f.hasPhoto,
+  video: (f) => f.hasVideo,
+  quote: (f) => f.hasQuote,
+  link: (f) => f.hasLink,
+};
 
 const KIND: ReadonlyArray<{ value: string; label: string }> = [
   { value: "text", label: "Text" },
@@ -36,9 +53,10 @@ const KIND: ReadonlyArray<{ value: string; label: string }> = [
 
 /**
  * The single source of truth for the filter criteria catalog (spec §4/§5). Every
- * surface — the panel chips, the command palette, the Options editors — derives
- * its lists from here, so adding a criterion touches exactly one place and the
- * "kind:video"-style ids never get re-typed by hand across files.
+ * surface — the panel chips, the command palette, the Options editors, the
+ * decide() engine — derives its lists (and its matching) from here, so adding a
+ * criterion touches exactly one place and the "kind:video"-style ids never get
+ * re-typed by hand across files.
  */
 export const CRITERIA: readonly CriterionDef[] = [
   ...KIND.map(
@@ -48,6 +66,7 @@ export const CRITERIA: readonly CriterionDef[] = [
       group: "Type",
       label: k.label,
       short: k.value,
+      matches: KIND_MATCHERS[k.value]!,
     }),
   ),
   ...(Object.keys(LINK_DEST_LABELS) as LinkDest[]).map(
@@ -57,9 +76,18 @@ export const CRITERIA: readonly CriterionDef[] = [
       group: "Links",
       label: LINK_DEST_LABELS[dest],
       short: LINK_DEST_LABELS[dest],
+      matches: (f, state) =>
+        f.hasLink && f.linkHosts.some((h) => classifyHost(h, state.linkRules) === dest),
     }),
   ),
-  { id: "role:repost", family: "role", group: "Source", label: "Repost", short: "Repost" },
+  {
+    id: "role:repost",
+    family: "role",
+    group: "Source",
+    label: "Repost",
+    short: "Repost",
+    matches: (f) => f.role === "repost",
+  },
   // Bookmarked is intentionally omitted — this X build renders no inline bookmark
   // button, so there is no DOM signal to read (see verify-filter-dom.md). Deferred
   // to a GraphQL-bookmarks follow-up.
@@ -69,6 +97,7 @@ export const CRITERIA: readonly CriterionDef[] = [
     group: "Engagement",
     label: "Liked",
     short: "Liked",
+    matches: (f) => f.liked,
   },
 ];
 
@@ -88,3 +117,8 @@ export const CRITERIA_GROUPS: ReadonlyArray<{ group: string; criteria: Criterion
   }
   return order.map((group) => ({ group, criteria: byGroup.get(group)! }));
 })();
+
+/** Catalog lookup by id — the engine's only entry point into criterion matching. */
+export const CRITERIA_BY_ID: ReadonlyMap<CriterionId, CriterionDef> = new Map(
+  CRITERIA.map((c) => [c.id, c]),
+);

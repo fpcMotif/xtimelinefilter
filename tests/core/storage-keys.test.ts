@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { StorageLike } from "@/core/settings";
+import type { StorageLike } from "@/core/storage-areas";
 import { clearLassoData, STORAGE_KEYS } from "@/core/storage-keys";
 
 const LOCAL_KEYS = [
@@ -14,6 +14,9 @@ const SYNC_KEYS = [STORAGE_KEYS.settings, STORAGE_KEYS.filter];
 describe("STORAGE_KEYS", () => {
   it("namespaces every key under lasso:", () => {
     expect(Object.values(STORAGE_KEYS).every((k) => k.startsWith("lasso:"))).toBe(true);
+    // Pins the wire-format literals — settings.ts and filter-store.ts import
+    // these directly now (no more duplicated hardcoded key), so a change here
+    // is a real storage-format change, not just an internal rename.
     expect(STORAGE_KEYS.settings).toBe("lasso:settings");
     expect(STORAGE_KEYS.filter).toBe("lasso:filter");
     expect(STORAGE_KEYS.mirrorStatus).toBe("lasso:mirror-status");

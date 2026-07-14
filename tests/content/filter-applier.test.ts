@@ -1,12 +1,37 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createFilterApplier } from "@/content/filter-applier";
+import { FilterAttributes } from "@/content/filter-attributes";
+import { FacetSelectors, Selectors } from "@/content/selectors";
 import { createFilterStore } from "@/core/filter-store";
 import * as tweetRead from "@/core/tweet-read";
 
 // Real implementations, recorded calls — lets the fast-path test prove the
 // per-cell facet DOM reads are skipped without changing any behavior.
 vi.mock("@/core/tweet-read", { spy: true });
+
+/** Raw testid values pulled out of the single ADR-0004 selectors table, so no
+ * fixture here can silently fork from `src/content/selectors.ts`. */
+const testids = (selector: string): string[] =>
+  [...selector.matchAll(/data-testid="([^"]+)"/g)].map((m) => m[1]!);
+const testid = (selector: string): string => testids(selector)[0]!;
+
+const CELL_TESTID = testid(Selectors.CELL);
+const TWEET_TESTID = testid(Selectors.TWEET);
+const TWEET_TEXT_TESTID = testid(Selectors.TWEET_TEXT);
+const SOCIAL_CONTEXT_TESTID = testid(Selectors.SOCIAL_CONTEXT);
+const [VIDEO_PLAYER_TESTID, VIDEO_COMPONENT_TESTID] = testids(FacetSelectors.VIDEO) as [
+  string,
+  string,
+];
+const LIKED_TESTID = testid(FacetSelectors.LIKED); // "unlike" — the liked-state testid
+
+/** A bare cellInnerDiv, undecorated — callers fill in its content. */
+function makeCell(): HTMLDivElement {
+  const cell = document.createElement("div");
+  cell.setAttribute("data-testid", CELL_TESTID);
+  return cell;
+}
 
 /** A timeline cell wrapping one tweet article, attached under a fresh root. */
 function makeRoot(): Element {
@@ -24,21 +49,20 @@ function addCell(
     liked?: boolean;
   } = {},
 ): Element {
-  const cell = document.createElement("div");
-  cell.setAttribute("data-testid", "cellInnerDiv");
+  const cell = makeCell();
   cell.innerHTML =
-    `<article data-testid="tweet">` +
-    (opts.repost ? `<div data-testid="socialContext">reposted</div>` : "") +
-    `<div data-testid="tweetText" lang="${lang}">hi</div>` +
-    (opts.video ? `<div data-testid="videoPlayer"></div>` : "") +
-    (opts.videoComponent ? `<div data-testid="videoComponent"></div>` : "") +
-    (opts.liked ? `<button data-testid="unlike"></button>` : "") +
+    `<article data-testid="${TWEET_TESTID}">` +
+    (opts.repost ? `<div data-testid="${SOCIAL_CONTEXT_TESTID}">reposted</div>` : "") +
+    `<div data-testid="${TWEET_TEXT_TESTID}" lang="${lang}">hi</div>` +
+    (opts.video ? `<div data-testid="${VIDEO_PLAYER_TESTID}"></div>` : "") +
+    (opts.videoComponent ? `<div data-testid="${VIDEO_COMPONENT_TESTID}"></div>` : "") +
+    (opts.liked ? `<button data-testid="${LIKED_TESTID}"></button>` : "") +
     `</article>`;
   root.appendChild(cell);
   return cell;
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
-const articleOf = (cell: Element) => cell.querySelector('article[data-testid="tweet"]') as Element;
+const articleOf = (cell: Element) => cell.querySelector(Selectors.TWEET) as Element;
 
 describe("createFilterApplier", () => {
   it("collapses a non-matching cell to a reversible stub (not display:none)", () => {
@@ -53,7 +77,7 @@ describe("createFilterApplier", () => {
 
     expect(applier.isStubbed(cell)).toBe(true);
     expect((cell as HTMLElement).style.display).not.toBe("none");
-    const stub = cell.querySelector("[data-lasso-filter-stub]");
+    const stub = cell.querySelector(`[${FilterAttributes.STUB}]`);
     expect(stub?.textContent?.toLowerCase()).toContain("hidden");
     expect(stub?.textContent?.toLowerCase()).toContain("show");
     expect(applier.hiddenCount()).toBe(1);
@@ -117,7 +141,7 @@ describe("createFilterApplier", () => {
     applier.classify(articleOf(cell));
     expect(applier.isStubbed(cell)).toBe(true);
 
-    (cell.querySelector("[data-lasso-filter-stub]") as HTMLElement).click();
+    (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click();
     expect(applier.isStubbed(cell)).toBe(false);
 
     applier.reapplyAll(); // must respect the explicit show override
@@ -135,7 +159,7 @@ describe("createFilterApplier", () => {
     expect(applier.isStubbed(cell)).toBe(true);
 
     // The node now represents a Japanese tweet — verdict must be recomputed.
-    cell.querySelector('[data-testid="tweetText"]')?.setAttribute("lang", "ja");
+    cell.querySelector(Selectors.TWEET_TEXT)?.setAttribute("lang", "ja");
     applier.classify(articleOf(cell));
     expect(applier.isStubbed(cell)).toBe(false);
   });
@@ -154,7 +178,7 @@ describe("createFilterApplier", () => {
 
     // X hydrates the video player into the already-classified article.
     const player = document.createElement("div");
-    player.setAttribute("data-testid", "videoPlayer");
+    player.setAttribute("data-testid", VIDEO_PLAYER_TESTID);
     articleOf(cell).appendChild(player);
     await new Promise((r) => setTimeout(r, 0)); // let the hydration observer fire
 
@@ -173,7 +197,7 @@ describe("createFilterApplier", () => {
     expect(applier.isStubbed(cell)).toBe(false); // no video yet → shown
 
     const player = document.createElement("div");
-    player.setAttribute("data-testid", "videoComponent");
+    player.setAttribute("data-testid", VIDEO_COMPONENT_TESTID);
     articleOf(cell).appendChild(player);
     await new Promise((r) => setTimeout(r, 0));
 
@@ -193,7 +217,7 @@ describe("createFilterApplier", () => {
     expect(applier.isStubbed(cell)).toBe(false); // no video facet yet → shown
 
     const player = document.createElement("div");
-    player.setAttribute("data-testid", "videoPlayer");
+    player.setAttribute("data-testid", VIDEO_PLAYER_TESTID);
     articleOf(cell).appendChild(player); // X hydrates the reposted video's player
     await new Promise((r) => setTimeout(r, 0));
 
@@ -213,11 +237,11 @@ describe("createFilterApplier", () => {
     expect(applier.isStubbed(cell)).toBe(true);
 
     // The user un-hides THIS post via its stub.
-    (cell.querySelector("[data-lasso-filter-stub]") as HTMLElement).click();
+    (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click();
     expect(applier.isStubbed(cell)).toBe(false);
 
     // X recycles the cell for a DIFFERENT (still non-matching) tweet.
-    cell.querySelector('[data-testid="tweetText"]')!.textContent = "a different post";
+    cell.querySelector(Selectors.TWEET_TEXT)!.textContent = "a different post";
     applier.classify(articleOf(cell));
 
     // The override is keyed to the original post, so it must not leak — the
@@ -359,7 +383,7 @@ describe("createFilterApplier", () => {
     expect(applier.isStubbed(cell)).toBe(true); // a photo-only post under "video only" → hidden
 
     // Clicking the stub stamps SHOW with identity() → "" (no id, no text).
-    (cell.querySelector("[data-lasso-filter-stub]") as HTMLElement).click();
+    (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click();
     expect(cell.getAttribute("data-lasso-show")).toBe("");
     expect(applier.isStubbed(cell)).toBe(false);
   });
@@ -396,6 +420,14 @@ describe("createFilterApplier", () => {
     expect(() => applier.classify(orphan)).not.toThrow();
   });
 
+  it("isStubbed() on an element with no enclosing cell falls back to the element itself", () => {
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    const root = makeRoot();
+    const applier = createFilterApplier({ store, root, inScope: () => true });
+    const orphan = document.createElement("article"); // no cellInnerDiv ancestor
+    expect(applier.isStubbed(orphan)).toBe(false);
+  });
+
   it("reapplyAll() skips a cell that holds no tweet article", () => {
     const store = createFilterStore({ navLanguages: ["ja"] });
     store.setOnlyMyLanguages(true);
@@ -424,7 +456,7 @@ describe("createFilterApplier", () => {
     applier.classify(articleOf(cell));
     expect(applier.isStubbed(cell)).toBe(true);
 
-    (cell.querySelector("[data-lasso-filter-stub]") as HTMLElement).click(); // stamps SHOW=12345
+    (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click(); // stamps SHOW=12345
     expect(cell.getAttribute("data-lasso-show")).toBe("12345");
 
     applier.reapplyAll(); // same status id → override honoured, stays shown

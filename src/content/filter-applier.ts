@@ -1,13 +1,13 @@
 import { effect } from "@preact/signals-core";
 
+import { FilterAttributes } from "@/content/filter-attributes";
 import { FacetSelectors, Selectors } from "@/content/selectors";
 import { activeCriteriaCount } from "@/core/filter-projection";
 import type { FilterStore } from "@/core/filter-store";
 import { decide } from "@/core/timeline-filter";
 import * as tweetRead from "@/core/tweet-read";
 
-/** Cell is collapsed by the Filter. Prod CSS keys the visual collapse on this. */
-const FILTERED = "data-lasso-filtered";
+const { FILTERED, STUB, TRACELESS, COMPACT } = FilterAttributes;
 /**
  * User clicked "show" on the stub — an explicit per-cell un-hide that survives
  * reapply. Its VALUE is the tweet's identity at click time: X recycles cells, so
@@ -15,14 +15,6 @@ const FILTERED = "data-lasso-filtered";
  * this, a recycled cell silently leaks "show" onto a different, filtered tweet).
  */
 const SHOW = "data-lasso-show";
-/** Marks the injected stub element so we can find/remove it. */
-const STUB = "data-lasso-filter-stub";
-/**
- * Per-cell "traceless" mark: this post is hidden because the Owner already liked it,
- * so its stub is dropped (CSS) and it collapses to 0 height with no visible trace —
- * "already liked → erase it." Distinct from the global compact toggle.
- */
-const TRACELESS = "data-lasso-traceless";
 /** The acted-on action-bar button whose appearance/flip means "Owner just liked". */
 const ENGAGEMENT_SEL = FacetSelectors.LIKED;
 
@@ -34,8 +26,12 @@ export interface FilterApplier {
   /** Un-collapse every cell the Filter hid (disable / route exit). */
   restoreAll(): void;
   hiddenCount(): number;
-  /** A Hidden cell is inert for List-assign — overlay injection / select mode check this. */
-  isStubbed(cell: Element): boolean;
+  /**
+   * A Hidden cell is inert for List-assign — overlay injection / select mode check
+   * this. Accepts either the article or its enclosing cell; resolves the cell
+   * internally via `closest(Selectors.CELL)`.
+   */
+  isStubbed(el: Element): boolean;
   /** Tear down the store effect + lazy-media observer (route teardown / unmount). */
   dispose(): void;
 }
@@ -139,7 +135,7 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
   const disposeEffect = effect(() => {
     const state = store.state.value;
     void store.revealed.value;
-    compactFlagHost?.toggleAttribute("data-lasso-compact", state.compactHidden);
+    compactFlagHost?.toggleAttribute(COMPACT, state.compactHidden);
     reapplyAll();
   });
 
@@ -193,7 +189,7 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
     reapplyAll,
     restoreAll,
     hiddenCount: () => root.querySelectorAll(`[${FILTERED}]`).length,
-    isStubbed: (cell) => cell.hasAttribute(FILTERED),
+    isStubbed: (el) => (el.closest(Selectors.CELL) ?? el).hasAttribute(FILTERED),
     dispose() {
       disposeEffect();
       hydrationObserver.disconnect();

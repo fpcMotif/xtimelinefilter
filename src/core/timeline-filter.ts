@@ -1,5 +1,5 @@
+import { CRITERIA_BY_ID } from "@/core/filter-criteria";
 import type { CriterionId, Facets, Family, FilterState, FilterVerdict } from "@/core/filter-types";
-import { classifyHost } from "@/core/link-classifier";
 
 /** X language codes that mean "no real language" — these pass the language gate. */
 const UNDETECTABLE = new Set(["und", "zxx", "qme", "qst", "qht", "qct", "qam"]);
@@ -11,39 +11,9 @@ const isDetectable = (lang: string | null): lang is string =>
 
 const familyOf = (id: CriterionId): Family => id.split(":")[0] as Family;
 
-function matchesKind(value: string, f: Facets): boolean {
-  switch (value) {
-    case "text":
-      return f.hasText && !f.hasPhoto && !f.hasVideo && !f.hasQuote && !f.hasLink;
-    case "photo":
-      return f.hasPhoto;
-    case "video":
-      return f.hasVideo;
-    case "quote":
-      return f.hasQuote;
-    case "link":
-      return f.hasLink;
-    default:
-      return false;
-  }
-}
-
+// "language" is the single onlyMyLanguages gate in v1, handled in decide(), not as a criterion.
 function matchesCriterion(id: CriterionId, f: Facets, state: FilterState): boolean {
-  const [family, value] = id.split(":");
-  if (!value) return false;
-  switch (family) {
-    case "kind":
-      return matchesKind(value, f);
-    case "linkDest":
-      return f.hasLink && f.linkHosts.some((h) => classifyHost(h, state.linkRules) === value);
-    case "role":
-      return value === "repost" && f.role === "repost";
-    case "engagement":
-      return value === "liked" && f.liked;
-    // "language" is the single onlyMyLanguages gate in v1, handled in decide(), not as a criterion.
-    default:
-      return false;
-  }
+  return CRITERIA_BY_ID.get(id)?.matches(f, state) ?? false;
 }
 
 /**

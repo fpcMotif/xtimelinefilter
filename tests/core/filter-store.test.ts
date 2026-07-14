@@ -4,6 +4,8 @@ import { createFilterStore } from "@/core/filter-store";
 import type { StorageLike } from "@/core/settings";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 
+import { installOnChanged } from "../helpers/chrome-fake";
+
 describe("createFilterStore", () => {
   it("cycles a criterion off → only → hide → off", () => {
     const s = createFilterStore({ navLanguages: ["en-US"] });
@@ -86,25 +88,15 @@ describe("createFilterStore", () => {
   it("adopts an external compactHidden change live via the storage.onChanged bridge", () => {
     // The shared chrome mock has no onChanged (watchStorageKey is a no-op there);
     // install a minimal one so the cross-context bridge can be driven, then restore.
-    const chromeMock = (globalThis as unknown as { chrome: { storage: Record<string, unknown> } })
-      .chrome;
-    const prev = chromeMock.storage.onChanged;
-    type Listener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
-    const listeners: Listener[] = [];
-    chromeMock.storage.onChanged = {
-      addListener: (l: Listener) => listeners.push(l),
-      removeListener: () => {},
-    };
+    const bridge = installOnChanged();
     try {
       const s = createFilterStore({ navLanguages: ["en"] });
       expect(s.state.value.compactHidden).toBe(false);
       // Another context (the popup) writes compactHidden: true.
-      for (const l of listeners) {
-        l({ [STORAGE_KEYS.filter]: { newValue: { compactHidden: true } } }, "sync");
-      }
+      bridge.emit(STORAGE_KEYS.filter, { compactHidden: true });
       expect(s.state.value.compactHidden).toBe(true);
     } finally {
-      chromeMock.storage.onChanged = prev;
+      bridge.restore();
     }
   });
 
@@ -172,24 +164,16 @@ describe("createFilterStore", () => {
   });
 
   it("the storage bridge ignores the echo of our own write (identical value)", () => {
-    const chromeMock = (globalThis as unknown as { chrome: { storage: Record<string, unknown> } })
-      .chrome;
-    const prev = chromeMock.storage.onChanged;
-    type Listener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
-    const listeners: Listener[] = [];
-    chromeMock.storage.onChanged = {
-      addListener: (l: Listener) => listeners.push(l),
-      removeListener: () => {},
-    };
+    const bridge = installOnChanged();
     try {
       const s = createFilterStore({ navLanguages: ["en"] });
       s.setEnabled(false); // a local write updates lastSerialized
       const snapshot = s.state.value;
       // The same write echoes back from chrome.storage.onChanged → must be ignored.
-      for (const l of listeners) l({ [STORAGE_KEYS.filter]: { newValue: snapshot } }, "sync");
+      bridge.emit(STORAGE_KEYS.filter, snapshot);
       expect(s.state.value).toBe(snapshot); // identity unchanged: early return hit
     } finally {
-      chromeMock.storage.onChanged = prev;
+      bridge.restore();
     }
   });
 
@@ -227,24 +211,16 @@ describe("createFilterStore", () => {
   });
 
   it("the storage bridge resets to defaults when the external value is cleared", () => {
-    const chromeMock = (globalThis as unknown as { chrome: { storage: Record<string, unknown> } })
-      .chrome;
-    const prev = chromeMock.storage.onChanged;
-    type Listener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
-    const listeners: Listener[] = [];
-    chromeMock.storage.onChanged = {
-      addListener: (l: Listener) => listeners.push(l),
-      removeListener: () => {},
-    };
+    const bridge = installOnChanged();
     try {
       const s = createFilterStore({ navLanguages: ["en"] });
       s.cycle("kind:video");
       expect(s.state.value.criteria["kind:video"]).toBe("only");
       // Another context clears the key (newValue undefined) → reset to defaults.
-      for (const l of listeners) l({ [STORAGE_KEYS.filter]: { newValue: undefined } }, "sync");
+      bridge.emit(STORAGE_KEYS.filter, undefined);
       expect(s.state.value.criteria).toEqual({});
     } finally {
-      chromeMock.storage.onChanged = prev;
+      bridge.restore();
     }
   });
 

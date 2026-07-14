@@ -7,10 +7,13 @@ import { createLassoController, type LassoController } from "@/content/controlle
 import { installFilterFeature } from "@/content/filter-feature";
 import { getCurrentAccount } from "@/content/get-current-account";
 import { getFocusedTweet } from "@/content/get-focused-tweet";
+import { installHoverTracker } from "@/content/hover-tracker";
 import { DEFAULT_KEYMAP, installKeyboardLayer } from "@/content/keyboard";
 import { outermostTweet } from "@/content/outermost-tweet";
+import { createOverlayLifecycle } from "@/content/overlay-lifecycle";
 import { isInScope, onRouteChange } from "@/content/route";
 import { createScannerHealth } from "@/content/scanner-health";
+import { installSelectTap } from "@/content/select-tap";
 import { DriverSelectors, Selectors } from "@/content/selectors";
 import { createTweetScanner } from "@/content/tweet-scanner";
 import { createCoach } from "@/core/coach";
@@ -20,15 +23,15 @@ import { createListCache } from "@/core/list-cache";
 import { createListUsage } from "@/core/list-usage";
 import { buildConvexMembershipStore } from "@/core/membership-store/convex-client";
 import { createMembershipStore } from "@/core/membership-store/factory";
-import type { MirrorStatus } from "@/core/mirror-status";
+import { createMirrorStatusStore } from "@/core/mirror-status";
 import { createPickerController } from "@/core/picker-controller";
+import { isLassoMessage, sendToBackground, type LassoStatusResponse } from "@/core/protocol";
 import {
   createSelectionStore,
   type SelectionStore,
   type TweetAuthor,
 } from "@/core/selection-store";
 import { createSettings, type LassoSettings } from "@/core/settings";
-import { STORAGE_KEYS } from "@/core/storage-keys";
 import { createToastStore } from "@/core/toast-store";
 import * as tweetRead from "@/core/tweet-read";
 import { createUndoRegistry } from "@/core/undo";
@@ -45,24 +48,6 @@ import { attachShadowRoot, createUiRoot } from "@/ui/mount";
 
 const OVERLAY_FLAG = "data-lasso-overlay";
 const WELCOME_HASH = "#lasso-welcome";
-
-/** Best-effort runtime messaging — never lets a dead SW break the page UI. */
-function sendToBackground(msg: Record<string, unknown>): void {
-  try {
-    void chrome.runtime?.sendMessage?.(msg)?.catch?.(() => {});
-  } catch {
-    // extension context gone (reload) — ignore
-  }
-}
-
-/** Best-effort Mirror-status publish (popup's Mirror row) — never load-bearing (ADR-0009). */
-function publishMirrorStatus(result: MirrorStatus): void {
-  try {
-    void chrome.storage?.local?.set?.({ [STORAGE_KEYS.mirrorStatus]: result })?.catch?.(() => {});
-  } catch {
-    // extension context gone (reload) — ignore
-  }
-}
 
 interface OverlayDeps {
   selection: SelectionStore;
@@ -135,6 +120,7 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
   const pageFetch = window.fetch.bind(window);
   const caret = createCaretActions();
   const platform = detectPlatform();
+  const mirrorStatusStore = createMirrorStatusStore();
 
   const backend = createXListApi(settings.backend, {
     rest: () => new RestXListApi(pageFetch, () => auth.credentials()),
@@ -156,20 +142,16 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
 
   // Quick actions target the tweet under the mouse (fallback: X's native j/k focus),
   // so Alt+m / Alt+n work without pressing j first. visualHover tracks the pointer
-  // precisely (overlay fade-in); hoveredSticky stays put for command targeting.
+  // precisely (overlay fade-in); the tracker's sticky target stays put for command
+  // targeting.
   const visualHover = signal<Element | null>(null);
-  let hoveredSticky: Element | null = null;
-  document.addEventListener(
-    "mousemove",
-    (e) => {
-      const t = outermostTweet((e.target as Element | null)?.closest?.(Selectors.TWEET) ?? null);
-      visualHover.value = t;
-      if (t) hoveredSticky = t;
+  const hover = installHoverTracker({
+    resolve: (el) => outermostTweet(el?.closest?.(Selectors.TWEET) ?? null),
+    onHover: (article) => {
+      visualHover.value = article;
     },
-    { capture: true, passive: true },
-  );
-  const targetTweet = (): Element | null =>
-    hoveredSticky && document.contains(hoveredSticky) ? hoveredSticky : getFocusedTweet(document);
+    fallback: () => getFocusedTweet(document),
+  });
 
   // Off-to-the-side Mirror (ADR-0009): built only when a device key is configured,
   // otherwise NullMembershipStore ⇒ the X flow is byte-for-byte unchanged.
@@ -198,7 +180,7 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     currentOwner: () => getCurrentAccount(),
     // Status only makes sense for a real Mirror — the Null store "succeeding"
     // must not paint a green "synced" row for users who never configured one.
-    ...(mirrorConfigured ? { onMirrorResult: publishMirrorStatus } : {}),
+    ...(mirrorConfigured ? { onMirrorResult: mirrorStatusStore.publish } : {}),
     usage: listUsage,
     quick: {
       mute: (screenName) => muteUser(creds(), screenName),
@@ -208,10 +190,10 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     },
     target: {
       author: () => {
-        const tweet = targetTweet();
+        const tweet = hover.targetTweet();
         return tweet ? tweetRead.author(tweet) : null;
       },
-      tweet: targetTweet,
+      tweet: hover.targetTweet,
     },
     openUrl: (url) => void window.open(url, "_blank", "noopener"),
     anchorFor: (tweetEl) => {
@@ -248,23 +230,20 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
 
   // Select mode: clicking anywhere on a post's body toggles it — sweeping a
   // thread is one click per post, no aiming at 22px circles (story beat 7).
-  document.addEventListener(
-    "click",
-    (e) => {
-      if (!selection.selectMode.value) return;
-      const origin = (e.composedPath?.()[0] ?? e.target) as Element | null;
-      if (origin?.closest?.(`[${OVERLAY_FLAG}]`)) return; // the check handles itself
-      if (origin?.closest?.("#lasso-root")) return; // clicks on Lasso UI pass through
-      const article = origin?.closest?.(Selectors.TWEET);
-      if (!article) return;
+  installSelectTap({
+    isActive: () => selection.selectMode.value,
+    resolveTarget: (eventTarget) => {
+      const origin = eventTarget as Element | null;
+      if (origin?.closest?.(`[${OVERLAY_FLAG}]`)) return null; // the check handles itself
+      if (origin?.closest?.("#lasso-root")) return null; // clicks on Lasso UI pass through
+      return origin?.closest?.(Selectors.TWEET) ?? null;
+    },
+    onToggle: (article) => {
       const author = tweetRead.author(article);
-      if (!author) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
+      if (!author) return false;
       controller.toggleSelect(author);
     },
-    { capture: true },
-  );
+  });
 
   // The toolbar badge mirrors the live selection count (story beat 7).
   selection.count.subscribe((count) => sendToBackground({ type: "lasso:badge", count }));
@@ -282,32 +261,31 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
 
   // Selector breakage detection (story beat 8).
   const health = createScannerHealth({ onBreakage: () => controller.reportBreakage() });
-  // Live overlays only: each pruned cell's disposer runs on removal, so the map —
+  // Live overlays only: each pruned cell's disposer runs on removal, so the registry —
   // and the signal subscriber lists behind it — stay bounded by the visible timeline.
-  const overlayDisposers = new Map<Element, () => void>();
+  const overlays = createOverlayLifecycle();
   createTweetScanner(
     document,
     (author, article) => {
       // Classify first; a Hidden cell is inert for List-assign (no overlay).
       filter.classify(article);
-      const cell = article.closest(Selectors.CELL);
-      if (cell && filter.isStubbed(cell)) return;
-      const dispose = injectOverlay(article, author, {
-        selection,
-        controller,
-        coach,
-        visualHover,
-        highContrast: settings.highContrast,
-      });
-      if (dispose) overlayDisposers.set(article, dispose);
+      if (filter.isStubbed(article)) return;
+      overlays.attach(article, () =>
+        injectOverlay(article, author, {
+          selection,
+          controller,
+          coach,
+          visualHover,
+          highContrast: settings.highContrast,
+        }),
+      );
     },
     {
       onScan: (mutations, matches) => health.record(mutations, matches),
       onTweetRemoved: (article) => {
-        overlayDisposers.get(article)?.();
-        overlayDisposers.delete(article);
+        overlays.releaseFor(article);
         // Drop hover refs so the pruned subtree is GC-able immediately.
-        if (hoveredSticky === article) hoveredSticky = null;
+        hover.release(article);
         if (visualHover.peek() === article) visualHover.value = null;
       },
     },
@@ -334,12 +312,13 @@ async function main(): Promise<void> {
   // The popup asks tabs for their state; on-demand tabs answer "asleep" (beat 9).
   try {
     chrome.runtime?.onMessage?.addListener?.(
-      (msg: { type?: string }, _sender, sendResponse: (r: unknown) => void) => {
-        if (msg?.type === "lasso:status") {
+      (msg: unknown, _sender, sendResponse: (r: LassoStatusResponse) => void) => {
+        if (!isLassoMessage(msg)) return;
+        if (msg.type === "lasso:status") {
           sendResponse({ awake: started });
           return;
         }
-        if (msg?.type === "lasso-activate") void start(settings, true);
+        if (msg.type === "lasso-activate") void start(settings, true);
       },
     );
   } catch {

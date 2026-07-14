@@ -7,7 +7,7 @@ import type {
   FilterState,
   LinkRule,
 } from "@/core/filter-types";
-import type { StorageLike } from "@/core/settings";
+import { syncArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import { syncedStore } from "@/core/synced-store";
 
@@ -87,7 +87,7 @@ function defaultState(navLanguages: readonly string[]): FilterState {
  * defaults and never throws into the page (spec §8).
  */
 export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
-  const area = deps.storage ?? (chrome.storage.sync as unknown as StorageLike);
+  const area = deps.storage ?? syncArea();
   const navLanguages =
     deps.navLanguages ?? (typeof navigator !== "undefined" ? navigator.languages : []);
   const store = syncedStore<FilterState>(KEY, defaultState(navLanguages), area);

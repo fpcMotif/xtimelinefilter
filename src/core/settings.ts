@@ -1,11 +1,8 @@
+import { syncArea, type StorageLike } from "@/core/storage-areas";
+import { STORAGE_KEYS } from "@/core/storage-keys";
 import { syncedStore } from "@/core/synced-store";
 
-/** Minimal storage surface we depend on — matches chrome.storage areas and our test mock. */
-export interface StorageLike {
-  get(keys?: string | string[] | null): Promise<Record<string, unknown>>;
-  set(items: Record<string, unknown>): Promise<void>;
-  remove?(keys: string | string[]): Promise<void>;
-}
+export type { StorageLike } from "@/core/storage-areas";
 
 export type BackendStrategy = "rest" | "dom" | "graphql";
 
@@ -54,10 +51,6 @@ export const DEFAULT_SETTINGS: LassoSettings = {
   paletteHotkey: "mod+shift+f",
 };
 
-// NOTE: must equal STORAGE_KEYS.settings (storage-keys.ts imports our types,
-// so the literal lives here to avoid an import cycle; pinned by tests).
-const KEY = "lasso:settings";
-
 export interface SettingsStore {
   get(): Promise<LassoSettings>;
   set(patch: Partial<LassoSettings>): Promise<LassoSettings>;
@@ -72,10 +65,8 @@ export interface SettingsStore {
  * because lasso:settings holds the Mirror credential (ADR-0009), not the fail-soft
  * filter config.
  */
-export function createSettings(
-  area: StorageLike = chrome.storage.sync as unknown as StorageLike,
-): SettingsStore {
-  const store = syncedStore<LassoSettings>(KEY, DEFAULT_SETTINGS, area);
+export function createSettings(area: StorageLike = syncArea()): SettingsStore {
+  const store = syncedStore<LassoSettings>(STORAGE_KEYS.settings, DEFAULT_SETTINGS, area);
   const subs = new Set<(s: LassoSettings) => void>();
   function notify(next: LassoSettings): void {
     for (const cb of subs) cb(next);

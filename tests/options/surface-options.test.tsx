@@ -2,24 +2,10 @@ import { fireEvent, render, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFilterStore } from "@/core/filter-store";
-import { createSettings, type StorageLike } from "@/core/settings";
+import { createSettings } from "@/core/settings";
 import { PresetManager, SurfaceOptions } from "@/options/SurfaceOptions";
 
-function memoryArea(): StorageLike & { data: Record<string, unknown> } {
-  const data: Record<string, unknown> = {};
-  return {
-    data,
-    async get() {
-      return { ...data };
-    },
-    async set(items) {
-      Object.assign(data, items);
-    },
-    async remove(keys) {
-      for (const k of Array.isArray(keys) ? keys : [keys]) delete data[k];
-    },
-  };
-}
+import { createMemoryArea as memoryArea } from "../helpers/chrome-fake";
 
 describe("SurfaceOptions", () => {
   it("toggling Command palette persists surfaces.palette = true", async () => {

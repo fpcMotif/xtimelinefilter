@@ -3,40 +3,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSettings, DEFAULT_SETTINGS } from "@/core/settings";
 import type { StorageLike } from "@/core/settings";
 
+import { createMemoryArea, installOnChanged as installOnChangedFake } from "../helpers/chrome-fake";
+
 const KEY = "lasso:settings";
 
-/** In-memory StorageLike, optionally seeded; mirrors the chrome.storage areas. */
 function fakeStorage(seed: Record<string, unknown> = {}): StorageLike {
-  const data: Record<string, unknown> = { ...seed };
-  return {
-    async get(keys?: string | string[] | null) {
-      if (keys == null) return { ...data };
-      const list = Array.isArray(keys) ? keys : [keys];
-      return Object.fromEntries(list.filter((k) => k in data).map((k) => [k, data[k]]));
-    },
-    async set(items: Record<string, unknown>) {
-      Object.assign(data, items);
-    },
-  };
+  return createMemoryArea(seed);
 }
 
-type Listener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
-
 function installOnChanged() {
-  const chromeMock = globalThis as unknown as { chrome: { storage: Record<string, unknown> } };
-  const prev = chromeMock.chrome.storage.onChanged;
-  const listeners: Listener[] = [];
-  chromeMock.chrome.storage.onChanged = {
-    addListener: (l: Listener) => listeners.push(l),
-    removeListener: () => {},
-  };
-  const emit = (raw: unknown) => {
-    for (const l of listeners) l({ [KEY]: { newValue: raw } }, "sync");
-  };
-  const restore = () => {
-    chromeMock.chrome.storage.onChanged = prev;
-  };
-  return { emit, restore };
+  const bridge = installOnChangedFake();
+  return { emit: (raw: unknown) => bridge.emit(KEY, raw), restore: bridge.restore };
 }
 
 describe("DEFAULT_SETTINGS Mirror config from build env", () => {

@@ -1,3 +1,6 @@
+import { localArea, type StorageLike } from "@/core/storage-areas";
+import { STORAGE_KEYS } from "@/core/storage-keys";
+
 /**
  * The Mirror's observable heartbeat (ADR-0009 stays intact: never load-bearing).
  * The content script publishes the last recordAssign outcome to
@@ -25,4 +28,32 @@ export function mirrorAgeLabel(at: number, now: number): string {
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   return `${Math.floor(mins / 60)}h ago`;
+}
+
+export interface MirrorStatusStore {
+  /** Publishes the last write outcome; fail-soft — never throws (ADR-0009: never load-bearing). */
+  publish(status: MirrorStatus): Promise<void>;
+  /** The last published status, or null when unset/unavailable/malformed. */
+  read(): Promise<MirrorStatus | null>;
+}
+
+export function createMirrorStatusStore(area: StorageLike = localArea()): MirrorStatusStore {
+  const key = STORAGE_KEYS.mirrorStatus;
+  return {
+    async publish(status) {
+      try {
+        await area.set({ [key]: status });
+      } catch {
+        // extension context gone / storage unavailable — never load-bearing (ADR-0009)
+      }
+    },
+    async read() {
+      try {
+        const raw = await area.get(key);
+        return parseMirrorStatus(raw[key]);
+      } catch {
+        return null; // storage unavailable — no Mirror row
+      }
+    },
+  };
 }

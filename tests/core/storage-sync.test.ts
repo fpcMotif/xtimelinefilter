@@ -2,21 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { watchStorageKey } from "@/core/storage-sync";
 
-type Listener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
+import { stubOnChanged as installOnChanged } from "../helpers/chrome-fake";
 
-function installOnChanged(impl: {
-  addListener?: (l: Listener) => void;
-  removeListener?: (l: Listener) => void;
-}) {
-  const chromeMock = globalThis as unknown as {
-    chrome: { storage: Record<string, unknown> };
-  };
-  const prev = chromeMock.chrome.storage.onChanged;
-  chromeMock.chrome.storage.onChanged = impl;
-  return () => {
-    chromeMock.chrome.storage.onChanged = prev;
-  };
-}
+type Listener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
 
 describe("watchStorageKey", () => {
   let restore: (() => void) | undefined;

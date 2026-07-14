@@ -1,4 +1,4 @@
-import type { StorageLike } from "@/core/settings";
+import type { StorageLike } from "@/core/storage-areas";
 
 /**
  * Every key Lasso writes, named in one place so the Settings "Privacy & data"

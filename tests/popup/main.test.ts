@@ -3,13 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TabState } from "@/popup/PopupApp";
 
 // Mock preact's render so we can capture the three callbacks the entry hands to
-// PopupApp (queryState / wake / openOptions) and drive each branch directly —
-// the entry's whole job is wiring those to chrome.tabs / chrome.runtime.
+// PopupApp (queryState / wake / openOptions / mirrorStatus) and drive each branch
+// directly — the entry's whole job is wiring those to chrome.tabs / chrome.runtime
+// and the mirror-status store.
 const { render } = vi.hoisted(() => ({ render: vi.fn() }));
 vi.mock("preact", async () => {
   const actual = await vi.importActual<typeof import("preact")>("preact");
   return { ...actual, render };
 });
+
+const { mirrorStore } = vi.hoisted(() => ({
+  mirrorStore: { publish: vi.fn(), read: vi.fn() },
+}));
+vi.mock("@/core/mirror-status", () => ({
+  createMirrorStatusStore: () => mirrorStore,
+}));
 
 type PopupProps = {
   queryState(): Promise<TabState>;
@@ -21,7 +29,6 @@ type PopupProps = {
 let query: ReturnType<typeof vi.fn>;
 let sendMessage: ReturnType<typeof vi.fn>;
 let openOptionsPage: ReturnType<typeof vi.fn>;
-let storageLocalGet: ReturnType<typeof vi.fn>;
 let previousChrome: unknown;
 
 async function loadProps(): Promise<PopupProps> {
@@ -38,12 +45,12 @@ beforeEach(() => {
   query = vi.fn(async () => [{ id: 1 }]);
   sendMessage = vi.fn(async () => ({ awake: true }));
   openOptionsPage = vi.fn();
-  storageLocalGet = vi.fn(async () => ({}));
+  mirrorStore.publish.mockClear();
+  mirrorStore.read.mockClear();
   globalThis.chrome = {
     ...(previousChrome as typeof chrome),
     tabs: { query, sendMessage },
     runtime: { openOptionsPage },
-    storage: { local: { get: storageLocalGet } },
   } as unknown as typeof chrome;
 });
 
@@ -111,21 +118,10 @@ describe("popup entry", () => {
     expect(openOptionsPage).toHaveBeenCalledTimes(1);
   });
 
-  it("mirrorStatus reads and parses the storage.local record", async () => {
+  it("mirrorStatus is the mirror-status store's read, wired straight through", async () => {
     const { mirrorStatus } = await loadProps();
-    storageLocalGet.mockResolvedValueOnce({ "lasso:mirror-status": { ok: true, at: 7 } });
+    mirrorStore.read.mockResolvedValueOnce({ ok: true, at: 7 });
     expect(await mirrorStatus()).toEqual({ ok: true, at: 7 });
-    expect(storageLocalGet).toHaveBeenCalledWith("lasso:mirror-status");
-  });
-
-  it("mirrorStatus is null when nothing was ever mirrored", async () => {
-    const { mirrorStatus } = await loadProps();
-    expect(await mirrorStatus()).toBeNull(); // empty storage → parse rejects undefined
-  });
-
-  it("mirrorStatus swallows a storage failure as null", async () => {
-    const { mirrorStatus } = await loadProps();
-    storageLocalGet.mockRejectedValueOnce(new Error("storage dead"));
-    expect(await mirrorStatus()).toBeNull();
+    expect(mirrorStore.read).toHaveBeenCalledTimes(1);
   });
 });
