@@ -484,6 +484,28 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     ]);
   });
 
+  it("a rate-limited mid-undo reports the real partial count and keeps un-attempted authors out of the Mirror", async () => {
+    const { store, calls } = recordingStore();
+    const h = harness({ membershipStore: store, currentOwner: () => owner });
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    h.selection.add({ screenName: "c" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    h.backend.removeMember = async (_l, author) => {
+      h.backend.removed.push(author.screenName);
+      if (author.screenName === "b") throw new XApiError("rate-limited", "429");
+    };
+    h.controller.command("undo");
+    await flush();
+    expect(h.backend.removed).toEqual(["a", "b"]); // STOP on rate-limited — c never attempted
+    expect(titles(h)).toContain("Removed 1 from Design Folks"); // only a came back off
+    const removal = calls.find((c) => c.changes[0]?.action === "remove");
+    expect(removal?.changes).toEqual([
+      { screenName: "a", action: "remove", outcome: "removed" },
+      { screenName: "b", action: "remove", outcome: "rate-limited" }, // c absent: still a member
+    ]);
+  });
+
   it("reports a settled Mirror write via onMirrorResult (popup's instant status row)", async () => {
     const { store } = recordingStore();
     const onMirrorResult = vi.fn();

@@ -61,6 +61,52 @@ export async function assignAuthorsToList(
   return results;
 }
 
+export interface RemoveResult {
+  author: TweetAuthor;
+  outcome: "removed" | AssignOutcome;
+  message?: string;
+  /** Carried from a rate-limited failure so a partial undo can say "try again in N min". */
+  resetAt?: number;
+}
+
+/**
+ * Undo's counterpart to {@link assignAuthorsToList}: remove each author from the
+ * list under the *same* ADR-0005 invariants. Removes mutate the same rate-limited
+ * API family, so the policy lives here — human-paced between removes (not before
+ * the first) and STOP on rate-limited, never retry-spamming through a 429. No
+ * progress/Stop UI exists on the undo path, so those opts go unread.
+ */
+export async function removeAuthorsFromList(
+  authors: TweetAuthor[],
+  list: XList,
+  api: XListApi,
+  opts: AssignOptions = {},
+): Promise<RemoveResult[]> {
+  const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const delayMs = opts.delayMs ?? 700;
+  const results: RemoveResult[] = [];
+
+  for (let i = 0; i < authors.length; i++) {
+    const author = authors[i] as TweetAuthor;
+    if (i > 0) await sleep(pace(delayMs, opts)); // pace between removes, not before the first
+
+    try {
+      await api.removeMember(list, author);
+      results.push({ author, outcome: "removed" });
+    } catch (e) {
+      const outcome = outcomeFromError(e);
+      results.push({
+        author,
+        outcome,
+        message: e instanceof Error ? e.message : String(e),
+        ...(e instanceof XApiError && e.resetAt !== undefined ? { resetAt: e.resetAt } : {}),
+      });
+      if (outcome === "rate-limited") break; // honor backoff, stop the run
+    }
+  }
+  return results;
+}
+
 function outcomeFromError(e: unknown): AssignOutcome {
   if (e instanceof XApiError) {
     switch (e.kind) {

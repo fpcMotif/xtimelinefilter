@@ -1,6 +1,10 @@
 import type { AppState } from "@/content/app-state";
 import type { CommandId } from "@/content/keyboard";
-import { type AssignOptions, assignAuthorsToList } from "@/core/actions/assign-to-list";
+import {
+  type AssignOptions,
+  assignAuthorsToList,
+  removeAuthorsFromList,
+} from "@/core/actions/assign-to-list";
 import { feedbackFor } from "@/core/assign-feedback";
 import type { Coach } from "@/core/coach";
 import type { FilterStore } from "@/core/filter-store";
@@ -171,24 +175,17 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   }
 
   async function undoAdds(authors: TweetAuthor[], list: XList): Promise<void> {
-    let n = 0;
-    const changes: MembershipChange[] = [];
-    for (const author of authors) {
-      const base: MembershipChange = {
-        screenName: author.screenName,
-        ...(author.userId !== undefined ? { userId: author.userId } : {}),
-        action: "remove",
-        outcome: "removed",
-      };
-      try {
-        await backend.removeMember(list, author);
-        n++;
-        changes.push(base);
-      } catch {
-        // partial undo still gets reported with the real count
-        changes.push({ ...base, outcome: "failed" });
-      }
-    }
+    // Removes run under the same ADR-0005 policy as adds (human-paced, STOP on
+    // rate-limited); authors past a rate-limited break are never attempted, so
+    // they stay members and must not reach the Mirror as if they'd been removed.
+    const results = await removeAuthorsFromList(authors, list, backend, { ...deps.assignOpts });
+    const changes: MembershipChange[] = results.map((r) => ({
+      screenName: r.author.screenName,
+      ...(r.author.userId !== undefined ? { userId: r.author.userId } : {}),
+      action: "remove" as const,
+      outcome: r.outcome,
+    }));
+    const n = results.filter((r) => r.outcome === "removed").length;
     recordToMirror(list, changes);
     toasts.show({ kind: "info", title: removedLine(n, list.name) });
   }

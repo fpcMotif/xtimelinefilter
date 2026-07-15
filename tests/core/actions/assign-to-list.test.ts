@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { assignAuthorsToList } from "@/core/actions/assign-to-list";
+import { assignAuthorsToList, removeAuthorsFromList } from "@/core/actions/assign-to-list";
 import type { TweetAuthor } from "@/core/selection-store";
 import { XApiError, type XList, type XListApi } from "@/core/x-client/types";
 
 class FakeApi implements XListApi {
   added: string[] = [];
+  removed: string[] = [];
   addImpl: (author: TweetAuthor) => Promise<void> = async () => {};
+  removeImpl: (author: TweetAuthor) => Promise<void> = async () => {};
   async getLists(): Promise<XList[]> {
     return [];
   }
@@ -17,7 +19,10 @@ class FakeApi implements XListApi {
     this.added.push(author.screenName);
     return this.addImpl(author);
   }
-  async removeMember(): Promise<void> {}
+  async removeMember(_list: XList, author: TweetAuthor): Promise<void> {
+    this.removed.push(author.screenName);
+    return this.removeImpl(author);
+  }
 }
 
 const LIST: XList = { id: "L", name: "Research" };
@@ -179,5 +184,86 @@ describe("story beat 7 — progress + Stop", () => {
     };
     const res = await assignAuthorsToList([a("x")], LIST, api, noSleep);
     expect(res[0]).toMatchObject({ outcome: "rate-limited", resetAt: 1750000000 });
+  });
+});
+
+describe("removeAuthorsFromList — undo under the same ADR-0005 policy", () => {
+  it("removes every author in order, outcome 'removed'", async () => {
+    const api = new FakeApi();
+    const res = await removeAuthorsFromList([a("x"), a("y")], LIST, api, noSleep);
+    expect(res.map((r) => r.outcome)).toEqual(["removed", "removed"]);
+    expect(api.removed).toEqual(["x", "y"]);
+  });
+
+  it("paces removes with an injected sleep between items (not before the first)", async () => {
+    const api = new FakeApi();
+    const sleeps: number[] = [];
+    await removeAuthorsFromList([a("x"), a("y"), a("z")], LIST, api, {
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      delayMs: 1000,
+      jitter: 0,
+      random: () => 0.5,
+    });
+    expect(sleeps).toEqual([1000, 1000]);
+  });
+
+  it("STOPS the run on rate-limited — later authors un-attempted, carries the reset time", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async (au) => {
+      if (au.screenName === "y")
+        throw new XApiError("rate-limited", "429", { resetAt: 1750000000 });
+    };
+    const res = await removeAuthorsFromList([a("x"), a("y"), a("z")], LIST, api, noSleep);
+    expect(res.map((r) => r.outcome)).toEqual(["removed", "rate-limited"]);
+    expect(api.removed).toEqual(["x", "y"]); // z never attempted
+    expect(res[1]).toMatchObject({ outcome: "rate-limited", resetAt: 1750000000 });
+  });
+
+  it("maps a non-rate-limit error to failed and keeps going", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async (au) => {
+      if (au.screenName === "y") throw new Error("remove boom");
+    };
+    const res = await removeAuthorsFromList([a("x"), a("y"), a("z")], LIST, api, noSleep);
+    expect(res.map((r) => r.outcome)).toEqual(["removed", "failed", "removed"]);
+    expect(res[1]).toMatchObject({ outcome: "failed", message: "remove boom" });
+  });
+
+  it("maps a non-rate-limit XApiError (protected) without a reset time and continues", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async (au) => {
+      if (au.screenName === "y") throw new XApiError("protected", "private");
+    };
+    const res = await removeAuthorsFromList([a("x"), a("y"), a("z")], LIST, api, noSleep);
+    expect(res.map((r) => r.outcome)).toEqual(["removed", "protected", "removed"]);
+    expect(res[1]).not.toHaveProperty("resetAt");
+  });
+
+  it("stringifies non-Error throws in the result message", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async (au) => {
+      if (au.screenName === "y") throw "remove string boom";
+    };
+    const res = await removeAuthorsFromList([a("x"), a("y")], LIST, api, noSleep);
+    expect(res[1]).toMatchObject({ outcome: "failed", message: "remove string boom" });
+  });
+
+  it("uses the default sleep and default delay between removes", async () => {
+    const api = new FakeApi();
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const timeout = vi.spyOn(globalThis, "setTimeout").mockImplementation((cb) => {
+      if (typeof cb === "function") cb();
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    });
+
+    await removeAuthorsFromList([a("x"), a("y")], LIST, api, { delayMs: 0 });
+
+    expect(api.removed).toEqual(["x", "y"]);
+    expect(random).toHaveBeenCalled();
+    expect(timeout).toHaveBeenCalled();
+    random.mockRestore();
+    timeout.mockRestore();
   });
 });
