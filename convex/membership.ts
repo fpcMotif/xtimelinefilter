@@ -61,8 +61,13 @@ async function upsertList(
   const fields = {
     name: list.name,
     ownerUserId,
-    isPrivate: list.isPrivate,
-    memberCount: list.memberCount,
+    // Spread these only when supplied: db.patch treats an explicit `undefined`
+    // as a field delete, so an unconditional `isPrivate: list.isPrivate` on a
+    // caller that omits it (e.g. recordAssign) would strip metadata a prior
+    // reconcileCatalog stored. Same conditional-spread idiom as lastReconciledAt
+    // below and memberUserId in setSnapshot.
+    ...(list.isPrivate !== undefined ? { isPrivate: list.isPrivate } : {}),
+    ...(list.memberCount !== undefined ? { memberCount: list.memberCount } : {}),
     ...(reconciled ? { lastReconciledAt: now } : {}),
   };
   if (existing === null) {

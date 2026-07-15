@@ -165,6 +165,35 @@ describe("recordAssign", () => {
     expect(row).toMatchObject({ present: true, memberUserId: "777" });
   });
 
+  test("preserves reconciled isPrivate/memberCount when a later result omits them", async () => {
+    const t = convexTest(schema, modules);
+
+    // reconcileCatalog stores the metadata X reports for the List…
+    await t.mutation(api.membership.reconcileCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      lists: [{ listId: "L1", name: "Builders", isPrivate: true, memberCount: 42 }],
+    });
+
+    // …then a recordAssign carrying only { listId, name } must NOT strip it.
+    // (db.patch deletes fields set to undefined, so the pre-fix unconditional
+    // `isPrivate: list.isPrivate` erased the reconciled values.)
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list: { listId: "L1", name: "Builders" },
+      results: [{ memberScreenName: "alice", action: "add", outcome: "added" }],
+    });
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("lists")
+        .withIndex("by_listId", (q) => q.eq("listId", "L1"))
+        .unique(),
+    );
+    expect(row).toMatchObject({ isPrivate: true, memberCount: 42, lastReconciledAt: T0 });
+  });
+
   test('does NOT touch snapshot on "failed" / "rate-limited" / "protected" but still appends events', async () => {
     const t = convexTest(schema, modules);
 
