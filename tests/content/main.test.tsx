@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type AnyFn = (...args: unknown[]) => unknown;
 type Caps = {
   controllerDeps?: Record<string, AnyFn | Record<string, AnyFn> | unknown>;
-  xlistThunks?: { rest: AnyFn; dom: AnyFn; graphql: AnyFn };
+  factoryDeps?: { fetch: typeof fetch; auth: unknown };
   listCacheLoader?: AnyFn;
   pickerDeps?: { recentIds: AnyFn; memberships: AnyFn };
   scannerCb?: (author: unknown, article: Element) => void;
@@ -107,16 +107,7 @@ const H = vi.hoisted(() => {
       muteUser: vi.fn(async () => {}),
       unmuteUser: vi.fn(async () => {}),
       blockUser: vi.fn(async () => {}),
-      createDomPageDriver: vi.fn(() => ({})),
       buildConvex: vi.fn(),
-      // RestXListApi calls its credentials thunk so the `() => auth.credentials()`
-      // closure handed to it is actually exercised. A plain function (not an
-      // arrow) so it is constructable with `new`.
-      RestXListApi: vi.fn(function (this: unknown, _fetch: unknown, creds: AnyFn) {
-        creds();
-      }),
-      DomXListApi: vi.fn(),
-      GraphqlXListApi: vi.fn(),
     },
   };
 });
@@ -210,18 +201,12 @@ vi.mock("@/core/settings", () => ({ createSettings: () => H.fake.settings }));
 vi.mock("@/core/tweet-read", () => ({ author: H.spy.extractAuthor }));
 vi.mock("@/core/x-client/auth", () => ({ createDocumentAuth: () => H.fake.auth }));
 vi.mock("@/core/x-client/caret-actions", () => ({ createCaretActions: () => H.fake.caret }));
-vi.mock("@/core/x-client/dom-api", () => ({ DomXListApi: H.spy.DomXListApi }));
-vi.mock("@/core/x-client/dom-page-driver", () => ({
-  createDomPageDriver: H.spy.createDomPageDriver,
-}));
 vi.mock("@/core/x-client/factory", () => ({
-  createXListApi: (_backend: unknown, thunks: Caps["xlistThunks"]) => {
-    H.cap.xlistThunks = thunks;
+  createXListApi: (_strategy: unknown, deps: Caps["factoryDeps"]) => {
+    H.cap.factoryDeps = deps;
     return H.fake.backend;
   },
 }));
-vi.mock("@/core/x-client/graphql-api", () => ({ GraphqlXListApi: H.spy.GraphqlXListApi }));
-vi.mock("@/core/x-client/graphql-config", () => ({ DEFAULT_GRAPHQL_CONFIG: {} }));
 vi.mock("@/core/x-client/lists-provider", () => ({
   fetchMembershipListIds: H.spy.fetchMembershipListIds,
   fetchOwnedLists: H.spy.fetchOwnedLists,
@@ -230,7 +215,6 @@ vi.mock("@/core/x-client/rest-api", () => ({
   blockUser: H.spy.blockUser,
   muteUser: H.spy.muteUser,
   unmuteUser: H.spy.unmuteUser,
-  RestXListApi: H.spy.RestXListApi,
 }));
 vi.mock("@/core/selection-store", async () => {
   const actual =
@@ -386,14 +370,9 @@ describe("content boot (main.tsx)", () => {
     // highContrast marked the UI host.
     expect(H.fake.uiHost.host.getAttribute("data-hc")).toBe("");
 
-    // ---- backend factory thunks (rest/dom/graphql) all construct ----
-    H.cap.xlistThunks!.rest();
-    H.cap.xlistThunks!.dom();
-    H.cap.xlistThunks!.graphql();
-    expect(H.fake.auth.credentials).toHaveBeenCalled(); // via the rest creds thunk
-    expect(H.spy.RestXListApi).toHaveBeenCalled();
-    expect(H.spy.DomXListApi).toHaveBeenCalled();
-    expect(H.spy.GraphqlXListApi).toHaveBeenCalled();
+    // ---- backend factory receives { fetch, auth } (it owns backend construction) ----
+    expect(H.cap.factoryDeps!.auth).toBe(H.fake.auth);
+    expect(typeof H.cap.factoryDeps!.fetch).toBe("function");
 
     // ---- list-cache loader + picker memberships/recentIds thunks ----
     await H.cap.listCacheLoader!();

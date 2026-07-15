@@ -37,13 +37,9 @@ import * as tweetRead from "@/core/tweet-read";
 import { createUndoRegistry } from "@/core/undo";
 import { createDocumentAuth } from "@/core/x-client/auth";
 import { createCaretActions } from "@/core/x-client/caret-actions";
-import { DomXListApi } from "@/core/x-client/dom-api";
-import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
 import { createXListApi } from "@/core/x-client/factory";
-import { GraphqlXListApi } from "@/core/x-client/graphql-api";
-import { DEFAULT_GRAPHQL_CONFIG } from "@/core/x-client/graphql-config";
 import { fetchMembershipListIds, fetchOwnedLists } from "@/core/x-client/lists-provider";
-import { blockUser, muteUser, RestXListApi, unmuteUser } from "@/core/x-client/rest-api";
+import { blockUser, muteUser, unmuteUser } from "@/core/x-client/rest-api";
 import { attachShadowRoot, createUiRoot } from "@/ui/mount";
 
 const OVERLAY_FLAG = "data-lasso-overlay";
@@ -122,12 +118,7 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
   const platform = detectPlatform();
   const mirrorStatusStore = createMirrorStatusStore();
 
-  const backend = createXListApi(settings.backend, {
-    rest: () => new RestXListApi(pageFetch, () => auth.credentials()),
-    dom: () => new DomXListApi(createDomPageDriver()),
-    graphql: () =>
-      new GraphqlXListApi(auth.credentials(), { fetch: pageFetch, config: DEFAULT_GRAPHQL_CONFIG }),
-  });
+  const backend = createXListApi(settings.backend, { fetch: pageFetch, auth });
   // List discovery via the stable v1.1 endpoint, decoupled from the add-backend.
   const listCache = createListCache(() =>
     fetchOwnedLists({ fetch: pageFetch, creds: auth.credentials() }),

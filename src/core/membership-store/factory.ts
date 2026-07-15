@@ -7,10 +7,12 @@ export interface MembershipStoreConfig {
 }
 
 /**
- * The only place that knows the concrete Mirror impl (sibling of `createXListApi`).
- * `buildConvex` is injected and called lazily so the Convex client — which opens a
- * WebSocket — is constructed only when a device key is configured. Unconfigured ⇒
- * Null ⇒ the extension behaves exactly as before (ADR-0009).
+ * The only place that knows the concrete Mirror impl. Unlike its sibling
+ * `createXListApi`, which imports its backends directly, this still *injects*
+ * `buildConvex` and calls it lazily — the Convex client opens a WebSocket at
+ * construction, so it is built only when a device key is configured and must
+ * fail open. Unconfigured ⇒ Null ⇒ the extension behaves exactly as before
+ * (ADR-0009).
  */
 export function createMembershipStore(
   config: MembershipStoreConfig,
