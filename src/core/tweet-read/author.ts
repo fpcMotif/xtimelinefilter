@@ -41,7 +41,7 @@ export function getTweetType(article: Element): TweetType {
 }
 
 function isTweet(el: Element | null): el is Element {
-  return !!el && el.getAttribute?.("data-testid") === "tweet";
+  return !!el && el.matches(Selectors.TWEET);
 }
 
 function handleFromAvatar(article: Element): string | null {

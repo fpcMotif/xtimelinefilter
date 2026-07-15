@@ -71,7 +71,7 @@ function injectOverlay(
   deps: OverlayDeps,
 ): (() => void) | null {
   const avatar = article.querySelector<HTMLElement>(Selectors.AVATAR_CONTAINER);
-  const anchor = avatar ?? article.querySelector('[data-testid="User-Name"]') ?? article;
+  const anchor = avatar ?? article.querySelector(Selectors.USER_NAME) ?? article;
   if (anchor.querySelector(`[${OVERLAY_FLAG}]`)) return null;
 
   const host = document.createElement("span");

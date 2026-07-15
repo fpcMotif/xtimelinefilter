@@ -137,7 +137,7 @@ const muteMatch = (el: Element): boolean =>
   !!el.querySelector(`svg path[d^="${MUTE_ICON_PATH_PREFIX}"]`) || MUTE_TEXT.test(textOf(el));
 const blockMatch = (el: Element): boolean =>
   !!el.querySelector(DriverSelectors.BLOCK) ||
-  el.getAttribute("data-testid") === "block" ||
+  el.matches(DriverSelectors.BLOCK) ||
   /^\s*block/i.test(textOf(el));
 const notInterestedMatch = (el: Element): boolean =>
   !!el.querySelector(`svg path[d^="${NOT_INTERESTED_ICON_PATH_PREFIX}"]`) ||

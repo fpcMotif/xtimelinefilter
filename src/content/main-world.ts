@@ -79,31 +79,26 @@ window.addEventListener("message", (event) => {
     return;
   }
 
-  const target = [...document.querySelectorAll(`[${PAGE_ACTIVATE_TARGET}]`)].find(
-    (el) => el.getAttribute(PAGE_ACTIVATE_TARGET) === data.id,
-  );
-  if (!target) {
+  const respond = (ok: boolean): void =>
     window.postMessage(
       {
         channel: PAGE_ACTIVATE_CHANNEL,
-        ok: false,
+        ok,
         requestId: data.requestId,
         type: PAGE_ACTIVATE_RESPONSE,
       },
       "*",
     );
+
+  const target = [...document.querySelectorAll(`[${PAGE_ACTIVATE_TARGET}]`)].find(
+    (el) => el.getAttribute(PAGE_ACTIVATE_TARGET) === data.id,
+  );
+  if (!target) {
+    respond(false);
     return;
   }
 
   target.removeAttribute(PAGE_ACTIVATE_TARGET);
   activate(target);
-  window.postMessage(
-    {
-      channel: PAGE_ACTIVATE_CHANNEL,
-      ok: true,
-      requestId: data.requestId,
-      type: PAGE_ACTIVATE_RESPONSE,
-    },
-    "*",
-  );
+  respond(true);
 });

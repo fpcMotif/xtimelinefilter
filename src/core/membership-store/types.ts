@@ -1,4 +1,4 @@
-import type { XList } from "@/core/x-client/types";
+import type { AssignOutcome, XList } from "@/core/x-client/types";
 
 /** One of *your own* X accounts, captured at action time (ADR-0009). The operator
  *  / list owner — distinct from Account/Author (the member). */
@@ -31,8 +31,8 @@ export interface MembershipChange {
   screenName: string;
   userId?: string;
   action: "add" | "remove";
-  /** AssignOutcome for adds ("added"/"already-member"/…); "removed"/"failed" for removes. */
-  outcome: string;
+  /** AssignOutcome for adds; "removed"/"failed" for removes. */
+  outcome: AssignOutcome | "removed";
 }
 
 /**
