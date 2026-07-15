@@ -236,7 +236,7 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
       const origin = eventTarget as Element | null;
       if (origin?.closest?.(`[${OVERLAY_FLAG}]`)) return null; // the check handles itself
       if (origin?.closest?.("#lasso-root")) return null; // clicks on Lasso UI pass through
-      return origin?.closest?.(Selectors.TWEET) ?? null;
+      return outermostTweet(origin?.closest?.(Selectors.TWEET) ?? null);
     },
     onToggle: (article) => {
       const author = tweetRead.author(article);

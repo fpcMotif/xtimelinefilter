@@ -551,6 +551,16 @@ describe("content boot (main.tsx)", () => {
     expect(selectTap.resolveTarget(null)).toBeNull();
     expect(selectTap.resolveTarget(document.body)).toBeNull(); // no enclosing tweet
 
+    // a tap inside a quoted (nested) tweet resolves the outermost article — the
+    // one that owns the author — not the quoted inner one.
+    const quotedOuter = cellTweet({ avatar: true }).article;
+    const quotedInner = document.createElement("article");
+    quotedInner.setAttribute("data-testid", "tweet");
+    const quotedChild = document.createElement("span");
+    quotedInner.appendChild(quotedChild);
+    quotedOuter.appendChild(quotedInner);
+    expect(selectTap.resolveTarget(quotedChild)).toBe(quotedOuter);
+
     const overlayHost = document.createElement("span");
     overlayHost.setAttribute("data-lasso-overlay", "");
     const inOverlay = document.createElement("i");
