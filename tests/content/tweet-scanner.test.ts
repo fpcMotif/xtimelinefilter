@@ -219,15 +219,19 @@ describe("scan stats — feeds the selector-health watchdog", () => {
     });
     scanner.start();
 
+    const untilBatches = async (n: number) => {
+      while (batches.length < n) await tick();
+    };
+
     const noise = document.createElement("div");
     noise.innerHTML = "<span>nothing</span>";
     root.appendChild(noise);
-    await tick();
+    await untilBatches(2);
 
     const cell = document.createElement("div");
     cell.innerHTML = tweetHtml("bob", "3");
     root.appendChild(cell);
-    await tick();
+    await untilBatches(3);
 
     expect(batches.length).toBe(3); // initial scan + two mutation batches
     expect(batches[0]).toEqual([0, 0]); // empty timeline at start()
