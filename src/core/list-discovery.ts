@@ -80,7 +80,13 @@ export function createListDiscovery(deps: ListDiscoveryDeps): ListDiscovery {
   const storage = deps.storage ?? (chrome.storage.local as unknown as StorageLike);
 
   async function readCache(): Promise<XList[] | undefined> {
-    return (await storage.get(KEY))[KEY] as XList[] | undefined;
+    try {
+      return (await storage.get(KEY))[KEY] as XList[] | undefined;
+    } catch {
+      // An unreadable cache is a miss, not a failure: fall through to the network
+      // rather than blanking the picker on a storage hiccup.
+      return undefined;
+    }
   }
 
   /** Loads from X, updates the cache, and narrows any failure. */
@@ -91,7 +97,12 @@ export function createListDiscovery(deps: ListDiscoveryDeps): ListDiscovery {
     } catch (e) {
       throw toDiscoveryError(e);
     }
-    await storage.set({ [KEY]: fresh });
+    try {
+      await storage.set({ [KEY]: fresh });
+    } catch {
+      // The cache is an optimization. A write failure (context invalidated on
+      // reload/update, quota) must never discard a load that succeeded.
+    }
     return fresh;
   }
 

@@ -129,6 +129,47 @@ describe("createListDiscovery — owned-List loading + cache", () => {
   });
 });
 
+describe("createListDiscovery — the cache is an optimization, never a failure source", () => {
+  it("returns the loaded Lists even when writing them to the cache fails", async () => {
+    // chrome.storage.local.set rejects when the extension context is invalidated
+    // (reload/update with a tab open) or on quota. The load itself succeeded.
+    const storage: StorageLike = {
+      async get() {
+        return {};
+      },
+      async set() {
+        throw new Error("Extension context invalidated.");
+      },
+    };
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(ownerships([{ id_str: "1", name: "Research" }])),
+    );
+    const discovery = makeDiscovery({ fetch: fetchMock as unknown as typeof fetch, storage });
+
+    await expect(discovery.ownedLists()).resolves.toEqual([
+      { id: "1", name: "Research", memberCount: undefined },
+    ]);
+  });
+
+  it("treats an unreadable cache as a miss and loads from the network", async () => {
+    const storage: StorageLike = {
+      async get() {
+        throw new Error("Extension context invalidated.");
+      },
+      async set() {},
+    };
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(ownerships([{ id_str: "1", name: "Research" }])),
+    );
+    const discovery = makeDiscovery({ fetch: fetchMock as unknown as typeof fetch, storage });
+
+    await expect(discovery.ownedLists()).resolves.toEqual([
+      { id: "1", name: "Research", memberCount: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("createListDiscovery — failure narrows to product-relevant kinds", () => {
   it("surfaces auth failures as a typed ListDiscoveryError", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({}, 401));
