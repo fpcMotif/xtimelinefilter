@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-type InstalledListener = () => void;
-type ClickedListener = (tab: { id?: number }) => void;
+import { UNINSTALL_FORM_URL, WELCOME_URL } from "@/background/lifecycle";
 
-describe("background service worker", () => {
+type InstalledListener = (details: { reason: string }) => void;
+type MessageListener = (msg: unknown, sender: { tab?: { id?: number } }) => void;
+
+// index.ts wires two chrome events: onInstalled → handleInstalled (open the
+// welcome tour + set the uninstall form) and onMessage → mirror the content
+// script's per-tab state onto the toolbar badge. (The old action.onClicked wake
+// path was removed once a popup is set — see src/background/index.ts; waking now
+// happens from the popup.) lifecycle.test.ts covers the pure functions; this
+// covers the chrome wiring.
+describe("background service worker wiring", () => {
   let previousChrome: unknown;
 
   afterEach(() => {
@@ -15,48 +23,73 @@ describe("background service worker", () => {
   async function load() {
     previousChrome = globalThis.chrome;
     let installed: InstalledListener | undefined;
-    let clicked: ClickedListener | undefined;
-    const sendMessage = vi.fn(async () => {});
+    let message: MessageListener | undefined;
+    const createTab = vi.fn(async () => {});
+    const setUninstallURL = vi.fn(async () => {});
+    const setBadgeText = vi.fn(async () => {});
+    const setBadgeBackgroundColor = vi.fn(async () => {});
     globalThis.chrome = {
       ...(previousChrome as typeof chrome),
       runtime: {
         onInstalled: { addListener: vi.fn((cb: InstalledListener) => (installed = cb)) },
+        onMessage: { addListener: vi.fn((cb: MessageListener) => (message = cb)) },
+        setUninstallURL,
       },
-      action: {
-        onClicked: { addListener: vi.fn((cb: ClickedListener) => (clicked = cb)) },
-      },
-      tabs: { sendMessage },
+      tabs: { create: createTab },
+      action: { setBadgeText, setBadgeBackgroundColor },
     } as unknown as typeof chrome;
 
     await import("@/background/index");
     return {
       installed: installed as InstalledListener,
-      clicked: clicked as ClickedListener,
-      sendMessage,
+      message: message as MessageListener,
+      createTab,
+      setUninstallURL,
+      setBadgeText,
+      setBadgeBackgroundColor,
     };
   }
 
-  it("logs installation and ignores toolbar clicks without a tab id", async () => {
-    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const { installed, clicked, sendMessage } = await load();
+  it("opens the welcome tab on install and ignores messages without a tab id", async () => {
+    const { installed, message, createTab, setUninstallURL, setBadgeText } = await load();
 
-    installed();
-    clicked({});
+    installed({ reason: "install" });
+    expect(createTab).toHaveBeenCalledWith({ url: WELCOME_URL });
+    expect(setUninstallURL).toHaveBeenCalledWith(UNINSTALL_FORM_URL);
 
-    expect(debug).toHaveBeenCalledWith("[Lasso] installed");
-    expect(sendMessage).not.toHaveBeenCalled();
+    // A message whose sender has no tab id is ignored (no badge mutation).
+    message({ type: "lasso:badge", count: 3 }, {});
+    expect(setBadgeText).not.toHaveBeenCalled();
   });
 
-  it("activates the clicked tab and swallows send failures", async () => {
-    const { clicked, sendMessage } = await load();
+  it("mirrors the selection count to the sending tab's badge", async () => {
+    const { message, setBadgeText, setBadgeBackgroundColor } = await load();
 
-    clicked({ id: 7 });
-    await Promise.resolve();
-    expect(sendMessage).toHaveBeenCalledWith(7, { type: "lasso-activate" });
+    message({ type: "lasso:badge", count: 7 }, { tab: { id: 7 } });
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 7, text: "7" });
+    expect(setBadgeBackgroundColor).toHaveBeenCalledWith({ tabId: 7, color: "#1d9bf0" });
 
-    sendMessage.mockRejectedValueOnce(new Error("tab closed"));
-    clicked({ id: 8 });
-    await Promise.resolve();
-    expect(sendMessage).toHaveBeenCalledWith(8, { type: "lasso-activate" });
+    // A non-badge message (badgeTextFor → null) touches nothing.
+    message({ type: "something-else" }, { tab: { id: 8 } });
+    expect(setBadgeText).toHaveBeenCalledTimes(1);
+  });
+
+  it('sets the "zz" dormant badge without recoloring it', async () => {
+    const { message, setBadgeText, setBadgeBackgroundColor } = await load();
+
+    // state:"asleep" → "zz": badge text set, but the blue accent color is NOT
+    // applied (the `text !== "zz"` guard) so the dormant badge stays neutral.
+    message({ type: "lasso:state", state: "asleep" }, { tab: { id: 5 } });
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 5, text: "zz" });
+    expect(setBadgeBackgroundColor).not.toHaveBeenCalled();
+  });
+
+  it("clears the badge to empty on a zero count without recoloring", async () => {
+    const { message, setBadgeText, setBadgeBackgroundColor } = await load();
+
+    // count 0 → "" (falsy): badge cleared, no color applied.
+    message({ type: "lasso:badge", count: 0 }, { tab: { id: 6 } });
+    expect(setBadgeText).toHaveBeenCalledWith({ tabId: 6, text: "" });
+    expect(setBadgeBackgroundColor).not.toHaveBeenCalled();
   });
 });
