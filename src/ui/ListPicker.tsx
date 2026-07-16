@@ -73,9 +73,9 @@ export function ListPicker({
     <div
       role="dialog"
       aria-label={header}
-      class="bg-surface shadow-elevated flex max-h-[420px] w-80 flex-col overflow-hidden rounded-2xl"
+      class="bg-card shadow-elevated flex max-h-[420px] w-80 flex-col overflow-hidden rounded-2xl"
     >
-      <header class="text-ink px-4 pt-3 pb-1 text-[15px] font-bold">{header}</header>
+      <header class="text-foreground text-md px-4 pt-3 pb-1 font-bold">{header}</header>
 
       {status === "loading" && <Skeletons />}
       {status === "error" && (
@@ -93,7 +93,7 @@ export function ListPicker({
             value={query}
             onInput={(e) => picker.setQuery((e.currentTarget as HTMLInputElement).value)}
             onKeyDown={onKeyDown}
-            class="border-line bg-surface text-ink placeholder:text-muted border-0 border-b px-4 py-3 text-[15px] outline-none"
+            class="border-border bg-card text-foreground placeholder:text-faint text-md border-0 border-b px-4 py-3 outline-none"
           />
           <div role="listbox" aria-label="Your Lists" class="min-h-0 flex-1 overflow-y-auto p-1">
             {!noMatch && <GroupedRows {...{ groups, activeIndex, alreadyIn, onPick }} />}
@@ -101,7 +101,7 @@ export function ListPicker({
               <NoMatch query={query} onClear={() => picker.setQuery("")} onCreate={onCreateList} />
             )}
           </div>
-          <footer class="border-line text-muted border-t px-4 py-2 text-[12px] tabular-nums">
+          <footer class="border-border text-muted-foreground border-t px-4 py-2 text-xs tabular-nums">
             {pickerFooterLegend(selectedCount)}
           </footer>
         </>
@@ -127,7 +127,9 @@ function GroupedRows({
       {groups.map((group) => (
         <div key={group.label ?? "all"}>
           {group.label && (
-            <div class="text-muted px-3 pt-2 pb-1 text-[13px] font-semibold">{group.label}</div>
+            <div class="text-muted-foreground text-compact px-3 pt-2 pb-1 font-semibold">
+              {group.label}
+            </div>
           )}
           {group.rows.map((list) => {
             flatIndex++;
@@ -167,19 +169,19 @@ function Row({
         e.preventDefault();
         onPick(list);
       }}
-      class={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-[15px] ${
-        active ? "bg-elevated" : ""
+      class={`text-md flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 ${
+        active ? "bg-secondary" : ""
       }`}
     >
-      <span class="text-ink min-w-0 flex-1 truncate">{list.name}</span>
+      <span class="text-foreground min-w-0 flex-1 truncate">{list.name}</span>
       {list.isPrivate && <LockIcon />}
       {list.memberCount !== undefined && (
-        <span class="text-muted shrink-0 text-[13px] tabular-nums">
+        <span class="text-muted-foreground text-compact shrink-0 tabular-nums">
           {memberCountLabel(list.memberCount)}
         </span>
       )}
       {alreadyIn && (
-        <span aria-label="Already in" class="text-accent shrink-0 text-[15px]">
+        <span aria-label="Already in" class="text-primary text-md shrink-0">
           ✓
         </span>
       )}
@@ -191,7 +193,7 @@ function Skeletons() {
   return (
     <div aria-hidden="true" class="p-3">
       {[0, 1, 2].map((i) => (
-        <div key={i} data-loading-row class="bg-elevated mb-2 h-9 animate-pulse rounded-lg" />
+        <div key={i} data-loading-row class="bg-secondary mb-2 h-9 animate-pulse rounded-lg" />
       ))}
     </div>
   );
@@ -214,8 +216,8 @@ function ErrorState({
         : PICKER_ERROR_UNKNOWN;
   return (
     <div class="flex flex-col items-center gap-2 px-4 py-6 text-center">
-      <p class="text-ink text-[15px] font-bold">{PICKER_ERROR_TITLE}</p>
-      <p class="text-muted text-[13px]">{reason}</p>
+      <p class="text-foreground text-md font-bold">{PICKER_ERROR_TITLE}</p>
+      <p class="text-muted-foreground text-compact">{reason}</p>
       <button
         type="button"
         autofocus
@@ -230,10 +232,10 @@ function ErrorState({
             onCancel();
           }
         }}
-        class="bg-accent text-accent-ink hover:bg-accent/90 mt-2 flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold"
+        class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/55 mt-2 flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold outline-none focus-visible:ring-2"
       >
         {RETRY}
-        <kbd class="rounded border border-white/40 px-1 text-[11px] leading-4">R</kbd>
+        <kbd class="text-2xs rounded border border-white/40 px-1 leading-4">R</kbd>
       </button>
     </div>
   );
@@ -242,12 +244,12 @@ function ErrorState({
 function EmptyState({ onCreate }: { onCreate(): void }) {
   return (
     <div class="flex flex-col items-center gap-2 px-4 py-6 text-center">
-      <p class="text-ink text-[15px] font-bold">{EMPTY_TITLE}</p>
-      <p class="text-muted text-[13px]">{EMPTY_BODY}</p>
+      <p class="text-foreground text-md font-bold">{EMPTY_TITLE}</p>
+      <p class="text-muted-foreground text-compact">{EMPTY_BODY}</p>
       <button
         type="button"
         onClick={onCreate}
-        class="bg-accent text-accent-ink hover:bg-accent/90 mt-2 rounded-full px-4 py-1.5 text-sm font-semibold"
+        class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/55 mt-2 rounded-full px-4 py-1.5 text-sm font-semibold outline-none focus-visible:ring-2"
       >
         {EMPTY_CTA}
       </button>
@@ -267,19 +269,19 @@ function NoMatch({
   const q = query.trim();
   return (
     <div class="flex flex-col items-center gap-2 px-4 py-5 text-center">
-      <p class="text-muted text-[15px]">{noMatchLine(q)}</p>
+      <p class="text-muted-foreground text-md">{noMatchLine(q)}</p>
       <div class="flex gap-2">
         <button
           type="button"
           onClick={onClear}
-          class="border-line text-ink hover:bg-elevated rounded-full border px-3 py-1.5 text-sm font-semibold"
+          class="border-border text-foreground hover:bg-secondary focus-visible:ring-ring/55 rounded-full border px-3 py-1.5 text-sm font-semibold outline-none focus-visible:ring-2"
         >
           {CLEAR_SEARCH}
         </button>
         <button
           type="button"
           onClick={onCreate}
-          class="bg-accent text-accent-ink hover:bg-accent/90 rounded-full px-3 py-1.5 text-sm font-semibold"
+          class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/55 rounded-full px-3 py-1.5 text-sm font-semibold outline-none focus-visible:ring-2"
         >
           {createOnX(q)}
         </button>
@@ -296,7 +298,7 @@ function LockIcon() {
       width="13"
       height="13"
       viewBox="0 0 20 20"
-      class="text-muted shrink-0"
+      class="text-muted-foreground shrink-0"
     >
       <path
         d="M6 9V6.5a4 4 0 1 1 8 0V9m-9 0h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"

@@ -1,6 +1,6 @@
 import { Selectors } from "@/content/selectors";
 import type { TweetAuthor } from "@/core/selection-store";
-import { extractAuthor } from "@/core/tweet-extractor";
+import * as tweetRead from "@/core/tweet-read";
 
 export interface TweetScanner {
   /** Process tweets already in the DOM and start observing for new ones. */
@@ -13,6 +13,13 @@ export interface TweetScanner {
 export interface TweetScannerOptions {
   /** Per observer batch: how many mutations fired and how many posts matched (health). */
   onScan?: (mutations: number, matches: number) => void;
+  /**
+   * A previously-reported article left the DOM (X's virtualization pruned the
+   * cell). The article is forgotten, so if X re-adds the same node it is reported
+   * again. Callers use this to dispose per-post resources (overlay Preact trees,
+   * signal subscriptions) — without it those leak for every scrolled-past post.
+   */
+  onTweetRemoved?: (article: Element) => void;
 }
 
 /**
@@ -30,7 +37,7 @@ export function createTweetScanner(
   const handle = (article: Element): void => {
     if (seen.has(article)) return;
     seen.add(article);
-    const author = extractAuthor(article);
+    const author = tweetRead.author(article);
     if (author) onTweet(author, article);
   };
 
@@ -38,6 +45,15 @@ export function createTweetScanner(
     const found = root.querySelectorAll(Selectors.TWEET);
     for (const el of found) handle(el);
     opts.onScan?.(0, found.length);
+  };
+
+  const handleRemoved = (article: Element): void => {
+    if (!seen.has(article)) return;
+    // Reparent-in-one-batch guard: mutation callbacks run after the batch settled,
+    // so a node that is back in the document was moved, not pruned — keep it.
+    if (root.contains(article)) return;
+    seen.delete(article);
+    opts.onTweetRemoved?.(article);
   };
 
   const observer = new MutationObserver((mutations) => {
@@ -53,6 +69,11 @@ export function createTweetScanner(
           matches++;
           handle(el);
         }
+      }
+      for (const node of m.removedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches(Selectors.TWEET)) handleRemoved(node);
+        for (const el of node.querySelectorAll(Selectors.TWEET)) handleRemoved(el);
       }
     }
     opts.onScan?.(mutations.length, matches);

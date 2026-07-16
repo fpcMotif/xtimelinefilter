@@ -1,4 +1,4 @@
-import type { StorageLike } from "@/core/settings";
+import { blobStore, localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 
 /**
@@ -37,49 +37,42 @@ export interface Coach {
   replayIntro(): Promise<void>;
 }
 
-export function createCoach(
-  area: StorageLike = chrome.storage.local as unknown as StorageLike,
-  now: () => number = Date.now,
-): Coach {
-  const KEY = STORAGE_KEYS.coach;
-
-  async function read(): Promise<CoachState> {
-    return ((await area.get(KEY))[KEY] as CoachState | undefined) ?? {};
-  }
+export function createCoach(area: StorageLike = localArea(), now: () => number = Date.now): Coach {
+  const store = blobStore<CoachState>(area, STORAGE_KEYS.coach, {});
 
   async function write(patch: Partial<CoachState>): Promise<CoachState> {
-    const next = { ...(await read()), ...patch };
-    await area.set({ [KEY]: next });
-    return next;
+    const next = { ...(await store.get()), ...patch };
+    return store.set(next);
   }
 
-  async function ensureInstalledAt(): Promise<CoachState> {
-    const s = await read();
-    if (s.installedAt !== undefined) return s;
-    return write({ installedAt: now() });
+  /** Reads coach state, stamping installedAt on first call so it is always set. */
+  async function ensureInstalledAt(): Promise<CoachState & { installedAt: number }> {
+    const s = await store.get();
+    if (s.installedAt !== undefined) return s as CoachState & { installedAt: number };
+    return write({ installedAt: now() }) as Promise<CoachState & { installedAt: number }>;
   }
 
   async function hintsActive(): Promise<boolean> {
     const s = await ensureInstalledAt();
     if ((s.assignCount ?? 0) >= DECAY_ASSIGNS) return false;
-    return now() - (s.installedAt ?? now()) <= DECAY_MS;
+    return now() - s.installedAt <= DECAY_MS;
   }
 
   return {
     async isOnboarded() {
-      return (await read()).onboarded === true;
+      return (await store.get()).onboarded === true;
     },
     async markOnboarded() {
       await write({ onboarded: true });
     },
     async recordAssign() {
-      const s = await read();
+      const s = await store.get();
       await write({ assignCount: (s.assignCount ?? 0) + 1 });
     },
     hintsActive,
     async tryShowTip(id, max = 1) {
       if (!(await hintsActive())) return false;
-      const s = await read();
+      const s = await store.get();
       const shown = s.tips?.[id] ?? 0;
       if (shown >= max) return false;
       await write({ tips: { ...s.tips, [id]: shown + 1 } });

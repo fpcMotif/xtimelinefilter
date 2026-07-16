@@ -1,6 +1,6 @@
 import { ADD_TO_LISTS_TEXT, DriverSelectors, Selectors } from "@/content/selectors";
 import type { TweetAuthor } from "@/core/selection-store";
-import { extractAuthor } from "@/core/tweet-extractor";
+import * as tweetRead from "@/core/tweet-read";
 
 import type { PageDriver } from "./page-driver";
 
@@ -26,7 +26,7 @@ export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver
 
   function findAuthorCaret(screenName: string): Element | null {
     for (const article of doc.querySelectorAll(Selectors.TWEET)) {
-      const author = extractAuthor(article);
+      const author = tweetRead.author(article);
       if (author?.screenName.toLowerCase() === screenName.toLowerCase()) {
         return article.querySelector(DriverSelectors.CARET);
       }

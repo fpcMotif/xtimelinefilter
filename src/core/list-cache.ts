@@ -1,5 +1,5 @@
 import { fuzzyRank } from "@/core/fuzzy";
-import type { StorageLike } from "@/core/settings";
+import { blobStore, localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import type { XList } from "@/core/x-client/types";
 
@@ -15,15 +15,17 @@ export interface ListCache {
 /** Caches the user's Lists from `loader` (decoupled from the add-backend). */
 export function createListCache(
   loader: () => Promise<XList[]>,
-  area: StorageLike = chrome.storage.local as unknown as StorageLike,
+  area: StorageLike = localArea(),
 ): ListCache {
+  const store = blobStore<XList[]>(area, KEY, []);
+
   async function lists({ force = false }: { force?: boolean } = {}): Promise<XList[]> {
     if (!force) {
-      const cached = (await area.get(KEY))[KEY] as XList[] | undefined;
-      if (cached?.length) return cached;
+      const cached = await store.get();
+      if (cached.length) return cached;
     }
     const fresh = await loader();
-    await area.set({ [KEY]: fresh });
+    await store.set(fresh);
     return fresh;
   }
 

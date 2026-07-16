@@ -25,9 +25,9 @@ export function ToastHost({ store }: { store: ToastStore }) {
 }
 
 const KIND_CLASS: Record<ActiveToast["kind"], string> = {
-  success: "bg-accent text-accent-ink",
-  info: "bg-ink text-surface",
-  danger: "bg-danger text-accent-ink",
+  success: "bg-primary text-primary-foreground",
+  info: "bg-foreground text-background",
+  danger: "bg-destructive text-primary-foreground",
 };
 
 export function ToastView({
@@ -54,11 +54,11 @@ export function ToastView({
           key={a.label}
           type="button"
           onClick={() => onAct(i)}
-          class="flex shrink-0 items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 font-semibold transition-transform duration-150 ease-out hover:bg-white/30 active:scale-[0.96]"
+          class="flex shrink-0 items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 font-semibold transition-transform duration-150 ease-out outline-none hover:bg-white/30 focus-visible:ring-2 focus-visible:ring-white/70 active:scale-[0.96]"
         >
           {a.label}
           {a.kbd && (
-            <kbd class="rounded border border-white/40 px-1 text-[11px] leading-4">{a.kbd}</kbd>
+            <kbd class="text-2xs rounded border border-white/40 px-1 leading-4">{a.kbd}</kbd>
           )}
         </button>
       ))}
@@ -67,7 +67,7 @@ export function ToastView({
           type="button"
           aria-label="Dismiss"
           onClick={onDismiss}
-          class="shrink-0 rounded-full px-1.5 leading-none opacity-80 hover:opacity-100"
+          class="shrink-0 rounded-full px-1.5 leading-none opacity-80 outline-none hover:opacity-100 focus-visible:ring-2 focus-visible:ring-white/70"
         >
           ✕
         </button>

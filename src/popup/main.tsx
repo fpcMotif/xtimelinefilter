@@ -1,8 +1,13 @@
 import { render } from "preact";
 
+import { createMirrorStatusStore } from "@/core/mirror-status";
+import { sendToTab, type LassoStatusResponse } from "@/core/protocol";
+
 import { PopupApp, type TabState } from "./PopupApp";
 
 import "@/ui/styles.css";
+
+const mirrorStore = createMirrorStatusStore();
 
 async function activeTabId(): Promise<number | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -13,9 +18,7 @@ async function queryState(): Promise<TabState> {
   const id = await activeTabId();
   if (id === undefined) return "off-x";
   try {
-    const res = (await chrome.tabs.sendMessage(id, { type: "lasso:status" })) as
-      | { awake?: boolean }
-      | undefined;
+    const res = (await sendToTab(id, { type: "lasso:status" })) as LassoStatusResponse | undefined;
     if (!res) return "off-x";
     return res.awake ? "active" : "asleep";
   } catch {
@@ -26,7 +29,7 @@ async function queryState(): Promise<TabState> {
 async function wake(): Promise<void> {
   const id = await activeTabId();
   if (id === undefined) return;
-  await chrome.tabs.sendMessage(id, { type: "lasso-activate" }).catch(() => {});
+  await sendToTab(id, { type: "lasso-activate" }).catch(() => {});
 }
 
 render(
@@ -34,6 +37,7 @@ render(
     queryState={queryState}
     wake={wake}
     openOptions={() => void chrome.runtime.openOptionsPage()}
+    mirrorStatus={mirrorStore.read}
   />,
   document.getElementById("root") as HTMLElement,
 );

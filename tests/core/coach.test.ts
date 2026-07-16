@@ -69,6 +69,19 @@ describe("createCoach", () => {
     expect(await c.tryShowTip("first-hover")).toBe(false);
   });
 
+  it("hintsActive tolerates a storage that drops writes (installedAt fallback)", async () => {
+    // A read-only area: ensureInstalledAt's write never persists, so the later
+    // read still has no installedAt and the `?? now()` fallback is exercised.
+    const readonlyArea: StorageLike = {
+      async get() {
+        return {};
+      },
+      async set() {},
+    };
+    const c = createCoach(readonlyArea, () => T0);
+    expect(await c.hintsActive()).toBe(true); // now() - now() === 0 <= DECAY_MS
+  });
+
   it("replayIntro restores the welcome card and every hint for a second pass", async () => {
     const now = { t: T0 };
     const c = coachAt(now);

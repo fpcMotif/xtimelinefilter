@@ -1,4 +1,4 @@
-import type { StorageLike } from "@/core/settings";
+import { blobStore, localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import type { XList } from "@/core/x-client/types";
 
@@ -21,12 +21,13 @@ export interface ListUsage {
 
 /** Tracks how often/recently each List is picked so the picker surfaces frequent ones first. */
 export function createListUsage(
-  area: StorageLike = chrome.storage.local as unknown as StorageLike,
+  area: StorageLike = localArea(),
   now: () => number = Date.now,
 ): ListUsage {
+  const store = blobStore<Record<string, number | UsageEntry>>(area, KEY, {});
+
   async function entries(): Promise<Record<string, UsageEntry>> {
-    const raw =
-      ((await area.get(KEY))[KEY] as Record<string, number | UsageEntry> | undefined) ?? {};
+    const raw = await store.get();
     return Object.fromEntries(
       Object.entries(raw).map(([id, v]) => [id, typeof v === "number" ? { n: v, t: 0 } : v]),
     );
@@ -36,7 +37,7 @@ export function createListUsage(
     async record(listId) {
       const all = await entries();
       const prev = all[listId];
-      await area.set({ [KEY]: { ...all, [listId]: { n: (prev?.n ?? 0) + 1, t: now() } } });
+      await store.set({ ...all, [listId]: { n: (prev?.n ?? 0) + 1, t: now() } });
     },
     async rank(lists) {
       const all = await entries();

@@ -3,8 +3,12 @@ import type { CommandId } from "@/content/keyboard";
 import { type AssignOptions, assignAuthorsToList } from "@/core/actions/assign-to-list";
 import { feedbackFor } from "@/core/assign-feedback";
 import type { Coach } from "@/core/coach";
+import type { FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
 import type { ListUsage } from "@/core/list-usage";
+import { NullMembershipStore } from "@/core/membership-store/null";
+import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
+import type { MirrorStatus } from "@/core/mirror-status";
 import type { PickerController } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
 import type { SettingsStore } from "@/core/settings";
@@ -26,7 +30,7 @@ import {
   VIEW_LIST,
   WAKE_TOAST,
 } from "@/core/strings";
-import type { ToastAction, ToastStore } from "@/core/toast-store";
+import type { ToastAction, ToastSpec, ToastStore } from "@/core/toast-store";
 import type { UndoRegistry } from "@/core/undo";
 import type { XList, XListApi } from "@/core/x-client/types";
 
@@ -38,7 +42,8 @@ export type AssignSource = "pointer" | "keyboard";
 export interface QuickActions {
   mute(screenName: string): Promise<void>;
   unmute(screenName: string): Promise<void>;
-  notInterested(tweetEl: Element): Promise<void>;
+  /** "hidden" on success, "unavailable" when X offers no "not interested" here (silent no-op). */
+  notInterested(tweetEl: Element): Promise<"hidden" | "unavailable">;
   block?(screenName: string): Promise<void>;
 }
 
@@ -63,7 +68,20 @@ export interface ControllerDeps {
   backend: XListApi;
   cache: ListCache;
   settings: SettingsStore;
+  /** Off-to-the-side Mirror (ADR-0009); absent ⇒ NullMembershipStore ⇒ X flow unchanged. */
+  membershipStore?: MembershipStore;
+  /** The Owner logged in at action time; absent/returns null ⇒ the Mirror is skipped. */
+  currentOwner?: () => Owner | null;
+  /**
+   * Observability hook for the Mirror: called after every recordAssign attempt with
+   * its outcome, so a surface (popup) can show "synced/failing" instantly instead of
+   * the user inferring it from a once-only console.warn. Fire-and-forget like the
+   * write itself — never load-bearing (ADR-0009).
+   */
+  onMirrorResult?: (result: MirrorStatus) => void;
   usage?: ListUsage;
+  /** The one global filter store; absent ⇒ filter commands are no-ops (ADR-0010 — never load-bearing). */
+  filter?: FilterStore;
   quick: QuickActions;
   target: TargetResolver;
   openUrl(url: string): void;
@@ -83,13 +101,17 @@ export interface ControllerDeps {
 export interface LassoController {
   /** Sync command entry for the keyboard layer; false = not consumed, leave for X. */
   command(cmd: CommandId): boolean;
+  /**
+   * Conduct one in-page Filter command (cycle a criterion, reveal, show-all, …)
+   * behind a fail-open wall: a throwing command is swallowed so a filter failure
+   * can never break or alter the assign/undo flow (ADR-0010 — the Filter is never
+   * load-bearing). No-op when no filter store is wired.
+   */
+  filterCommand(run: (filter: FilterStore) => void): void;
   openPicker(source?: AssignSource): void;
   assignSelectedTo(list: XList): Promise<void>;
-  addToDefaultList(): Promise<void>;
   stopRun(): void;
   toggleSelect(author: TweetAuthor): void;
-  muteAuthor(author: TweetAuthor): Promise<void>;
-  hideTweet(tweetEl: Element): Promise<void>;
   trySelectMode(): void;
   skipWelcome(): void;
   wake(): void;
@@ -100,13 +122,45 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const { selection, app, picker, toasts, undo, coach, backend, cache, settings, quick, target } =
     deps;
   const now = deps.now ?? Date.now;
+  const membershipStore = deps.membershipStore ?? new NullMembershipStore();
+  const currentOwner = deps.currentOwner ?? ((): Owner | null => null);
+  const filter = deps.filter;
   let stopRequested = false;
   let lastSource: AssignSource = "pointer";
   let individualSelections = 0; // session-scoped, feeds the select-mode nudge
+  let mirrorWarned = false; // C1: first Mirror failure is surfaced once, then silent
 
   const nudge = (): void => {
     toasts.show({ kind: "info", title: NO_TARGET_NUDGE });
   };
+
+  /**
+   * Mirror the changes from a run, stamped with the Owner logged in right now.
+   * Fire-and-forget: the Mirror is off-to-the-side and must never block or break
+   * the X flow — no Owner skips it, and a failure is swallowed (ADR-0009). The
+   * try/catch also absorbs a *synchronous* throw from the seam (.catch alone only
+   * attaches to a returned promise), and the first failure is surfaced once
+   * so a silently-blocked Mirror — e.g. a page-CSP-rejected POST — is observable.
+   */
+  function recordToMirror(list: XList, changes: MembershipChange[]): void {
+    if (changes.length === 0) return;
+    const owner = currentOwner();
+    if (!owner) return;
+    const onFail = (err: unknown): void => {
+      deps.onMirrorResult?.({ ok: false, at: now() });
+      if (mirrorWarned) return;
+      mirrorWarned = true;
+      console.warn("[Lasso] Mirror write failed (off-to-the-side; X flow unaffected)", err);
+    };
+    try {
+      void membershipStore
+        .recordAssign(owner, list, changes)
+        .then(() => deps.onMirrorResult?.({ ok: true, at: now() }))
+        .catch(onFail);
+    } catch (err) {
+      onFail(err);
+    }
+  }
 
   function openPicker(source: AssignSource = "pointer"): void {
     lastSource = source;
@@ -118,14 +172,24 @@ export function createLassoController(deps: ControllerDeps): LassoController {
 
   async function undoAdds(authors: TweetAuthor[], list: XList): Promise<void> {
     let n = 0;
+    const changes: MembershipChange[] = [];
     for (const author of authors) {
+      const base: MembershipChange = {
+        screenName: author.screenName,
+        ...(author.userId !== undefined ? { userId: author.userId } : {}),
+        action: "remove",
+        outcome: "removed",
+      };
       try {
         await backend.removeMember(list, author);
         n++;
+        changes.push(base);
       } catch {
         // partial undo still gets reported with the real count
+        changes.push({ ...base, outcome: "failed" });
       }
     }
+    recordToMirror(list, changes);
     toasts.show({ kind: "info", title: removedLine(n, list.name) });
   }
 
@@ -149,6 +213,16 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       shouldStop: () => stopRequested,
     });
     app.running.value = null;
+
+    recordToMirror(
+      list,
+      results.map((r) => ({
+        screenName: r.author.screenName,
+        ...(r.author.userId !== undefined ? { userId: r.author.userId } : {}),
+        action: "add" as const,
+        outcome: r.outcome,
+      })),
+    );
 
     const stopped = stopRequested && results.length < authors.length;
     const fb = feedbackFor(results, list, { selectedCount: authors.length, stopped, nowMs: now() });
@@ -205,11 +279,38 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     await runAssign([author], list, "keyboard");
   }
 
-  async function muteAuthor(author: TweetAuthor): Promise<void> {
+  interface QuickActionOptions<T> {
+    attempt(): Promise<T>;
+    /** Side effect run on success before the toast (e.g. arming an undo). */
+    onOk?(result: T): void;
+    /** null = stay fully silent (no success, no failure copy applies here). */
+    successToast(result: T): ToastSpec | null;
+    failTitle: string;
+    /** Absent = the no-retry variant (danger toast with no actions). */
+    retry?(): void;
+  }
+
+  /** Shared try/catch → toast → undo-or-retry shape behind mute/unmute/block/hide. */
+  async function quickAction<T>(opts: QuickActionOptions<T>): Promise<void> {
     try {
-      await quick.mute(author.screenName);
-      undo.arm(() => void unmuteAuthor(author), UNDO_WINDOW_MS);
+      const result = await opts.attempt();
+      opts.onOk?.(result);
+      const toast = opts.successToast(result);
+      if (toast) toasts.show(toast);
+    } catch {
       toasts.show({
+        kind: "danger",
+        title: opts.failTitle,
+        ...(opts.retry ? { actions: [{ label: RETRY, run: opts.retry }] } : {}),
+      });
+    }
+  }
+
+  function muteAuthor(author: TweetAuthor): Promise<void> {
+    return quickAction({
+      attempt: () => quick.mute(author.screenName),
+      onOk: () => undo.arm(() => void unmuteAuthor(author), UNDO_WINDOW_MS),
+      successToast: () => ({
         kind: "success",
         title: mutedLine(author.screenName),
         durationMs: UNDO_WINDOW_MS,
@@ -222,50 +323,41 @@ export function createLassoController(deps: ControllerDeps): LassoController {
             },
           },
         ],
-      });
-    } catch {
-      toasts.show({
-        kind: "danger",
-        title: muteFailedLine(author.screenName),
-        actions: [{ label: RETRY, run: () => void muteAuthor(author) }],
-      });
-    }
+      }),
+      failTitle: muteFailedLine(author.screenName),
+      retry: () => void muteAuthor(author),
+    });
   }
 
-  async function unmuteAuthor(author: TweetAuthor): Promise<void> {
-    try {
-      await quick.unmute(author.screenName);
-      toasts.show({ kind: "info", title: unmutedLine(author.screenName) });
-    } catch {
-      toasts.show({ kind: "danger", title: muteFailedLine(author.screenName) });
-    }
+  function unmuteAuthor(author: TweetAuthor): Promise<void> {
+    return quickAction({
+      attempt: () => quick.unmute(author.screenName),
+      successToast: () => ({ kind: "info", title: unmutedLine(author.screenName) }),
+      failTitle: muteFailedLine(author.screenName),
+    });
   }
 
-  async function blockAuthor(author: TweetAuthor): Promise<void> {
-    if (!quick.block) return;
-    try {
-      await quick.block(author.screenName);
-      toasts.show({ kind: "success", title: blockedLine(author.screenName) });
-    } catch {
-      toasts.show({
-        kind: "danger",
-        title: blockFailedLine(author.screenName),
-        actions: [{ label: RETRY, run: () => void blockAuthor(author) }],
-      });
-    }
+  function blockAuthor(author: TweetAuthor): Promise<void> {
+    const block = quick.block;
+    if (!block) return Promise.resolve();
+    return quickAction({
+      attempt: () => block(author.screenName),
+      successToast: () => ({ kind: "success", title: blockedLine(author.screenName) }),
+      failTitle: blockFailedLine(author.screenName),
+      retry: () => void blockAuthor(author),
+    });
   }
 
-  async function hideTweet(tweetEl: Element): Promise<void> {
-    try {
-      await quick.notInterested(tweetEl);
-      toasts.show({ kind: "success", title: HIDDEN_LINE });
-    } catch {
-      toasts.show({
-        kind: "danger",
-        title: hideFailedLine,
-        actions: [{ label: RETRY, run: () => void hideTweet(tweetEl) }],
-      });
-    }
+  function hideTweet(tweetEl: Element): Promise<void> {
+    return quickAction({
+      attempt: () => quick.notInterested(tweetEl),
+      // "unavailable" = X offers no "not interested" for this post (off the home feed):
+      // stay fully silent — no toast, no Retry — instead of a futile failure.
+      successToast: (result) =>
+        result === "unavailable" ? null : { kind: "success", title: HIDDEN_LINE },
+      failTitle: hideFailedLine,
+      retry: () => void hideTweet(tweetEl),
+    });
   }
 
   function toggleSelect(author: TweetAuthor): void {
@@ -281,6 +373,29 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     }
   }
 
+  /**
+   * The walled Filter section. Every filter command runs fail-open and assign
+   * never awaits one, so the Filter stays non-load-bearing even though a single
+   * conductor now runs both capabilities (ADR-0010). A thrown filter command is
+   * swallowed here and cannot reach the X flow's shared state (undo/toasts/selection).
+   */
+  function filterCommand(run: (filter: FilterStore) => void): void {
+    if (!filter) return;
+    const before = filter.state.value;
+    try {
+      run(filter);
+    } catch {
+      // A broken filter command must never touch the X flow.
+      return;
+    }
+    // Arm undo only when the command changed persistent config — a transient
+    // reveal / no-op must not shadow a more useful prior undo. One armed undo,
+    // Z, last-wins, shared with the assign flow (the Filter stays non-load-bearing).
+    if (filter.state.value !== before) {
+      undo.arm(() => filter.restore(before), UNDO_WINDOW_MS);
+    }
+  }
+
   function command(cmd: CommandId): boolean {
     switch (cmd) {
       case "escape":
@@ -293,6 +408,18 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       case "toggle-select-mode":
         selection.setSelectMode(!selection.selectMode.value);
         return true;
+      // The two filter keys return false when no filter store is wired, so the
+      // bare keys fall through to X untouched (ADR-0010 — never load-bearing).
+      case "toggle-filter": {
+        if (!filter) return false;
+        filterCommand((f) => f.setEnabled(!f.state.value.enabled));
+        return true;
+      }
+      case "toggle-reveal": {
+        if (!filter) return false;
+        filterCommand((f) => f.setRevealed(!f.revealed.value));
+        return true;
+      }
       case "toggle-select": {
         const author = target.author();
         if (author) toggleSelect(author);
@@ -339,15 +466,13 @@ export function createLassoController(deps: ControllerDeps): LassoController {
 
   return {
     command,
+    filterCommand,
     openPicker,
     assignSelectedTo,
-    addToDefaultList,
     stopRun() {
       stopRequested = true;
     },
     toggleSelect,
-    muteAuthor,
-    hideTweet,
     trySelectMode() {
       selection.setSelectMode(true);
       app.welcomeOpen.value = false;

@@ -9,15 +9,21 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "happy-dom",
-    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "convex/**/*.test.ts"],
     setupFiles: ["tests/setup.ts"],
     coverage: {
       provider: "v8",
-      include: ["src/**"],
-      exclude: ["src/types/**"],
+      // Frontend/extension code (src) and the Convex Mirror backend (convex),
+      // minus codegen. unit-test-design.md §12: the 100% policy extends to the
+      // Convex functions the moment they land.
+      include: ["src/**", "convex/**"],
+      // Ambient declarations carry no runtime code; HTML entry points are not
+      // JS and only make v8's instrumenter throw a parse error; convex/_generated
+      // is codegen, not hand-written logic.
+      exclude: ["src/types/**", "convex/_generated/**", "**/*.d.ts", "**/*.html", "**/*.json"],
       reporter: ["text", "html", "lcov"],
       // Goal: 100% across frontend (content/ui) and backend (background,
-      // storage, x-client) logic — see docs/testing/unit-test-design.md.
+      // storage, x-client, convex) logic — see docs/testing/unit-test-design.md.
       thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 },
     },
   },

@@ -3,8 +3,18 @@ dist/
 *.log
 .DS_Store
 coverage/
+coverage-lariat/
 .vite/
 
 # Playwright
 test-results/
 playwright-report/
+
+.env.local
+
+# Brainstorming visual-companion artifacts
+.superpowers/
+
+# Brainstorming visual companion
+.superpowers/
+scripts/design-cards/out/

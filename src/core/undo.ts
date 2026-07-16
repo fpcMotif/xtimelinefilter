@@ -34,7 +34,14 @@ export function createUndoRegistry(timers: ToastTimers = realTimers): UndoRegist
       if (!active) return false;
       const { run } = active;
       disarm();
-      run();
+      try {
+        run();
+      } catch (err) {
+        // One registry is shared across the assign and filter flows (ADR-0010).
+        // A throwing filter/mirror undo callback must never propagate into the
+        // keyboard layer and break the X flow — swallow it (already disarmed).
+        console.warn("[Lasso] undo callback threw", err);
+      }
       return true;
     },
     disarm,

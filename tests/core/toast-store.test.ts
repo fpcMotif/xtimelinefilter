@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createToastStore } from "@/core/toast-store";
+import { createToastStore, DEFAULT_TOAST_MS } from "@/core/toast-store";
 
 /** Manual timer harness so auto-dismiss is deterministic. */
 function manualTimers() {
@@ -78,5 +78,35 @@ describe("createToastStore", () => {
     store.show({ kind: "info", title: "b" });
     store.dismiss(a);
     expect(store.toasts.value.map((t) => t.title)).toEqual(["b"]);
+  });
+
+  it("clear() dismisses every open toast and cancels their timers", () => {
+    const timers = manualTimers();
+    const store = createToastStore(timers);
+    store.show({ kind: "info", title: "a" });
+    store.show({ kind: "success", title: "b" });
+    expect(store.toasts.value).toHaveLength(2);
+    expect(timers.count).toBe(2);
+    store.clear();
+    expect(store.toasts.value).toHaveLength(0);
+    expect(timers.count).toBe(0);
+  });
+
+  it("the default real timers auto-dismiss via window.setTimeout and clear on manual dismiss", () => {
+    vi.useFakeTimers();
+    try {
+      const store = createToastStore(); // exercises realTimers (window.set/clearTimeout)
+      const auto = store.show({ kind: "success", title: "auto" });
+      expect(store.toasts.value).toHaveLength(1);
+      vi.advanceTimersByTime(DEFAULT_TOAST_MS);
+      expect(store.toasts.value.find((t) => t.id === auto)).toBeUndefined();
+
+      const manual = store.show({ kind: "info", title: "manual" });
+      store.dismiss(manual); // clearTimer arrow runs before the timeout fires
+      vi.advanceTimersByTime(DEFAULT_TOAST_MS);
+      expect(store.toasts.value).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -126,6 +126,21 @@ describe("groups, fuzzy and navigation", () => {
     expect(picker.active.value?.name).toBe("Founders");
   });
 
+  it("moveUp/moveDown walk the flat order and clamp at the ends", async () => {
+    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }) });
+    await picker.open([{ screenName: "jane" }]);
+    expect(picker.active.value?.id).toBe("1");
+    picker.moveUp(); // already at the top — clamps
+    expect(picker.activeIndex.value).toBe(0);
+    picker.moveDown();
+    picker.moveDown();
+    expect(picker.active.value?.id).toBe("3");
+    picker.moveDown(); // already at the bottom — clamps
+    expect(picker.active.value?.id).toBe("3");
+    picker.moveUp();
+    expect(picker.active.value?.id).toBe("2");
+  });
+
   it("no-match is its own state, distinct from empty", async () => {
     const picker = createPickerController({ cache: fakeCache({ cached: LISTS }) });
     await picker.open([{ screenName: "jane" }]);
@@ -170,6 +185,180 @@ describe("already-in membership checks", () => {
     });
     await expect(picker.open([{ screenName: "jane" }])).resolves.toBeUndefined();
     expect(picker.status.value).toBe("ready");
+    expect(picker.alreadyIn.value.size).toBe(0);
+  });
+});
+
+describe("edge cases — empty navigation, errors, background + superseded opens", () => {
+  it("navigating an empty picker stays put and has no active row", async () => {
+    const picker = createPickerController({ cache: fakeCache({ cached: null }) });
+    await picker.open([{ screenName: "jane" }]);
+    expect(picker.status.value).toBe("empty");
+    expect(picker.flat.value).toEqual([]);
+    expect(picker.active.value).toBeNull();
+    picker.moveDown();
+    picker.moveUp();
+    expect(picker.activeIndex.value).toBe(0);
+    expect(picker.active.value).toBeNull();
+  });
+
+  it("a non-typed failure → unknown error kind", async () => {
+    const cache = fakeCache({
+      cached: null,
+      fresh: async () => {
+        throw new Error("network down");
+      },
+    });
+    const picker = createPickerController({ cache });
+    await picker.open([{ screenName: "jane" }]);
+    expect(picker.status.value).toBe("error");
+    expect(picker.errorKind.value).toBe("unknown");
+  });
+
+  it("an XApiError of an unmapped kind → unknown error kind", async () => {
+    const cache = fakeCache({
+      cached: null,
+      fresh: async () => {
+        throw new XApiError("not-found", "404");
+      },
+    });
+    const picker = createPickerController({ cache });
+    await picker.open([{ screenName: "jane" }]);
+    expect(picker.errorKind.value).toBe("unknown");
+  });
+
+  it("a second open with lists already loaded shows ready immediately (no loading flash)", async () => {
+    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }) });
+    await picker.open([{ screenName: "jane" }]);
+    await flush();
+    const second = picker.open([{ screenName: "bob" }]);
+    expect(picker.status.value).toBe("ready"); // synchronous — lists already present
+    await second;
+  });
+
+  it("a background refresh that returns nothing leaves the cached lists intact", async () => {
+    const fresh = vi.fn(async () => [] as XList[]);
+    const cache = fakeCache({ cached: LISTS, fresh });
+    const picker = createPickerController({ cache });
+    await picker.open([{ screenName: "jane" }]);
+    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
+    await flush();
+    expect(cache.forcedCalls).toBe(1);
+    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
+  });
+
+  it("a background refresh that rejects never disturbs the visible picker", async () => {
+    const fresh = vi.fn(async () => {
+      throw new Error("flaky");
+    });
+    const cache = fakeCache({ cached: LISTS, fresh });
+    const picker = createPickerController({ cache });
+    await picker.open([{ screenName: "jane" }]);
+    expect(picker.status.value).toBe("ready");
+    await flush();
+    expect(picker.status.value).toBe("ready");
+    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
+  });
+
+  it("a superseded open's stale cache result is ignored (generation guard)", async () => {
+    let release!: (lists: XList[]) => void;
+    const gate = new Promise<XList[]>((r) => {
+      release = r;
+    });
+    let firstCall = true;
+    const cache = fakeCache({
+      cached: null,
+      fresh: async () => {
+        if (firstCall) {
+          firstCall = false;
+          return gate; // first open hangs until released
+        }
+        return LISTS;
+      },
+    });
+    const picker = createPickerController({ cache });
+    const first = picker.open([{ screenName: "jane" }]); // awaits the hung gate
+    await picker.open([{ screenName: "bob" }]); // bumps generation, lands LISTS
+    expect(picker.status.value).toBe("ready");
+    release([{ id: "9", name: "Stale" }]); // first open resolves under a newer gen
+    await first;
+    await flush();
+    // The stale single-row result must NOT have replaced the fresh LISTS.
+    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
+  });
+
+  it("a superseded open's failure never flips the visible picker to error", async () => {
+    let reject!: (e: unknown) => void;
+    const gate = new Promise<XList[]>((_r, rej) => {
+      reject = rej;
+    });
+    let firstCall = true;
+    const cache = fakeCache({
+      cached: null,
+      fresh: async () => {
+        if (firstCall) {
+          firstCall = false;
+          return gate; // first open hangs, then rejects
+        }
+        return LISTS;
+      },
+    });
+    const picker = createPickerController({ cache });
+    const first = picker.open([{ screenName: "jane" }]); // awaits the hung gate
+    await picker.open([{ screenName: "bob" }]); // bumps generation, lands LISTS
+    expect(picker.status.value).toBe("ready");
+    reject(new XApiError("auth", "401")); // first open fails under a newer generation
+    await first;
+    await flush();
+    // The stale failure must NOT overwrite the ready state with an error.
+    expect(picker.status.value).toBe("ready");
+    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
+  });
+
+  it("a superseded open's recents result is ignored (no stale Recent group)", async () => {
+    let release!: (ids: string[]) => void;
+    const gate = new Promise<string[]>((r) => {
+      release = r;
+    });
+    let first = true;
+    const picker = createPickerController({
+      cache: fakeCache({ cached: LISTS }),
+      recentIds: async () => {
+        if (first) {
+          first = false;
+          return gate; // first open hangs on recents
+        }
+        return [];
+      },
+    });
+    const firstOpen = picker.open([{ screenName: "jane" }]);
+    await picker.open([{ screenName: "bob" }]); // bumps generation past the parked open
+    release(["3"]); // first open resumes under a stale generation
+    await firstOpen;
+    await flush();
+    expect(picker.groups.value.map((g) => g.label)).toEqual([null]); // no Recent group
+  });
+
+  it("a superseded open's membership result never marks rows already-in", async () => {
+    let release!: (ids: string[]) => void;
+    const gate = new Promise<string[]>((r) => {
+      release = r;
+    });
+    let first = true;
+    const memberships = vi.fn(async () => {
+      if (first) {
+        first = false;
+        return gate; // first open's membership hangs
+      }
+      return [] as string[];
+    });
+    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }), memberships });
+    const firstOpen = picker.open([{ screenName: "jane" }]);
+    await firstOpen; // load resolves (cache is immediate); membership still pending
+    await picker.open([{ screenName: "bob" }]); // bumps generation
+    await flush();
+    release(["1"]); // jane's membership resolves under a stale generation
+    await flush();
     expect(picker.alreadyIn.value.size).toBe(0);
   });
 });

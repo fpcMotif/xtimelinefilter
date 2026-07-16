@@ -9,10 +9,11 @@ const mainWorldContentScript = {
   world: "MAIN",
 } as unknown as ContentScript;
 
-// No host_permissions: authenticated x.com calls run in the content script
-// (same-origin) per ADR-0002, so cookies/ct0 attach automatically.
-// Store-listing copy lives in docs/store-listing.md (manifest description is
-// capped at 132 chars).
+// Authenticated x.com calls run in the content script (same-origin) per ADR-0002,
+// so cookies/ct0 attach automatically — no host permission needed for X. The one
+// host_permission is the optional Convex Mirror (ADR-0009): a cross-origin POST to
+// the user's own *.convex.cloud deployment, gated by a device key. Absent a key the
+// Mirror never connects. Store-listing copy lives in docs/store-listing.md.
 export default defineManifest({
   manifest_version: 3,
   name: "Lasso — add people to your X Lists from the timeline",
@@ -26,6 +27,7 @@ export default defineManifest({
     128: "icons/lasso-128.png",
   },
   permissions: ["storage"],
+  host_permissions: ["https://*.convex.cloud/*"],
   content_scripts: [
     mainWorldContentScript,
     {

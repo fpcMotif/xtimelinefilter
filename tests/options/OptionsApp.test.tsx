@@ -1,32 +1,21 @@
-import { fireEvent, render, waitFor } from "@testing-library/preact";
+import { act, fireEvent, render, waitFor } from "@testing-library/preact";
 import { describe, expect, it, vi } from "vitest";
 
 import { createCoach } from "@/core/coach";
-import { createSettings, type StorageLike } from "@/core/settings";
+import { createFilterStore } from "@/core/filter-store";
+import { createSettings } from "@/core/settings";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import {
   ACTIVATION_COPY,
   BACKEND_COPY,
+  CONVEX_URL_ERROR,
   DEFAULT_LIST_HINT,
   DEFAULT_LIST_NONE,
+  isValidConvexUrl,
   OptionsApp,
 } from "@/options/OptionsApp";
 
-function memoryArea(): StorageLike & { data: Record<string, unknown> } {
-  const data: Record<string, unknown> = {};
-  return {
-    data,
-    async get() {
-      return { ...data };
-    },
-    async set(items) {
-      Object.assign(data, items);
-    },
-    async remove(keys) {
-      for (const k of Array.isArray(keys) ? keys : [keys]) delete data[k];
-    },
-  };
-}
+import { createMemoryArea as memoryArea } from "../helpers/chrome-fake";
 
 async function setup(seedLocal: Record<string, unknown> = {}) {
   const local = memoryArea();
@@ -34,11 +23,19 @@ async function setup(seedLocal: Record<string, unknown> = {}) {
   Object.assign(local.data, seedLocal);
   const settings = createSettings(sync);
   const coach = createCoach(local);
+  const filter = createFilterStore({ storage: memoryArea() });
   const r = render(
-    <OptionsApp settings={settings} coach={coach} local={local} sync={sync} platform="other" />,
+    <OptionsApp
+      settings={settings}
+      coach={coach}
+      local={local}
+      sync={sync}
+      platform="other"
+      filter={filter}
+    />,
   );
   await waitFor(() => expect(r.container.querySelector("main")).toBeTruthy());
-  return { ...r, local, sync, settings, coach };
+  return { ...r, local, sync, settings, coach, filter };
 }
 
 describe("OptionsApp — story beat 9", () => {
@@ -90,9 +87,16 @@ describe("OptionsApp — story beat 9", () => {
         "Lasso has no servers. Your X session, your Lists, and your usage stats never leave this browser.",
       ),
     ).toBeTruthy();
+    // Sync also holds the settings + the one global filter — both must go.
+    s.sync.data[STORAGE_KEYS.settings] = { backend: "rest" };
+    s.sync.data[STORAGE_KEYS.filter] = { enabled: true, criteria: { "kind:video": "hide" } };
+
     fireEvent.click(s.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => s.getByText("Yes, clear it"))); // confirm step
     await waitFor(() => expect(s.getByText("Cleared")).toBeTruthy());
     expect(Object.keys(s.local.data)).toEqual([]);
+    expect(STORAGE_KEYS.settings in s.sync.data).toBe(false);
+    expect(STORAGE_KEYS.filter in s.sync.data).toBe(false);
   });
 
   it("Replay intro restores the welcome card via the coach", async () => {
@@ -114,5 +118,194 @@ describe("OptionsApp — story beat 9", () => {
     fireEvent.click(r.getByText("Replay intro"));
     await waitFor(async () => expect(await coach.isOnboarded()).toBe(false));
     expect(replaySpy).toHaveBeenCalled();
+  });
+
+  it("resetting the default List back to None clears defaultListId", async () => {
+    const s = await setup({
+      [STORAGE_KEYS.lists]: [{ id: "9", name: "Design Folks" }],
+    });
+    const select = s.getByLabelText("Default List") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "9" } });
+    await waitFor(async () => expect((await s.settings.get()).defaultListId).toBe("9"));
+    fireEvent.change(select, { target: { value: "" } });
+    await waitFor(async () => expect((await s.settings.get()).defaultListId).toBeUndefined());
+  });
+
+  it("switching the connection backend persists", async () => {
+    const s = await setup();
+    const graphql = s.getByText(BACKEND_COPY.graphql).querySelector("input") as HTMLInputElement;
+    fireEvent.change(graphql, { target: { checked: true } });
+    await waitFor(async () => expect((await s.settings.get()).backend).toBe("graphql"));
+  });
+
+  it("persists the Convex deployment URL and device key, trimming and dropping empties", async () => {
+    const s = await setup();
+    const url = s.getByLabelText("Convex deployment URL") as HTMLInputElement;
+    fireEvent.change(url, { target: { value: "  https://app.convex.cloud  " } });
+    await waitFor(async () =>
+      expect((await s.settings.get()).convexUrl).toBe("https://app.convex.cloud"),
+    );
+
+    const key = s.getByLabelText("Convex device key") as HTMLInputElement;
+    fireEvent.change(key, { target: { value: "  secret-key  " } });
+    await waitFor(async () => expect((await s.settings.get()).convexDeviceKey).toBe("secret-key"));
+
+    fireEvent.change(url, { target: { value: "   " } });
+    await waitFor(async () => expect((await s.settings.get()).convexUrl).toBeUndefined());
+
+    fireEvent.change(key, { target: { value: "" } });
+    await waitFor(async () => expect((await s.settings.get()).convexDeviceKey).toBeUndefined());
+  });
+
+  it("rejects a scheme-less Convex URL: shows an error and keeps the last valid value", async () => {
+    const s = await setup();
+    const url = s.getByLabelText("Convex deployment URL") as HTMLInputElement;
+    fireEvent.change(url, { target: { value: "https://good.convex.cloud" } });
+    await waitFor(async () =>
+      expect((await s.settings.get()).convexUrl).toBe("https://good.convex.cloud"),
+    );
+    fireEvent.change(url, { target: { value: "convex.cloud" } }); // no scheme → would brick boot
+    expect(s.getByText(CONVEX_URL_ERROR)).toBeTruthy();
+    await waitFor(async () =>
+      expect((await s.settings.get()).convexUrl).toBe("https://good.convex.cloud"),
+    ); // the bad value never reached storage
+  });
+
+  it("a nav-rail item scrolls its target section into view", async () => {
+    const s = await setup();
+    const target = s.container.querySelector("#connection") as HTMLElement;
+    const scrollSpy = vi.fn();
+    (target as unknown as { scrollIntoView: () => void }).scrollIntoView = scrollSpy;
+    fireEvent.click(s.getByRole("button", { name: "Connection" }));
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+  });
+
+  it("marks the active rail item and moves the marker on click", async () => {
+    const s = await setup();
+    expect(s.getByRole("button", { name: "General" }).getAttribute("aria-current")).toBe("true");
+    fireEvent.click(s.getByRole("button", { name: "Connection" }));
+    expect(s.getByRole("button", { name: "Connection" }).getAttribute("aria-current")).toBe("true");
+    expect(s.getByRole("button", { name: "General" }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("arms a content chip straight from the Timeline filter section", async () => {
+    const s = await setup();
+    fireEvent.click(s.getByRole("button", { name: /^Video$/ }));
+    expect(s.filter.state.value.criteria["kind:video"]).toBe("only");
+  });
+
+  it("toggles the master Timeline filter from Settings", async () => {
+    const s = await setup();
+    const box = s.getByLabelText("Filter the timeline") as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(s.filter.state.value.enabled).toBe(false);
+  });
+
+  it("flags when the filter is off so the chips read as inactive", async () => {
+    const s = await setup();
+    expect(s.queryByText(/filter is off/i)).toBeNull();
+    fireEvent.click(s.getByLabelText("Filter the timeline"));
+    expect(s.getByText(/filter is off/i)).toBeTruthy();
+  });
+
+  it("toggles the language gate from Settings", async () => {
+    const s = await setup();
+    fireEvent.click(s.getByLabelText("Only my languages"));
+    expect(s.filter.state.value.onlyMyLanguages).toBe(true);
+  });
+
+  it("toggles the compact-hidden display preference from Settings", async () => {
+    const s = await setup();
+    const box = s.getByLabelText("Hide filtered posts completely") as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    expect(s.filter.state.value.compactHidden).toBe(true);
+  });
+});
+
+describe("isValidConvexUrl", () => {
+  it("accepts full http(s) URLs and rejects scheme-less or unparseable ones", () => {
+    expect(isValidConvexUrl("https://app.convex.cloud")).toBe(true);
+    expect(isValidConvexUrl("http://localhost:3210")).toBe(true);
+    expect(isValidConvexUrl("convex.cloud")).toBe(false); // no scheme
+    expect(isValidConvexUrl("https://")).toBe(false); // scheme present but unparseable (catch)
+  });
+});
+
+describe("OptionsApp — rail scroll-spy + destructive confirm", () => {
+  it("cancelling the clear confirm leaves data intact and restores the single button", async () => {
+    const s = await setup();
+    s.local.data["anything"] = "kept";
+    fireEvent.click(s.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => s.getByText("Cancel")));
+    await waitFor(() => expect(s.getByText("Clear Lasso data")).toBeTruthy());
+    expect(s.queryByText("Yes, clear it")).toBeNull();
+    expect(s.local.data["anything"]).toBe("kept");
+  });
+
+  it("follows reading position via IntersectionObserver when the platform has one", async () => {
+    const callbacks: IntersectionObserverCallback[] = [];
+    const observed: string[] = [];
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(cb: IntersectionObserverCallback) {
+          callbacks.push(cb);
+        }
+        observe(el: Element) {
+          observed.push(el.id);
+        }
+        disconnect = disconnect;
+      },
+    );
+    try {
+      const s = await setup();
+      await waitFor(() => expect(callbacks.length).toBe(1));
+      expect(observed).toContain("sync");
+
+      const io = {} as IntersectionObserver;
+      callbacks[0]!(
+        [
+          { isIntersecting: false, target: { id: "filter" } },
+          { isIntersecting: true, target: { id: "sync" } },
+        ] as unknown as IntersectionObserverEntry[],
+        io,
+      );
+      await waitFor(() => {
+        const active = s.container.querySelector('[aria-current="true"]');
+        expect(active?.textContent).toContain("Sync");
+      });
+
+      s.unmount();
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("OptionsApp — Sync saved acknowledgement", () => {
+  it("shows a transient Saved tick after persisting a Sync field", async () => {
+    const s = await setup();
+    const url = s.getByLabelText("Convex deployment URL") as HTMLInputElement;
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        url.value = "https://silent-crab-355.convex.cloud";
+        fireEvent.change(url);
+        // settings.set → syncedStore write → .then(setSyncSaved): drain the
+        // microtask chain by hand — waitFor can't run under fake timers.
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      expect(s.getByText("Saved")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(1600);
+      });
+      expect(s.queryByText("Saved")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

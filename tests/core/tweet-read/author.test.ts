@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { extractAuthor, getTweetType } from "@/core/tweet-extractor";
+import { author, getTweetType } from "@/core/tweet-read";
 
 function mount(html: string): HTMLElement {
   const host = document.createElement("div");
@@ -87,9 +87,9 @@ const EMOJI_NAME = `
   </div>
 </article>`;
 
-describe("extractAuthor", () => {
+describe("author", () => {
   it("extracts handle, tweetId, display name (emoji via alt-free text), avatar from a normal tweet", () => {
-    const a = extractAuthor(tweetEl(NORMAL));
+    const a = author(tweetEl(NORMAL));
     expect(a).toMatchObject({
       screenName: "jack",
       tweetId: "123",
@@ -100,37 +100,37 @@ describe("extractAuthor", () => {
   });
 
   it("returns the ORIGINAL author for a retweet (not the reposter)", () => {
-    expect(extractAuthor(tweetEl(RETWEET))).toMatchObject({ screenName: "jack", tweetId: "123" });
+    expect(author(tweetEl(RETWEET))).toMatchObject({ screenName: "jack", tweetId: "123" });
   });
 
   it("skips promoted tweets (returns null)", () => {
-    expect(extractAuthor(tweetEl(PROMOTED))).toBeNull();
-    expect(extractAuthor(tweetEl(PROMOTED_SOCIAL_ONLY))).toBeNull();
+    expect(author(tweetEl(PROMOTED))).toBeNull();
+    expect(author(tweetEl(PROMOTED_SOCIAL_ONLY))).toBeNull();
   });
 
   it("extracts the OUTER author of a quote tweet, never the quoted account", () => {
-    expect(extractAuthor(tweetEl(QUOTE))).toMatchObject({ screenName: "jack", tweetId: "500" });
+    expect(author(tweetEl(QUOTE))).toMatchObject({ screenName: "jack", tweetId: "500" });
   });
 
   it("falls back to the avatar-container handle when the name block is absent", () => {
-    const a = extractAuthor(tweetEl(AVATAR_ONLY));
+    const a = author(tweetEl(AVATAR_ONLY));
     expect(a?.screenName).toBe("zoe");
     expect(a?.tweetId).toBeUndefined();
   });
 
   it("falls back to a time permalink when the name block status link is absent", () => {
-    expect(extractAuthor(tweetEl(TIME_LINK_ONLY))).toMatchObject({
+    expect(author(tweetEl(TIME_LINK_ONLY))).toMatchObject({
       screenName: "mira",
       tweetId: "888",
     });
   });
 
   it("expands emoji image alt text in display names", () => {
-    expect(extractAuthor(tweetEl(EMOJI_NAME))?.displayName).toBe("Nina ✨");
+    expect(author(tweetEl(EMOJI_NAME))?.displayName).toBe("Nina ✨");
   });
 
   it("ignores comment nodes while reading display names", () => {
-    const a = extractAuthor(
+    const a = author(
       tweetEl(`
         <article data-testid="tweet">
           <div data-testid="User-Name">
@@ -144,11 +144,11 @@ describe("extractAuthor", () => {
   });
 
   it("returns null when neither permalink nor avatar provides a handle", () => {
-    expect(extractAuthor(tweetEl('<article data-testid="tweet"></article>'))).toBeNull();
+    expect(author(tweetEl('<article data-testid="tweet"></article>'))).toBeNull();
   });
 
   it("returns undefined display names when visible text is empty", () => {
-    const a = extractAuthor(
+    const a = author(
       tweetEl(`
         <article data-testid="tweet">
           <div data-testid="User-Name"><a href="/blank"></a></div>
@@ -160,7 +160,7 @@ describe("extractAuthor", () => {
   });
 
   it("ignores malformed permalink hrefs and malformed avatar test ids", () => {
-    const a = extractAuthor(
+    const a = author(
       tweetEl(`
         <article data-testid="tweet">
           <div data-testid="User-Name"><a href="http://[bad]/status/1"><span>Bad</span></a></div>
@@ -172,7 +172,7 @@ describe("extractAuthor", () => {
   });
 
   it("handles missing hrefs while reading display names", () => {
-    const a = extractAuthor(
+    const a = author(
       tweetEl(`
         <article data-testid="tweet">
           <div data-testid="User-Name"><a><span>Fallback Block</span></a></div>
@@ -186,7 +186,7 @@ describe("extractAuthor", () => {
   it("returns null for a non-tweet element", () => {
     const div = mount('<div data-testid="UserCell">who to follow</div>')
       .firstElementChild as Element;
-    expect(extractAuthor(div)).toBeNull();
+    expect(author(div)).toBeNull();
   });
 });
 

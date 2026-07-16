@@ -1,17 +1,9 @@
-import { type Credentials, XApiError, type XList } from "./types";
+import { type Credentials, type XList } from "./types";
+import { authHeaders, ensureOk, REST_PROFILE } from "./x-http";
 
 export interface ListsProviderDeps {
   fetch: typeof fetch;
   creds: Credentials;
-}
-
-function authHeaders(creds: Credentials): Record<string, string> {
-  return {
-    authorization: `Bearer ${creds.bearer}`,
-    "x-csrf-token": creds.csrf,
-    "x-twitter-active-user": "yes",
-    "x-twitter-auth-type": "OAuth2Session",
-  };
 }
 
 interface RawList {
@@ -35,18 +27,7 @@ export async function fetchOwnedLists(deps: ListsProviderDeps): Promise<XList[]>
     credentials: "include",
     headers: authHeaders(deps.creds),
   });
-  if (res.status === 429) {
-    const raw = Number(res.headers.get("x-rate-limit-reset"));
-    throw new XApiError("rate-limited", "lists/ownerships rate limited", {
-      resetAt: Number.isFinite(raw) && raw > 0 ? raw : undefined,
-    });
-  }
-  if (res.status === 401 || res.status === 403) {
-    throw new XApiError("auth", `lists/ownerships auth error (HTTP ${res.status})`);
-  }
-  if (!res.ok) throw new XApiError("unknown", `lists/ownerships HTTP ${res.status}`);
-
-  const json = (await res.json()) as { lists?: RawList[] };
+  const json = (await ensureOk(res, REST_PROFILE)) as { lists?: RawList[] };
   return (json.lists ?? [])
     .map((l) => ({
       id: l.id_str ?? (l.id !== undefined ? String(l.id) : ""),

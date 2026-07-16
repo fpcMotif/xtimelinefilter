@@ -8,6 +8,8 @@ export type CommandId =
   | "block"
   | "toggle-select"
   | "toggle-select-mode"
+  | "toggle-filter"
+  | "toggle-reveal"
   | "help"
   | "escape"
   | "undo";
@@ -18,22 +20,35 @@ export interface KeyBinding {
 }
 
 /**
- * Default bindings (Alt+key per the user's choice). j/k are NOT bound — X's native
- * cursor is reused. Block (Alt+b) is intentionally omitted (destructive, opt-in).
- * Escape/z/? handlers return false when Lasso has nothing to do, so X's own keys
- * keep working (see installKeyboardLayer).
+ * Default bindings (Alt+key per the user's choice). X's own action/navigation keys
+ * are NOT bound: j/k (cursor), l (like), i (unassigned by X but left free), b
+ * (bookmark), u (mute account), r/t/o/n, and every g-chord (see CHORD_WINDOW_MS)
+ * keep their native meaning. Block (Alt+b) is intentionally omitted (destructive,
+ * opt-in). Mute (Alt+m) is intentionally unbound at the user's request — the `mute`
+ * command still exists for programmatic use, it just has no default key. Escape/z/?
+ * and the filter keys' handlers return false when Lasso has nothing to do, so X's
+ * own keys keep working. f/h are free on x.com (only g+f / g+h chords use them,
+ * which the chord guard passes through).
  */
 export const DEFAULT_KEYMAP: KeyBinding[] = [
-  { combo: "Alt+m", command: "mute" },
   { combo: "Alt+n", command: "not-interested" },
   { combo: "Alt+l", command: "add-to-list" },
   { combo: "Alt+Shift+l", command: "add-to-default-list" },
   { combo: "x", command: "toggle-select" },
   { combo: "s", command: "toggle-select-mode" },
+  { combo: "f", command: "toggle-filter" },
+  { combo: "h", command: "toggle-reveal" },
   { combo: "?", command: "help" },
   { combo: "Escape", command: "escape" },
   { combo: "z", command: "undo" },
 ];
+
+/**
+ * How long a bare `g` arms X's two-key navigation chords (g+h Home, g+s Settings,
+ * g+f Drafts, …). While armed, Lasso must not consume the second key — otherwise
+ * a capture-phase binding like `s` or `h` would swallow half of X's chord.
+ */
+export const CHORD_WINDOW_MS = 1000;
 
 const MOD_ORDER = ["Alt", "Ctrl", "Meta", "Shift"] as const;
 
@@ -88,6 +103,7 @@ export interface KeyboardLayerOptions {
    */
   run: (command: CommandId) => boolean | void;
   doc?: Document;
+  now?: () => number;
 }
 
 /**
@@ -96,7 +112,11 @@ export interface KeyboardLayerOptions {
  */
 export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
   const doc = opts.doc ?? document;
+  const now = opts.now ?? Date.now;
   const table = new Map(opts.keymap.map((b) => [canonicalCombo(b.combo), b.command]));
+  // X's g-chords (g+h, g+s, g+f, …): a bare `g` arms this window; the next
+  // keydown inside it belongs to X, whatever Lasso has bound on it.
+  let chordArmedUntil = 0;
 
   const handler = (e: KeyboardEvent): void => {
     // Lasso's own driver synthesizes Escape to dismiss stuck X menus — that is
@@ -108,8 +128,16 @@ export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
     // and IME composition only happens inside editables, which this check covers.
     const target = e.composedPath?.()[0] ?? e.target;
     if (isTypingTarget(target)) return;
-    const command = table.get(eventToCombo(e));
+    const combo = eventToCombo(e);
+    if (combo === "g") {
+      chordArmedUntil = now() + CHORD_WINDOW_MS;
+      return; // g itself is X's chord prefix — never Lasso's
+    }
+    const chordPending = now() < chordArmedUntil;
+    chordArmedUntil = 0; // any key concludes (or breaks) the chord
+    const command = table.get(combo);
     if (!command) return;
+    if (chordPending) return; // the second key of g+h / g+s / g+f — X's, not ours
     if (opts.run(command) === false) return;
     e.preventDefault();
     e.stopImmediatePropagation();
