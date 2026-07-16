@@ -287,6 +287,9 @@ beforeEach(() => {
   H.config.computedPosition = "static";
   for (const m of Object.values(H.fake.controller)) m.mockClear();
   for (const m of Object.values(H.fake.filter)) m.mockClear();
+  // Uncleared, `waitFor(scanner.start)` resolves off the PREVIOUS test's boot, so a
+  // later assertion can read state this boot hasn't written yet.
+  for (const m of Object.values(H.fake.scanner)) m.mockClear();
   for (const m of Object.values(H.fake.hover)) m.mockClear();
   for (const m of Object.values(H.fake.overlays)) m.mockClear();
   for (const m of Object.values(H.fake.mirrorStore)) m.mockClear();
@@ -408,7 +411,10 @@ describe("content boot (main.tsx)", () => {
       convexUrl: "https://x.convex.cloud",
       convexDeviceKey: "k",
     });
-    expect(H.cap.membershipArgs![1]).toBe(H.spy.buildConvex);
+    // main.tsx passes a *loader*, not the builder: the Convex client is a dynamic
+    // chunk. Resolving it proves the import() is wired to the right export.
+    const loadConvex = H.cap.membershipArgs![1] as () => Promise<unknown>;
+    await expect(loadConvex()).resolves.toBe(H.spy.buildConvex);
 
     // ---- controller deps: quick actions, target, anchor, openUrl, owner ----
     const deps = H.cap.controllerDeps!;

@@ -21,7 +21,6 @@ import { createFilterStore } from "@/core/filter-store";
 import { detectPlatform } from "@/core/keycaps";
 import { createListCache } from "@/core/list-cache";
 import { createListUsage } from "@/core/list-usage";
-import { buildConvexMembershipStore } from "@/core/membership-store/convex-client";
 import { createMembershipStore } from "@/core/membership-store/factory";
 import { createMirrorStatusStore } from "@/core/mirror-status";
 import { createPickerController } from "@/core/picker-controller";
@@ -156,9 +155,12 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
   // Off-to-the-side Mirror (ADR-0009): built only when a device key is configured,
   // otherwise NullMembershipStore ⇒ the X flow is byte-for-byte unchanged.
   const mirrorConfigured = !!(settings.convexUrl && settings.convexDeviceKey);
-  const membershipStore = createMembershipStore(
+  // Dynamic so convex/browser is a separate chunk: a static import costs every
+  // x.com page load +17.5 kB raw / +5.5 kB gzip for a path that is inert without
+  // a device key. The factory awaits this only when configured.
+  const membershipStore = await createMembershipStore(
     { convexUrl: settings.convexUrl, convexDeviceKey: settings.convexDeviceKey },
-    buildConvexMembershipStore,
+    async () => (await import("@/core/membership-store/convex-client")).buildConvexMembershipStore,
   );
 
   const creds = () => ({ fetch: pageFetch, creds: auth.credentials() });
