@@ -3,14 +3,15 @@
 The shared vocabulary for this codebase. Keep terms consistent in code, tests, and docs.
 
 ## Domain terms
-- **Tweet** — a post in the x.com timeline; in the DOM an `article[data-testid="tweet"]`. Lasso never "saves a tweet"; it uses the tweet to identify an **Author**.
+- **Tweet** — a post in the x.com timeline; in the DOM an `article[data-testid="tweet"]`. Lasso never "saves a tweet"; it uses the tweet to identify an **Author**. When Tweets are nested, the outer Tweet and its Author are the canonical interaction target.
 - **Author / Account** — the user who posted a tweet. The unit added to a List. Identified by **screenName** (handle, no `@`) and, once resolved, a numeric **userId** (`rest_id`).
 - **List** — an X List: a collection of **accounts** (not tweets). Identified by **listId** + name.
+- **List discovery** — loading the user's owned Lists and, when available, which of those Lists already contain an Author. It is independent of the selected Backend.
 - **Selection** — the set of Authors the user has currently picked. Lives in **SelectionStore** (signals), keyed case-insensitively by screenName, deduped.
 - **Select mode** — UI mode where per-tweet checkboxes are active for bulk picking.
 - **Assign** — adding the selected Authors to a target List. Produces one **AssignResult** per Author.
 - **AssignOutcome** — `added | already-member | protected | rate-limited | failed`. `already-member` is treated as idempotent success.
-- **Backend / Strategy** — a concrete `XListApi` implementation. Three exist: **RestXListApi** (default — X's stable v1.1 REST endpoints, live-verified, locale/DOM-proof; ADR-0007), **DomXListApi** (sanctioned UI automation, the most conservative) and **GraphqlXListApi** (opt-in, internal GraphQL). Selectable in Settings → "How Lasso talks to X".
+- **Backend / Strategy** — the selected way Lasso mutates List membership; it does not determine List discovery. Three exist: **RestXListApi** (default — X's stable v1.1 REST endpoints, live-verified, locale/DOM-proof; ADR-0007), **DomXListApi** (sanctioned UI automation, the most conservative) and **GraphqlXListApi** (opt-in, internal GraphQL).
 - **PageDriver** — the thin DOM-interaction layer the DOM backend drives; faked in tests.
 - **Selectors table** — the single centralized map of x.com DOM hooks (`content/selectors.ts`); the one place to fix on an X redesign.
 - **GraphqlConfig** — centralized, drift-prone queryIds + per-op `features`; seeded snapshot + optional runtime sniffer.
@@ -49,4 +50,4 @@ core/x-client/lists-provider  fetch owned Lists (v1.1)
 - Authenticated x.com calls run in the **content script** (same-origin). The SW holds no tokens, no long-lived state.
 - One explicit user gesture → one assign run. Human-paced. STOP on rate-limited. No self-draining queue.
 - UI is a Preact tree in an **open Shadow DOM**; never `innerHTML` of fetched data.
-- Consumers depend only on the `XListApi` interface — backends are interchangeable and covered by a shared contract test.
+- List-mutation consumers depend only on the `XListApi` interface — Backends are interchangeable for mutation and covered by a shared mutation contract test.
