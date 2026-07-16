@@ -18,8 +18,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 // --- REST backend builders (the production default) ---
-const restFetch =
-  (body: unknown): typeof fetch =>
+const restFetch = (body: unknown): typeof fetch =>
   (async () => jsonResponse(body)) as unknown as typeof fetch;
 const restFresh = (): XListApi => new RestXListApi(restFetch({}), () => creds);
 const restMember = (): XListApi =>

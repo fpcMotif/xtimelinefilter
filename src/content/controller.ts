@@ -97,8 +97,19 @@ export interface LassoController {
 }
 
 export function createLassoController(deps: ControllerDeps): LassoController {
-  const { selection, app, picker, toasts, undo, coach, backend, discovery, settings, quick, target } =
-    deps;
+  const {
+    selection,
+    app,
+    picker,
+    toasts,
+    undo,
+    coach,
+    backend,
+    discovery,
+    settings,
+    quick,
+    target,
+  } = deps;
   const now = deps.now ?? Date.now;
   let stopRequested = false;
   let lastSource: AssignSource = "pointer";

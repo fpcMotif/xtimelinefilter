@@ -30,7 +30,8 @@ export const BACKEND_COPY: Record<BackendStrategy, string> = {
 };
 
 /** This choice controls how Lasso *adds* people; reading your Lists is fixed (ADR-0008). */
-export const BACKEND_DISCOVERY_NOTE = "Either way, Lasso reads your Lists through X's stable REST endpoint.";
+export const BACKEND_DISCOVERY_NOTE =
+  "Either way, Lasso reads your Lists through X's stable REST endpoint.";
 
 export const DEFAULT_LIST_NONE = "None — always ask";
 export const DEFAULT_LIST_HINT = "Alt+Shift+L adds straight to this List.";
