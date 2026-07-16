@@ -49,13 +49,12 @@ export interface AssignResult {
 }
 
 /**
- * The seam every backend implements. The DOM and GraphQL strategies are
- * interchangeable; consumers depend only on this interface.
+ * The mutation seam every Backend implements. REST (default), DOM and GraphQL are
+ * interchangeable for *mutation* and covered by one contract test; consumers depend
+ * only on this interface. List *discovery* is strategy-independent and lives behind
+ * {@link "@/core/list-discovery".ListDiscovery} (ADR-0008) — it is not a Backend concern.
  */
 export interface XListApi {
-  getLists(): Promise<XList[]>;
-  /** Resolve a handle to a numeric id (GraphQL needs it; DOM returns null). */
-  resolveUserId(screenName: string): Promise<string | null>;
   /** Adds the author to the list; throws {@link XApiError} on failure. */
   addMember(list: XList, author: TweetAuthor): Promise<void>;
   removeMember(list: XList, author: TweetAuthor): Promise<void>;

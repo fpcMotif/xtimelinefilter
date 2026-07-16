@@ -4,22 +4,13 @@ import type { PageDriver } from "./page-driver";
 import { XApiError, type XList, type XListApi } from "./types";
 
 /**
- * Policy-conservative DEFAULT backend (ADR-0001/0005): drives the sanctioned X UI
+ * Policy-conservative mutation backend (ADR-0001/0005): drives the sanctioned X UI
  * via a PageDriver. Idempotent — checks row state before toggling. Requires no
- * bearer/queryId/ct0 (X's own client supplies them).
+ * bearer/queryId/ct0 (X's own client supplies them). Adds/removes by List *name*,
+ * matching the ids that owned-List discovery (core/list-discovery.ts) provides.
  */
 export class DomXListApi implements XListApi {
   constructor(private readonly driver: PageDriver) {}
-
-  async getLists(): Promise<XList[]> {
-    // The dialog exposes list names, not ids — use the name as the stable key.
-    return (await this.driver.listNames()).map((name) => ({ id: name, name }));
-  }
-
-  /** The DOM backend never needs a numeric id; resolution is a GraphQL concern. */
-  async resolveUserId(_screenName: string): Promise<string | null> {
-    return null;
-  }
 
   async addMember(list: XList, author: TweetAuthor): Promise<void> {
     await this.driver.openListsDialog(author);

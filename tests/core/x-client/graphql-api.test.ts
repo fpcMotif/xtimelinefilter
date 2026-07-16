@@ -160,12 +160,3 @@ describe("GraphqlXListApi.resolveUserId", () => {
     ).resolves.toBeNull();
   });
 });
-
-describe("GraphqlXListApi.getLists", () => {
-  it("throws the explicit not-implemented error", async () => {
-    await expect(makeApi(vi.fn() as unknown as typeof fetch).getLists()).rejects.toMatchObject({
-      kind: "unknown",
-      message: "GraphqlXListApi.getLists not implemented yet",
-    });
-  });
-});

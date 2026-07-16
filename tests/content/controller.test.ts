@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createAppState } from "@/content/app-state";
 import { createLassoController, UNDO_WINDOW_MS } from "@/content/controller";
 import { createCoach } from "@/core/coach";
-import type { ListCache } from "@/core/list-cache";
+import type { ListDiscovery } from "@/core/list-discovery";
 import { createPickerController } from "@/core/picker-controller";
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { createSettings } from "@/core/settings";
@@ -20,12 +20,6 @@ class FakeApi implements XListApi {
   added: string[] = [];
   removed: string[] = [];
   addImpl: (author: TweetAuthor) => Promise<void> = async () => {};
-  async getLists(): Promise<XList[]> {
-    return LISTS;
-  }
-  async resolveUserId(): Promise<string | null> {
-    return null;
-  }
   async addMember(_list: XList, author: TweetAuthor): Promise<void> {
     this.added.push(author.screenName);
     return this.addImpl(author);
@@ -35,13 +29,16 @@ class FakeApi implements XListApi {
   }
 }
 
-function fakeCache(lists: XList[]): ListCache {
+function fakeDiscovery(lists: XList[]): ListDiscovery {
   return {
-    async lists() {
+    async ownedLists() {
       return lists;
     },
-    async search() {
+    async refresh() {
       return lists;
+    },
+    async membership() {
+      return [];
     },
   };
 }
@@ -52,8 +49,8 @@ function harness(opts: { targetAuthor?: TweetAuthor | null; lists?: XList[] } = 
   const selection = createSelectionStore();
   const app = createAppState(selection);
   const backend = new FakeApi();
-  const cache = fakeCache(opts.lists ?? LISTS);
-  const picker = createPickerController({ cache });
+  const discovery = fakeDiscovery(opts.lists ?? LISTS);
+  const picker = createPickerController({ discovery });
   const toasts = createToastStore({ setTimer: () => 1, clearTimer: () => {} });
   const undo = createUndoRegistry({ setTimer: () => 1, clearTimer: () => {} });
   const coach = createCoach(memoryArea());
@@ -76,7 +73,7 @@ function harness(opts: { targetAuthor?: TweetAuthor | null; lists?: XList[] } = 
     undo,
     coach,
     backend,
-    cache,
+    discovery,
     settings,
     quick,
     target,

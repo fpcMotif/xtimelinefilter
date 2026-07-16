@@ -1,6 +1,14 @@
 # ADR-0001 — Two isolated backends: DOM automation (default) + GraphQL (opt-in); no API v2
 
-Status: Accepted · 2026-06-07 · Supersedes the first-pass "internal GraphQL default".
+Status: Accepted · 2026-06-07 · Supersedes the first-pass "internal GraphQL default". · **Amended 2026-07-16** (see note below and ADR-0008).
+
+> **Amendment (2026-07-16).** The interchangeable `XListApi` seam is **mutation-only**
+> (`addMember`/`removeMember`). This ADR's phrase "one `XListApi` interface" originally
+> also implied List *discovery* (`getLists`) was a per-backend concern; it never was —
+> production always loaded owned Lists through REST, DOM's `getLists` used the List name
+> as its id, and GraphQL's threw. Discovery has been lifted out of the Backend interface
+> into a strategy-independent `ListDiscovery` module (**ADR-0008**). Everything below about
+> the *mutation* strategy pattern, the DOM/GraphQL split, and the contract test still holds.
 
 ## Context
 Adding an account to an X List can be done three ways: the official paid X API v2 (OAuth), the internal `/i/api/graphql` endpoints the web app uses, or by automating the sanctioned web UI. The user rejected API v2 (cost) and asked for both GraphQL and DOM automation while respecting X's official policy. Research found: internal GraphQL queryIds/features/bearer rotate every ~2–4 weeks, `x-client-transaction-id` is increasingly enforced and cannot be hardcoded, and a 2026-03 X-Corp DMCA enforces against reverse-engineering exactly these mechanisms.

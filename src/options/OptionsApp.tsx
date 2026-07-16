@@ -29,6 +29,9 @@ export const BACKEND_COPY: Record<BackendStrategy, string> = {
     "GraphQL — fastest; uses X's private endpoints and may break or be frowned upon. Opt in deliberately.",
 };
 
+/** This choice controls how Lasso *adds* people; reading your Lists is fixed (ADR-0008). */
+export const BACKEND_DISCOVERY_NOTE = "Either way, Lasso reads your Lists through X's stable REST endpoint.";
+
 export const DEFAULT_LIST_NONE = "None — always ask";
 export const DEFAULT_LIST_HINT = "Alt+Shift+L adds straight to this List.";
 
@@ -102,6 +105,7 @@ export function OptionsApp({
             {BACKEND_COPY[value]}
           </label>
         ))}
+        <p class="text-muted mt-2 text-[13px]">{BACKEND_DISCOVERY_NOTE}</p>
       </Section>
 
       <Section title="Default List">

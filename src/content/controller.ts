@@ -3,7 +3,7 @@ import type { CommandId } from "@/content/keyboard";
 import { type AssignOptions, assignAuthorsToList } from "@/core/actions/assign-to-list";
 import { feedbackFor } from "@/core/assign-feedback";
 import type { Coach } from "@/core/coach";
-import type { ListCache } from "@/core/list-cache";
+import type { ListDiscovery } from "@/core/list-discovery";
 import type { ListUsage } from "@/core/list-usage";
 import type { PickerController } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
@@ -61,7 +61,7 @@ export interface ControllerDeps {
   undo: UndoRegistry;
   coach: Coach;
   backend: XListApi;
-  cache: ListCache;
+  discovery: ListDiscovery;
   settings: SettingsStore;
   usage?: ListUsage;
   quick: QuickActions;
@@ -97,7 +97,7 @@ export interface LassoController {
 }
 
 export function createLassoController(deps: ControllerDeps): LassoController {
-  const { selection, app, picker, toasts, undo, coach, backend, cache, settings, quick, target } =
+  const { selection, app, picker, toasts, undo, coach, backend, discovery, settings, quick, target } =
     deps;
   const now = deps.now ?? Date.now;
   let stopRequested = false;
@@ -195,7 +195,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       return;
     }
     const { defaultListId } = await settings.get();
-    const lists = defaultListId ? await cache.lists().catch((): XList[] => []) : [];
+    const lists = defaultListId ? await discovery.ownedLists().catch((): XList[] => []) : [];
     const list = lists.find((l) => l.id === defaultListId);
     if (!list) {
       selection.add(author);

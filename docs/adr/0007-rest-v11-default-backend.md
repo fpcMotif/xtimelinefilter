@@ -1,6 +1,13 @@
 # ADR-0007 — REST v1.1 is the default backend; DOM automation and GraphQL are the alternates
 
-Status: Accepted · 2026-06-11 · Refines ADR-0001
+Status: Accepted · 2026-06-11 · Refines ADR-0001 · **Amended 2026-07-16** (see note below and ADR-0008).
+
+> **Amendment (2026-07-16).** "All three implement the same interface and share the
+> contract test" is now scoped to **mutation** (`addMember`/`removeMember`) — the only
+> capability every backend actually honors. Owned-List **discovery** is not a backend
+> method: it always runs through the stable v1.1 REST ownerships endpoint regardless of
+> the selected mutation backend (**ADR-0008**), and the contract test now exercises REST,
+> DOM, and GraphQL mutation (add + remove). The default-backend decision below is unchanged.
 
 ## Context
 ADR-0001 set DOM automation as the default backend and named two strategies (DOM + GraphQL). In implementation a third strategy was added and made the default: `RestXListApi`, which uses X's stable **v1.1 REST** endpoints (`lists/members/create.json`, `mutes/users/create.json`, …) with the user's own same-origin session. Live verification found the v1.1 path is locale-independent, needs no DOM driving (so it does not break on an X redesign) and no GraphQL query-id drift, and adds members by `screen_name` (no id resolution). The code shipped `DEFAULT_SETTINGS.backend = "rest"` while PRD/CONTEXT still read "DOM-default" — and the Settings disclosure (product story beat 9) puts this exact choice in front of the user, so the docs and the default had to be reconciled before that copy could ship without lying.
@@ -12,6 +19,7 @@ The Settings disclosure copy (verbatim, story beat 9):
 - **Drive X's own menus** — slow, but uses only what you could click yourself (`dom`)
 - **X's public REST endpoints** — fast, same calls X's site makes (`rest`, default)
 - **GraphQL** — fastest; uses X's private endpoints and may break or be frowned upon. Opt in deliberately. (`graphql`)
+- Fixed note under all three (ADR-0008): *"Either way, Lasso reads your Lists through X's stable REST endpoint."*
 
 ## Consequences
 - The default works out of the box, survives X redesigns, and is locale-proof — the best default UX within the policy invariants (ADR-0005 still applies to all three backends).

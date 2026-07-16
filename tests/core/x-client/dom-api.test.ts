@@ -67,16 +67,4 @@ describe("DomXListApi", () => {
     await new DomXListApi(d).removeMember(RESEARCH, jack);
     expect(d.calls).toEqual(["open", "close"]);
   });
-
-  it("getLists maps dialog list names to XList[]", async () => {
-    const lists = await new DomXListApi(new FakeDriver()).getLists();
-    expect(lists).toEqual([
-      { id: "Research", name: "Research" },
-      { id: "Friends", name: "Friends" },
-    ]);
-  });
-
-  it("resolveUserId returns null (not needed by the DOM backend)", async () => {
-    expect(await new DomXListApi(new FakeDriver()).resolveUserId("jack")).toBeNull();
-  });
 });

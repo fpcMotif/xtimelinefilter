@@ -1,9 +1,9 @@
 import { computed, type ReadonlySignal, signal } from "@preact/signals-core";
 
 import { fuzzyRank } from "@/core/fuzzy";
-import type { ListCache } from "@/core/list-cache";
+import { type ListDiscovery, ListDiscoveryError } from "@/core/list-discovery";
 import type { TweetAuthor } from "@/core/selection-store";
-import { XApiError, type XList } from "@/core/x-client/types";
+import type { XList } from "@/core/x-client/types";
 
 /**
  * Headless state for the List picker's five designed states (story beats 4 & 8):
@@ -23,11 +23,10 @@ export interface PickerGroup {
 }
 
 export interface PickerControllerDeps {
-  cache: ListCache;
+  /** Owns loading, caching, silent refresh, and membership checks (core/list-discovery.ts). */
+  discovery: ListDiscovery;
   /** Recently used list ids for the Recent group (see ListUsage.recentIds). */
   recentIds?: (limit: number) => Promise<string[]>;
-  /** Owned-list ids already containing a screen name (lists-provider). */
-  memberships?: (screenName: string) => Promise<string[]>;
   /** Max rows in the Recent group. */
   recentLimit?: number;
 }
@@ -97,27 +96,23 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
 
   function applyError(e: unknown): void {
     status.value = "error";
-    errorKind.value =
-      e instanceof XApiError && (e.kind === "auth" || e.kind === "rate-limited")
-        ? e.kind
-        : "unknown";
+    errorKind.value = e instanceof ListDiscoveryError ? e.kind : "unknown";
   }
 
-  async function load(opts: { force: boolean }): Promise<void> {
+  // Discovery owns the cache-first + silent-refresh mechanics; the picker only guards
+  // against a superseded open() (generation) and paints the states.
+  async function load(reload: boolean): Promise<void> {
     const gen = generation;
     try {
-      const fresh = await deps.cache.lists(opts.force ? { force: true } : undefined);
+      const initial = reload
+        ? await deps.discovery.refresh()
+        : await deps.discovery.ownedLists({
+            onRefresh: (latest) => {
+              if (gen === generation && latest.length > 0) applyLists(latest);
+            },
+          });
       if (gen !== generation) return;
-      applyLists(fresh);
-      if (!opts.force) {
-        // Cache-first: what we just showed may be stale — refresh silently.
-        void deps.cache
-          .lists({ force: true })
-          .then((latest) => {
-            if (gen === generation && latest.length > 0) applyLists(latest);
-          })
-          .catch(() => {}); // background refresh never disturbs a visible picker
-      }
+      applyLists(initial);
     } catch (e) {
       if (gen === generation) applyError(e);
     }
@@ -151,25 +146,24 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
       }
 
       const single = authors.length === 1 ? authors[0] : undefined;
-      const memberships = deps.memberships;
-      if (single && memberships) {
-        // Promise.resolve().then(...) contains a SYNCHRONOUS throw too (e.g.
-        // auth.credentials() throwing when logged out) — a bare memberships()
+      if (single) {
+        // Promise.resolve().then(...) also contains a SYNCHRONOUS throw (e.g.
+        // auth.credentials() throwing when logged out) — a bare membership()
         // call would otherwise escape open(), which callers invoke as `void`.
         void Promise.resolve()
-          .then(() => memberships(single.screenName))
+          .then(() => deps.discovery.membership(single.screenName))
           .then((ids) => {
             if (gen === generation) alreadyIn.value = new Set(ids);
           })
           .catch(() => {});
       }
 
-      await load({ force: false });
+      await load(false);
     },
     async retry() {
       generation++;
       status.value = "loading";
-      await load({ force: true });
+      await load(true);
     },
     setQuery(q) {
       query.value = q;

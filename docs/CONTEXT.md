@@ -10,7 +10,8 @@ The shared vocabulary for this codebase. Keep terms consistent in code, tests, a
 - **Select mode** — UI mode where per-tweet checkboxes are active for bulk picking.
 - **Assign** — adding the selected Authors to a target List. Produces one **AssignResult** per Author.
 - **AssignOutcome** — `added | already-member | protected | rate-limited | failed`. `already-member` is treated as idempotent success.
-- **Backend / Strategy** — a concrete `XListApi` implementation. Three exist: **RestXListApi** (default — X's stable v1.1 REST endpoints, live-verified, locale/DOM-proof; ADR-0007), **DomXListApi** (sanctioned UI automation, the most conservative) and **GraphqlXListApi** (opt-in, internal GraphQL). Selectable in Settings → "How Lasso talks to X".
+- **Backend / Strategy** — a concrete `XListApi` implementation. The `XListApi` seam is **mutation-only** (`addMember`/`removeMember`); the three backends are interchangeable *for mutation* and covered by one contract test. Three exist: **RestXListApi** (default — X's stable v1.1 REST endpoints, live-verified, locale/DOM-proof; ADR-0007), **DomXListApi** (sanctioned UI automation, the most conservative) and **GraphqlXListApi** (opt-in, internal GraphQL). Selectable in Settings → "How Lasso talks to X".
+- **List discovery** — loading the user's OWN Lists (plus best-effort "already in" membership). **Strategy-independent** (ADR-0008): it always reads through the stable v1.1 REST ownerships endpoint regardless of the selected mutation Backend. Owned by **ListDiscovery** (`core/list-discovery.ts`), which also owns caching and cache-first + silent-refresh; it exposes only product-relevant failure kinds (`auth | rate-limited | unknown`) via `ListDiscoveryError`.
 - **PageDriver** — the thin DOM-interaction layer the DOM backend drives; faked in tests.
 - **Selectors table** — the single centralized map of x.com DOM hooks (`content/selectors.ts`); the one place to fix on an X redesign.
 - **GraphqlConfig** — centralized, drift-prone queryIds + per-op `features`; seeded snapshot + optional runtime sniffer.
@@ -19,16 +20,17 @@ The shared vocabulary for this codebase. Keep terms consistent in code, tests, a
 ## Module map (single-purpose units)
 ```
 core/selection-store   reactive selection (done)        core/tweet-extractor   article -> author (pure)
-core/x-client/types    XListApi seam + errors           core/x-client/auth     ct0 + bearer
-core/x-client/dom-api  default backend (UI automation)  core/x-client/page-driver  DOM driver
-core/x-client/graphql-api  opt-in backend               core/x-client/graphql-config  ids/features
+core/x-client/types    XListApi mutation seam + errors  core/x-client/auth     ct0 + bearer
+core/x-client/dom-api  DOM mutation backend             core/x-client/page-driver  DOM driver
+core/x-client/graphql-api  opt-in mutation backend      core/x-client/graphql-config  ids/features
 core/x-client/factory  pick backend from settings       core/actions/assign-to-list  orchestrate + policy
-core/list-cache        list + handle->id cache          core/settings          typed storage.sync
+core/list-discovery    owned-List load/cache/refresh/membership (REST; ADR-0008)
+core/settings          typed storage.sync               core/storage-keys      storage key registry
 content/main           wire observer/store/UI           content/selectors      DOM hook table
 ui/*                   Preact in Shadow DOM             background/index       minimal SW
 content/get-focused-tweet  read X's native j/k cursor   content/keyboard       Alt+key dispatcher + DEFAULT_KEYMAP
 core/x-client/caret-actions  mute/not-interested/block via the "..." menu
-core/x-client/lists-provider  fetch owned Lists (v1.1)
+core/x-client/lists-provider  v1.1 owned-List + membership transport (used by list-discovery)
 ```
 
 ## Keyboard terms (docs/blueprint/2026-06-09-keyboard-layer.md)
@@ -49,4 +51,4 @@ core/x-client/lists-provider  fetch owned Lists (v1.1)
 - Authenticated x.com calls run in the **content script** (same-origin). The SW holds no tokens, no long-lived state.
 - One explicit user gesture → one assign run. Human-paced. STOP on rate-limited. No self-draining queue.
 - UI is a Preact tree in an **open Shadow DOM**; never `innerHTML` of fetched data.
-- Consumers depend only on the `XListApi` interface — backends are interchangeable and covered by a shared contract test.
+- For **mutation**, consumers depend only on the `XListApi` interface — backends are interchangeable and covered by a shared contract test. For **discovery**, consumers depend only on `ListDiscovery`; it is strategy-independent (fixed REST) and hides cache/refresh mechanics (ADR-0008).

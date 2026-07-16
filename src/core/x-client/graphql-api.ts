@@ -64,12 +64,6 @@ export class GraphqlXListApi implements XListApi {
     return typeof restId === "string" ? restId : null;
   }
 
-  async getLists(): Promise<XList[]> {
-    // TODO(next TDD cycle): implement via v1.1 lists/ownerships (simpler/stabler
-    // than walking ListsManagementPageTimeline GraphQL). Tracked in blueprint §9.
-    throw new XApiError("unknown", "GraphqlXListApi.getLists not implemented yet");
-  }
-
   private async mutateMember(
     opName: string,
     queryId: string,

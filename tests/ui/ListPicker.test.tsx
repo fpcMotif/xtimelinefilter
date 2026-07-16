@@ -1,9 +1,9 @@
 import { fireEvent, render, waitFor } from "@testing-library/preact";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ListCache } from "@/core/list-cache";
+import { type ListDiscovery, ListDiscoveryError } from "@/core/list-discovery";
 import { createPickerController } from "@/core/picker-controller";
-import { XApiError, type XList } from "@/core/x-client/types";
+import type { XList } from "@/core/x-client/types";
 import { ListPicker } from "@/ui/ListPicker";
 
 const LISTS: XList[] = [
@@ -12,10 +12,14 @@ const LISTS: XList[] = [
   { id: "3", name: "Founders", memberCount: 1 },
 ];
 
-function cacheOf(impl: () => Promise<XList[]>): ListCache {
+function discoveryOf(
+  impl: () => Promise<XList[]>,
+  membership?: () => Promise<string[]>,
+): ListDiscovery {
   return {
-    lists: () => impl(),
-    search: async () => [],
+    ownedLists: () => impl(),
+    refresh: () => impl(),
+    membership: () => (membership ? membership() : Promise.resolve([])),
   };
 }
 
@@ -27,9 +31,8 @@ async function setup(opts: {
   selectedCount?: number;
 }) {
   const picker = createPickerController({
-    cache: cacheOf(opts.lists ?? (async () => LISTS)),
+    discovery: discoveryOf(opts.lists ?? (async () => LISTS), opts.memberships),
     ...(opts.recentIds ? { recentIds: opts.recentIds } : {}),
-    ...(opts.memberships ? { memberships: opts.memberships } : {}),
   });
   await picker.open([{ screenName: "jane" }]);
   const onPick = vi.fn();
@@ -119,7 +122,7 @@ describe("ListPicker — designed failure beats (story beat 8)", () => {
   it("logged out: names the cause and offers Retry", async () => {
     const s = await setup({
       lists: async () => {
-        throw new XApiError("auth", "401");
+        throw new ListDiscoveryError("auth", "401");
       },
     });
     expect(s.getByText("Couldn't load your Lists")).toBeTruthy();
@@ -130,7 +133,7 @@ describe("ListPicker — designed failure beats (story beat 8)", () => {
   it("rate-limited fetch names the rate limit", async () => {
     const s = await setup({
       lists: async () => {
-        throw new XApiError("rate-limited", "429");
+        throw new ListDiscoveryError("rate-limited", "429");
       },
     });
     expect(s.getByText("X rate limited Lasso — try again in a few minutes")).toBeTruthy();
@@ -140,7 +143,7 @@ describe("ListPicker — designed failure beats (story beat 8)", () => {
     let fail = true;
     const s = await setup({
       lists: async () => {
-        if (fail) throw new XApiError("auth", "401");
+        if (fail) throw new ListDiscoveryError("auth", "401");
         return LISTS;
       },
     });
@@ -151,7 +154,7 @@ describe("ListPicker — designed failure beats (story beat 8)", () => {
 
   it("loading shows skeleton rows, not a lie", async () => {
     const picker = createPickerController({
-      cache: cacheOf(() => new Promise<XList[]>(() => {})), // never resolves
+      discovery: discoveryOf(() => new Promise<XList[]>(() => {})), // never resolves
     });
     void picker.open([{ screenName: "jane" }]);
     const { container } = render(

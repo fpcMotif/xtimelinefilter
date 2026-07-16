@@ -7,6 +7,7 @@ import { STORAGE_KEYS } from "@/core/storage-keys";
 import {
   ACTIVATION_COPY,
   BACKEND_COPY,
+  BACKEND_DISCOVERY_NOTE,
   DEFAULT_LIST_HINT,
   DEFAULT_LIST_NONE,
   OptionsApp,
@@ -47,6 +48,8 @@ describe("OptionsApp — story beat 9", () => {
     for (const copy of Object.values(BACKEND_COPY)) expect(s.getByText(copy)).toBeTruthy();
     const restRadio = s.getByText(BACKEND_COPY.rest).querySelector("input") as HTMLInputElement;
     expect(restRadio.checked).toBe(true);
+    // The mutation choice never changes how Lists are read (ADR-0008).
+    expect(s.getByText(BACKEND_DISCOVERY_NOTE)).toBeTruthy();
   });
 
   it("switching activation persists", async () => {

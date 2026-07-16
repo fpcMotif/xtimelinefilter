@@ -11,7 +11,7 @@ import { DriverSelectors, Selectors } from "@/content/selectors";
 import { createTweetScanner } from "@/content/tweet-scanner";
 import { createCoach } from "@/core/coach";
 import { detectPlatform } from "@/core/keycaps";
-import { createListCache } from "@/core/list-cache";
+import { createListDiscovery } from "@/core/list-discovery";
 import { createListUsage } from "@/core/list-usage";
 import { createPickerController } from "@/core/picker-controller";
 import {
@@ -30,7 +30,6 @@ import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
 import { createXListApi } from "@/core/x-client/factory";
 import { GraphqlXListApi } from "@/core/x-client/graphql-api";
 import { DEFAULT_GRAPHQL_CONFIG } from "@/core/x-client/graphql-config";
-import { fetchMembershipListIds, fetchOwnedLists } from "@/core/x-client/lists-provider";
 import { blockUser, muteUser, RestXListApi, unmuteUser } from "@/core/x-client/rest-api";
 import { attachShadowRoot, createUiRoot } from "@/ui/mount";
 
@@ -109,16 +108,13 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     graphql: () =>
       new GraphqlXListApi(auth.credentials(), { fetch: pageFetch, config: DEFAULT_GRAPHQL_CONFIG }),
   });
-  // List discovery via the stable v1.1 endpoint, decoupled from the add-backend.
-  const listCache = createListCache(() =>
-    fetchOwnedLists({ fetch: pageFetch, creds: auth.credentials() }),
-  );
+  // List discovery via the stable v1.1 endpoint, decoupled from the mutation backend
+  // (ADR-0008): loads owned Lists through REST no matter which backend is selected.
+  const discovery = createListDiscovery({ fetch: pageFetch, creds: () => auth.credentials() });
   const listUsage = createListUsage();
   const picker = createPickerController({
-    cache: listCache,
+    discovery,
     recentIds: (limit) => listUsage.recentIds(limit),
-    memberships: (screenName) =>
-      fetchMembershipListIds({ fetch: pageFetch, creds: auth.credentials() }, screenName),
   });
 
   // Quick actions target the tweet under the mouse (fallback: X's native j/k focus),
@@ -153,7 +149,7 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     undo,
     coach,
     backend,
-    cache: listCache,
+    discovery,
     settings: settingsStore,
     usage: listUsage,
     quick: {

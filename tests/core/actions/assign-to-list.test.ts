@@ -7,12 +7,6 @@ import { XApiError, type XList, type XListApi } from "@/core/x-client/types";
 class FakeApi implements XListApi {
   added: string[] = [];
   addImpl: (author: TweetAuthor) => Promise<void> = async () => {};
-  async getLists(): Promise<XList[]> {
-    return [];
-  }
-  async resolveUserId(): Promise<string | null> {
-    return null;
-  }
   async addMember(_list: XList, author: TweetAuthor): Promise<void> {
     this.added.push(author.screenName);
     return this.addImpl(author);

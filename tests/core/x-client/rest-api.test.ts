@@ -109,32 +109,21 @@ describe("v1.1 REST writes", () => {
     const api = new RestXListApi(fetchMock as unknown as typeof fetch, () => creds);
     const list: XList = { id: "L9", name: "Research" };
     await api.addMember(list, { screenName: "alice" });
-    expect(await api.resolveUserId("alice")).toBeNull();
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toContain("lists/members/create.json");
     expect(parseBody(init)).toEqual({ list_id: "L9", screen_name: "alice" });
   });
 
-  it("RestXListApi delegates list loading and removal lazily through credentials", async () => {
+  it("RestXListApi.removeMember reads credentials lazily per call", async () => {
     let credentialReads = 0;
-    const fetchMock = vi.fn(async (url: string) => {
-      if (url.includes("ownerships")) {
-        return new Response(JSON.stringify({ lists: [{ id_str: "1", name: "Research" }] }), {
-          status: 200,
-        });
-      }
-      return ok();
-    });
+    const fetchMock = vi.fn(async (_url: string) => ok());
     const api = new RestXListApi(fetchMock as unknown as typeof fetch, () => {
       credentialReads += 1;
       return creds;
     });
-    await expect(api.getLists()).resolves.toEqual([
-      { id: "1", name: "Research", memberCount: undefined },
-    ]);
     await api.removeMember({ id: "L9", name: "Research" }, { screenName: "alice" });
-    expect(credentialReads).toBe(2);
-    expect(fetchMock.mock.calls[1]?.[0]).toContain("lists/members/destroy.json");
+    expect(credentialReads).toBe(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("lists/members/destroy.json");
   });
 
   it("surfaces typed errors from REST helpers", async () => {
