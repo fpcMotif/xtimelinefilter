@@ -22,6 +22,7 @@ import {
   SELECT_MODE_NUDGE,
   SELECTOR_HEALTH,
   UNDO,
+  unmuteFailedLine,
   unmutedLine,
   VIEW_LIST,
   WAKE_TOAST,
@@ -241,7 +242,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       await quick.unmute(author.screenName);
       toasts.show({ kind: "info", title: unmutedLine(author.screenName) });
     } catch {
-      toasts.show({ kind: "danger", title: muteFailedLine(author.screenName) });
+      toasts.show({ kind: "danger", title: unmuteFailedLine(author.screenName) });
     }
   }
 

@@ -116,6 +116,7 @@ export const hideFailedLine = "Couldn't hide that post";
 export const removedLine = (n: number, listName: string): string =>
   `Removed ${formatCount(n)} from ${listName}`;
 export const unmutedLine = (screenName: string): string => `Unmuted @${screenName}`;
+export const unmuteFailedLine = (screenName: string): string => `Couldn't unmute @${screenName}`;
 export const blockedLine = (screenName: string): string => `Blocked @${screenName}`;
 export const blockFailedLine = (screenName: string): string => `Couldn't block @${screenName}`;
 

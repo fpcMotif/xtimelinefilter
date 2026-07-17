@@ -65,6 +65,7 @@ describe("canonical strings", () => {
   it("11 — mute confirmation and failure", () => {
     expect(S.mutedLine("jane")).toBe("Muted @jane");
     expect(S.muteFailedLine("jane")).toBe("Couldn't mute @jane");
+    expect(S.unmuteFailedLine("jane")).toBe("Couldn't unmute @jane");
   });
 
   it("12 — select-mode bar", () => {

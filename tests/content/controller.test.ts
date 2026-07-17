@@ -296,6 +296,17 @@ describe("quick actions report back (story beat 6)", () => {
     expect(toast?.actions?.[0]?.label).toBe("Retry");
   });
 
+  it("unmute failure: literal danger toast names the unmute", async () => {
+    const h = harness();
+    await h.controller.muteAuthor({ screenName: "jane" }); // arms the unmute undo
+    h.quick.unmute.mockRejectedValueOnce(new Error("boom"));
+    expect(h.controller.command("undo")).toBe(true);
+    await flush();
+    const toast = h.toasts.toasts.value[1];
+    expect(toast?.kind).toBe("danger");
+    expect(toast?.title).toBe("Couldn't unmute @jane");
+  });
+
   it("not-interested confirms that X received the feedback", async () => {
     const h = harness();
     await h.controller.hideTweet(document.createElement("article"));

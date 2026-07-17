@@ -16,7 +16,7 @@ Verification gate for every plan (also inside each file): `bun install --frozen-
 | 006 | Lazy GraphQL creds, unbrickable boot, real `getLists` | P1 | S | — | DONE |
 | 007 | Move settings to storage.local + migration | P1 | S | — | DONE |
 | 008 | Keep assign Undo visible for the full window | P2 | S | — | DONE |
-| 009 | Report unmute failures with the right verb | P2 | S | 005 | TODO |
+| 009 | Report unmute failures with the right verb | P2 | S | 005 | DONE |
 | 010 | Selection-store merge keeps resolved fields | P2 | S | — | TODO |
 | 011 | Tear down per-tweet overlay roots on article removal | P1 | M | — | TODO |
 | 012 | Scope overlay subscriptions to their own selected state | P1 | S-M | 010, 011 | TODO |
