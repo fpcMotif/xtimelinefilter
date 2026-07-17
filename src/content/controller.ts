@@ -158,8 +158,9 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     for (const screenName of fb.deselect) selection.remove(screenName);
     void coach.recordAssign();
 
+    let undoToken: number | undefined;
     if (fb.actions.includes("undo") && fb.undoable.length > 0) {
-      undo.arm(() => void undoAdds(fb.undoable, list), UNDO_WINDOW_MS);
+      undoToken = undo.arm(() => void undoAdds(fb.undoable, list), UNDO_WINDOW_MS);
     }
     const actions: ToastAction[] = fb.actions.map((kind) => {
       if (kind === "view-list") {
@@ -170,7 +171,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
           label: UNDO,
           kbd: "Z",
           run: () => {
-            undo.trigger();
+            undo.trigger(undoToken);
           },
         };
       }
@@ -211,7 +212,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   async function muteAuthor(author: TweetAuthor): Promise<void> {
     try {
       await quick.mute(author.screenName);
-      undo.arm(() => void unmuteAuthor(author), UNDO_WINDOW_MS);
+      const undoToken = undo.arm(() => void unmuteAuthor(author), UNDO_WINDOW_MS);
       toasts.show({
         kind: "success",
         title: mutedLine(author.screenName),
@@ -221,7 +222,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
             label: UNDO,
             kbd: "Z",
             run: () => {
-              undo.trigger();
+              undo.trigger(undoToken);
             },
           },
         ],

@@ -303,6 +303,25 @@ describe("quick actions report back (story beat 6)", () => {
   });
 });
 
+describe("toast Undo buttons are bound to their own armed action", () => {
+  it("a superseded toast's Undo no-ops instead of firing the latest armed undo", async () => {
+    const h = harness();
+    await h.controller.muteAuthor({ screenName: "jane" }); // toast A: unmute armed
+    const toastA = h.toasts.toasts.value[0];
+
+    h.selection.add({ screenName: "kay" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList); // toast B: assign-undo armed (supersedes)
+
+    // Click Undo on toast A (the mute toast): must NOT remove kay from the list.
+    const undoIndex = toastA?.actions?.findIndex((a) => a.label === "Undo") ?? -1;
+    expect(undoIndex).toBeGreaterThanOrEqual(0);
+    h.toasts.act(toastA?.id as number, undoIndex);
+
+    expect(h.backend.removed).toEqual([]); // assign-undo did NOT fire
+    expect(h.quick.unmute).not.toHaveBeenCalled(); // mute-undo no longer armed
+  });
+});
+
 describe("escape / help / selection coaching", () => {
   it("escape is consumed only when Lasso has something open", () => {
     const h = harness();

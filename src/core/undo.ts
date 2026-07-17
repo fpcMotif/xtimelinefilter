@@ -6,9 +6,14 @@ import type { ToastTimers } from "@/core/toast-store";
  * undo; expiry disarms silently.
  */
 export interface UndoRegistry {
-  arm(run: () => void, windowMs: number): void;
-  /** Run + disarm the active undo; false if none is armed. */
-  trigger(): boolean;
+  /** Arm an undo; returns a token identifying THIS armed action. */
+  arm(run: () => void, windowMs: number): number;
+  /**
+   * Run + disarm the active undo; false if none is armed. With a token, runs
+   * only if that exact action is still the armed one (a superseded toast's
+   * button no-ops); without a token (the Z key), runs the latest.
+   */
+  trigger(token?: number): boolean;
   disarm(): void;
 }
 
@@ -18,7 +23,8 @@ const realTimers: ToastTimers = {
 };
 
 export function createUndoRegistry(timers: ToastTimers = realTimers): UndoRegistry {
-  let active: { run: () => void; timer: number } | null = null;
+  let active: { run: () => void; timer: number; token: number } | null = null;
+  let nextToken = 1;
 
   function disarm(): void {
     if (active) timers.clearTimer(active.timer);
@@ -28,10 +34,13 @@ export function createUndoRegistry(timers: ToastTimers = realTimers): UndoRegist
   return {
     arm(run, windowMs) {
       disarm();
-      active = { run, timer: timers.setTimer(disarm, windowMs) };
+      const token = nextToken++;
+      active = { run, timer: timers.setTimer(disarm, windowMs), token };
+      return token;
     },
-    trigger() {
+    trigger(token?: number) {
       if (!active) return false;
+      if (token !== undefined && token !== active.token) return false;
       const { run } = active;
       disarm();
       run();

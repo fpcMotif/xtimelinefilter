@@ -58,4 +58,25 @@ describe("createUndoRegistry", () => {
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
   });
+
+  it("runs only the token-matching action when a token is given", () => {
+    const reg = createUndoRegistry(manualTimers());
+    const first = vi.fn();
+    const second = vi.fn();
+    const t1 = reg.arm(first, 10_000);
+    const t2 = reg.arm(second, 10_000);
+    expect(reg.trigger(t1)).toBe(false); // superseded: no-op, second stays armed
+    expect(first).not.toHaveBeenCalled();
+    expect(reg.trigger(t2)).toBe(true);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stale token no-ops after the armed action already fired", () => {
+    const reg = createUndoRegistry(manualTimers());
+    const run = vi.fn();
+    const token = reg.arm(run, 10_000);
+    expect(reg.trigger()).toBe(true);
+    expect(reg.trigger(token)).toBe(false);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });
