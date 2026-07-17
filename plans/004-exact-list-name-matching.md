@@ -1,0 +1,175 @@
+# Plan 004: Match Lists dialog rows by exact name, not substring
+
+> **Executor instructions**: Follow this plan step by step. Run every
+> verification command and confirm the expected result before moving to the
+> next step. If anything in the "STOP conditions" section occurs, stop and
+> report — do not improvise. When done, update the status row for this plan
+> in `plans/README.md` — unless a reviewer dispatched you and told you they
+> maintain the index.
+>
+> **Drift check (run first)**: `git diff --stat 7ce587e..HEAD -- src/core/x-client/dom-page-driver.ts tests/core/x-client/dom-page-driver.test.ts`
+> If any in-scope file changed since this plan was written, compare the
+> "Current state" excerpts against the live code before proceeding; on a
+> mismatch, treat it as a STOP condition.
+
+## Status
+
+- **Priority**: P1
+- **Effort**: S
+- **Risk**: LOW-MED (row inner structure on live X is not fully known; the fix must degrade to a thrown "not found" rather than a guess — see the matching rules)
+- **Depends on**: plans/001-flag-driver-synthetic-escape.md (same file; land first to avoid a merge collision)
+- **Category**: bug
+- **Planned at**: commit `7ce587e`, 2026-07-17
+
+## Why this matters
+
+The DOM backend finds a List row in X's "Add/remove from Lists" dialog by `row.textContent.includes(name)`. With two Lists whose names share a substring — "Close Friends" and "Friends" — the first row that *contains* the target name wins, and X renders rows alphabetically, so "Close Friends" matches a request for "Friends". Lasso then toggles the wrong List and reports "Added to Friends" — the precise failure mode this project exists to prevent (reporting success while X did something else), and Undo inherits the same mis-targeting, unchecking a List the user never touched. After this plan, row matching is exact and unambiguous, or it fails loudly.
+
+## Current state
+
+- `src/core/x-client/dom-page-driver.ts` — the real PageDriver; contains the matcher.
+- `src/core/x-client/dom-api.ts` — calls `isChecked`/`toggleList` by list name (do not change).
+- `tests/core/x-client/dom-page-driver.test.ts` — synthetic-X fixtures; pattern anchor.
+
+The bug, `src/core/x-client/dom-page-driver.ts:43-45`:
+
+```ts
+  function rowByName(name: string): HTMLElement | undefined {
+    return rows().find((r) => textOf(r).includes(name));
+  }
+```
+
+used by both consumers, `src/core/x-client/dom-page-driver.ts:85-96`:
+
+```ts
+    async isChecked(listName: string) {
+      const row = rowByName(listName);
+      if (!row) return false;
+      const box = row.querySelector(DriverSelectors.CHECKBOX);
+      return box?.getAttribute("aria-checked") === "true";
+    },
+    async toggleList(listName: string) {
+      const row = rowByName(listName);
+      if (!row) throw new Error(`Lasso: list "${listName}" not found in dialog`);
+      click(row);
+      await settle(120);
+    },
+```
+
+Supporting context from the same file: `rows()` (:37-41) scopes to `[role="dialog"] [role="menuitem"]`; `textOf` (:8) is `el.textContent as string`. Row text in the synthetic fixture (and likely on X) includes more than the name — the fixture renders `<div role="menuitem"><span>Research</span><div role="checkbox" …></div></div>` (`tests/core/x-client/dom-page-driver.test.ts:35-36`), so the name lives in a dedicated child element, while `textContent` of the whole row may concatenate extra text (member counts, checkmarks).
+
+Behavioral contract to preserve: `isChecked` returns `false` for a missing row; `toggleList` throws `/not found/` for a missing row (pinned by the test at `dom-page-driver.test.ts:91-97`). Vocabulary (docs/CONTEXT.md): the dialog rows are **Lists**; the unit added is an **Author**.
+
+## Commands you will need
+
+| Purpose   | Command                          | Expected on success |
+|-----------|----------------------------------|---------------------|
+| Install   | `bun install --frozen-lockfile`  | exit 0              |
+| Typecheck | `bun run typecheck`              | exit 0, no errors   |
+| Lint      | `bun run lint`                   | exit 0              |
+| Format    | `bun run format:check`           | exit 0              |
+| All tests | `bun run test`                   | all pass            |
+| Focused   | `bunx vitest run tests/core/x-client/dom-page-driver.test.ts` | all pass |
+
+## Scope
+
+**In scope** (the only files you should modify):
+- `src/core/x-client/dom-page-driver.ts`
+- `tests/core/x-client/dom-page-driver.test.ts`
+
+**Out of scope** (do NOT touch, even though they look related):
+- `src/core/x-client/dom-api.ts` — the name-based seam (`id === name` for the DOM backend) is deliberate; this plan only makes name *matching* exact.
+- `src/content/selectors.ts` — if a dedicated name-element selector proves necessary, derive it structurally in the driver (e.g. first element child) rather than adding an unverified live-DOM selector to the central table.
+- Case-folding or locale-normalized comparison beyond what's specified below — X List names are matched as the user typed them; do not invent fuzzy matching (the substring bug came from guessing; exactness is the point).
+
+## Git workflow
+
+- Branch: `advisor/004-exact-list-name-match`
+- One commit; message style e.g. `fix: match Lists dialog rows by exact name instead of substring`.
+- Do NOT push, open a PR, or commit at all unless the operator instructed it — otherwise leave the changes in the working tree.
+
+## Steps
+
+### Step 1: Add the failing regression test first
+
+In `tests/core/x-client/dom-page-driver.test.ts`, extend the synthetic dialog fixture pattern (model after `setupSyntheticX`, :10-50) with a test that mounts rows "Close Friends" and "Friends" in that order and asserts exact targeting:
+
+```ts
+it("matches rows by exact name, not substring", async () => {
+  // Reuse setupSyntheticX's caret→menu→dialog mechanics but with tricky names:
+  // "Close Friends" renders before "Friends" (alphabetical), and both contain "Friends".
+  setupSyntheticXWithLists(document, ["Close Friends", "Friends"]);
+  const d = driver();
+  await d.openListsDialog({ screenName: "jack" });
+
+  expect(await d.isChecked("Friends")).toBe(false); // not the "Close Friends" row's state
+  await d.toggleList("Friends");
+  expect(await d.isChecked("Friends")).toBe(true);
+  expect(await d.isChecked("Close Friends")).toBe(false); // untouched
+});
+```
+
+Refactor `setupSyntheticX` minimally: extract a parameterized variant `setupSyntheticXWithLists(doc, names: string[])` that renders one row per name as `<div role="menuitem"><span>NAME</span><div role="checkbox" aria-checked="false"></div></div>` with the same click-to-toggle behavior, and have `setupSyntheticX` delegate to it with `["Research", "Friends"]` (preserving its current row markup including the pre-checked "Friends" row — check the fixture: "Friends" is `aria-checked="true"`, so parameterize the checked set too, e.g. `setupSyntheticXWithLists(doc, names, checked = ["Friends"])`).
+
+**Verify**: `bunx vitest run tests/core/x-client/dom-page-driver.test.ts` → the new test FAILS (substring matcher picks "Close Friends"); existing tests pass.
+
+### Step 2: Replace substring matching with exact matching
+
+In `src/core/x-client/dom-page-driver.ts`, rewrite `rowByName`:
+
+```ts
+  const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
+
+  // Exact match only: substring matching picks "Close Friends" for "Friends".
+  // Prefer the row's name-bearing child (extra row text — member counts,
+  // checkmarks — must not participate); fall back to the whole row's text.
+  function rowByName(name: string): HTMLElement | undefined {
+    const wanted = norm(name);
+    return rows().find((r) => {
+      const nameEl = r.querySelector("span, div");
+      return norm(nameEl ? textOf(nameEl) : textOf(r)) === wanted;
+    });
+  }
+```
+
+Rules this encodes (do not weaken them):
+- Comparison is on whitespace-normalized, case-**sensitive** equality (X List names are shown as created; case-folding is out of scope).
+- The name-bearing child is the row's first `span`/`div` descendant; if the row has none, the row's own normalized text is used.
+- If NO row matches, existing contract stands: `isChecked` → `false`, `toggleList` → throws `/not found/`. Never fall back to substring or "closest" matching.
+
+**Verify**: `bunx vitest run tests/core/x-client/dom-page-driver.test.ts` → all tests pass, including the new one.
+
+### Step 3: Full gate
+
+**Verify**: `bun run typecheck && bun run lint && bun run format:check && bun run test` → all exit 0.
+
+## Test plan
+
+- New test (Step 1): substring-collision pair, exact targeting, untouched neighbor. Model fixture structure after `setupSyntheticX` in the same file.
+- Existing tests must pass unchanged — notably `"returns false for missing rows and throws when toggling one"` (:91-97) and `"reads and toggles row checked state"` (:71-80), whose rows carry the name in a `<span>` (the preferred-child path).
+- Verification: `bunx vitest run tests/core/x-client/dom-page-driver.test.ts` → all pass, including 1 new test.
+
+## Done criteria
+
+Machine-checkable. ALL must hold:
+
+- [ ] `bun run typecheck` exits 0
+- [ ] `bun run lint` and `bun run format:check` exit 0
+- [ ] `bun run test` exits 0; the substring-collision test exists and passes
+- [ ] `grep -n "includes(name)" src/core/x-client/dom-page-driver.ts` returns no matches
+- [ ] No files outside the in-scope list are modified (`git status --short`)
+- [ ] `plans/README.md` status row updated
+
+## STOP conditions
+
+Stop and report back (do not improvise) if:
+
+- The `rowByName` excerpt no longer matches (drift).
+- The parameterized fixture cannot preserve the existing tests' expectations (markup or checked-state assumptions differ from this plan).
+- You feel tempted to add a live-X row-structure selector to `src/content/selectors.ts` — that table's entries need live verification, which this plan cannot perform; use the structural first-child derivation and report the residual live-verification need instead.
+
+## Maintenance notes
+
+- **Live verification still required**: the name-bearing-child heuristic (`first span/div`) is verified against the synthetic fixture, not live X. Before the next release relying on the DOM backend, confirm in DevTools that the Lists dialog row's name sits in the first element child; if X puts member-count text *before* the name, adjust the child selection. This is the repo's standing convention (see "VERIFY LIVE" comments in `src/content/selectors.ts:32-35`).
+- In PR review, scrutinize that no code path reintroduces partial matching (including `startsWith`) and that the throw-vs-false contract for missing rows is unchanged.
+- If X ever allows duplicate List names, exact matching becomes ambiguous; that would need a dialog-position strategy — out of scope, but flag it if discovered during live verification.

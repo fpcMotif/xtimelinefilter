@@ -1,0 +1,163 @@
+# 011 — Tear down per-tweet overlay roots when their article leaves the DOM
+
+- **Status**: TODO
+- **Commit**: 7ce587e
+- **Severity**: HIGH
+- **Category**: Performance (also Bugs & correctness, Maintainability)
+- **Rule**: Beyond the scan (manual; confirmed independently by three audit passes)
+- **Estimated scope**: 2 source files (`src/content/main.tsx`, `src/content/tweet-scanner.ts`) + 1 test file
+
+## Problem
+
+`injectOverlay` creates a Preact root per tweet and nothing ever unmounts it. The only `render(null, …)` in the codebase is `createUiRoot.destroy` (src/ui/mount.tsx:52), which has no caller in the content script. X's timeline is virtualized: article nodes are added and removed constantly while scrolling.
+
+```tsx
+// src/content/main.tsx:75-87 — current
+  const hovered = computed(() => deps.visualHover.value === article);
+  const { mount } = attachShadowRoot(host);
+  render(
+    <OverlayBinding
+      selection={deps.selection}
+      author={author}
+      hovered={hovered}
+      coach={deps.coach}
+      onToggle={() => deps.controller.toggleSelect(author)}
+    />,
+    mount,
+  );
+}
+```
+
+Each mounted `OverlayBinding` holds three live signal subscriptions via `useSignalValue` (src/content/app.tsx:42-44: `selection.count`, the per-overlay `hovered` computed, `selection.selectMode`), and `useSignalValue` only unsubscribes in its effect cleanup (src/ui/use-signal-value.ts:10) — i.e. only on unmount, which never happens.
+
+Consequences, all verified in code:
+
+1. **Memory leak, O(scroll distance).** The subscriber closure chain is: session-global signal → listener → `setValue` → component → props → `hovered` computed, whose closure captures `article` (main.tsx:75) → the whole detached article subtree + shadow host + Preact tree. GC roots are the session-global `selection.count`/`selectMode` signals, so retention is permanent until page reload.
+2. **Zombie renders.** Every selection toggle changes `count` → signals-core notifies ALL subscribers → one `setState` + full VDOM render/diff per overlay ever created, into detached shadow DOM. Same fan-out on every select-mode flip. After a long doomscroll, one click while sweeping a thread = hundreds of wasted renders on x.com's main thread.
+3. **Hover fan-out.** Every tweet-boundary mousemove crossing re-evaluates every zombie's `hovered` computed (cheap `===`, but O(all-time tweets)).
+4. **Stale overlay on node re-add.** The scanner's `seen` WeakSet (src/content/tweet-scanner.ts:28) never forgets an article, so if X re-inserts a previously seen article element, `handle()` short-circuits and the tweet silently keeps (or loses) its old overlay. plans/README.md lists this as investigate-grade; the registry built here fixes the tracked-node case for free.
+
+## Target
+
+Ownership model: `main.tsx` keeps a registry of live overlay roots keyed by article element; a periodic sweep (piggybacked on the scanner's existing per-batch `onScan` callback, debounced to idle time) tears down any root whose article is no longer connected. The scanner gains a `forget()` method so a re-added article is re-processed.
+
+```ts
+// src/content/tweet-scanner.ts — add to the TweetScanner interface (after scanExisting, line 10-11)
+export interface TweetScanner {
+  /** Process tweets already in the DOM and start observing for new ones. */
+  start(): void;
+  stop(): void;
+  /** Process tweets currently in the DOM (idempotent via the dedupe set). */
+  scanExisting(): void;
+  /** Drop an element from the dedupe set so a re-added node is processed again. */
+  forget(el: Element): void;
+}
+```
+
+```ts
+// src/content/tweet-scanner.ts — add to the returned object (lines 61-72)
+  return {
+    start() { /* unchanged */ },
+    stop() { /* unchanged */ },
+    scanExisting,
+    forget(el) {
+      seen.delete(el);
+    },
+  };
+```
+
+```tsx
+// src/content/main.tsx — registry + teardown (new, module scope next to OVERLAY_FLAG)
+interface OverlayRoot {
+  host: HTMLElement;
+  mount: HTMLElement;
+}
+const overlayRoots = new Map<Element, OverlayRoot>();
+
+/** Unmount every overlay whose article left the DOM (virtualized timeline). */
+function sweepOverlays(forget: (el: Element) => void): void {
+  for (const [article, root] of overlayRoots) {
+    if (article.isConnected) continue;
+    render(null, root.mount); // runs effect cleanups → unsubscribes signals
+    root.host.remove();
+    overlayRoots.delete(article);
+    forget(article);
+  }
+}
+```
+
+```tsx
+// src/content/main.tsx — injectOverlay registers the root (around lines 58-87)
+function injectOverlay(article: Element, author: TweetAuthor, deps: OverlayDeps): void {
+  if (!article.isConnected) return; // MutationObserver batches can deliver already-detached nodes
+  const avatar = article.querySelector<HTMLElement>(Selectors.AVATAR_CONTAINER);
+  // … existing anchor/host creation unchanged …
+  const hovered = computed(() => deps.visualHover.value === article);
+  const { mount } = attachShadowRoot(host);
+  overlayRoots.set(article, { host, mount });
+  render(
+    <OverlayBinding /* …unchanged props… */ />,
+    mount,
+  );
+}
+```
+
+```tsx
+// src/content/main.tsx — wire the sweep into the existing scanner health callback (lines 229-241)
+  const health = createScannerHealth({ onBreakage: () => controller.reportBreakage() });
+  let sweepScheduled = false;
+  const scanner = createTweetScanner(
+    document,
+    (author, article) =>
+      injectOverlay(article, author, {
+        selection,
+        controller,
+        coach,
+        visualHover,
+        highContrast: settings.highContrast,
+      }),
+    {
+      onScan: (mutations, matches) => {
+        health.record(mutations, matches);
+        if (sweepScheduled) return;
+        sweepScheduled = true;
+        // Idle-time sweep: teardown is bookkeeping, never worth blocking a scroll frame.
+        (window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 200)))(() => {
+          sweepScheduled = false;
+          sweepOverlays((el) => scanner.forget(el));
+        });
+      },
+    },
+  );
+  scanner.start();
+```
+
+Note the shape change: the scanner instance must be assigned to a `const scanner` before `.start()` (currently it is created and started in one expression, main.tsx:230-241), because the sweep needs `scanner.forget`.
+
+## Repo conventions to follow
+
+- Factory functions returning plain object interfaces, no classes (imitate `createTweetScanner`, src/content/tweet-scanner.ts:23-72).
+- Doc comments explain the product reason, not the mechanics (imitate the comment style at src/content/main.tsx:125-127).
+- Tests: vitest + happy-dom, factory-per-test (imitate `tests/content/tweet-scanner.test.ts` if present; otherwise follow `tests/core/selection-store.test.ts` style).
+
+## Steps
+
+1. In `src/content/tweet-scanner.ts`, add `forget(el: Element): void` to the `TweetScanner` interface and implement it on the returned object as `seen.delete(el)`. (`WeakSet.delete` exists; no other change.)
+2. In `src/content/main.tsx`, add the `overlayRoots` map and `sweepOverlays` function at module scope (exact code above), add the `if (!article.isConnected) return;` guard as the first line of `injectOverlay`, and register each root with `overlayRoots.set(article, { host, mount })` immediately before `render(...)`.
+3. In `start()` (src/content/main.tsx:229-241), split scanner creation from `.start()`, and extend the existing `onScan` callback with the debounced idle sweep (exact code above). Do not remove the `health.record` call.
+4. Add a unit test for `forget`: create a scanner over a happy-dom fixture, let it report an article, remove + re-add the same node — without `forget` the second add is skipped; after `forget(article)` it is reported again.
+5. Add a unit test for the sweep contract if `main.tsx` gets its first test harness cheaply; otherwise test `sweepOverlays` in isolation by exporting it: mount `OverlayBinding` into a detached article via `injectOverlay`-like setup, run `sweepOverlays`, assert `overlayRoots.size === 0` and that a subsequent `selection.setSelectMode(true)` does not re-render the unmounted component (spy via a probe signal, or assert the host was removed).
+6. Re-read the diff and remove unrelated churn.
+
+## Boundaries
+
+- Do NOT change `OverlayBinding`, `use-signal-value.ts`, or `selection-store.ts` — subscription granularity is plan 012's territory.
+- Do NOT switch the observer root away from `document` (deferred separately; SPA-nav lifetime of `primaryColumn` is unverified).
+- Do NOT add dependencies.
+- STOP if `src/content/main.tsx` has drifted from commit 7ce587e (plans 001-010 touch neighboring regions); report the drift instead of improvising.
+
+## Verification
+
+- **Mechanical**: `bun run typecheck && bun run lint && bun run format:check && bun run test` all exit 0. `npx react-doctor@latest --scope changed` reports no new diagnostics and the score does not regress (baseline 62; 117 of the 128 baseline diagnostics are `no-unknown-property` noise on Preact's `class` attribute — ignore those).
+- **Behavior check**: load x.com with the extension, scroll ~200 tweets, then in DevTools run `performance.memory` / take a heap snapshot filtered to `HTMLElement` detached nodes — detached `article` count must stay bounded (tens, not hundreds). Toggle a selection and confirm overlays on visible tweets still update instantly (Preact DevTools "Highlight updates" on an overlay shadow root, or visually).
+- **Done when**: heap shows no unbounded detached-article growth, selection toggles still update visible overlays, `forget` test passes, and required checks pass.

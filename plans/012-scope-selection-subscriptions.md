@@ -1,0 +1,118 @@
+# 012 — Subscribe overlays to their own selected state, not the global count
+
+- **Status**: TODO
+- **Commit**: 7ce587e
+- **Severity**: MEDIUM-HIGH
+- **Category**: Performance (also fixes a correctness contract — see Problem ¶3)
+- **Rule**: Beyond the scan (manual; supersedes the plans/README.md deferred item "Every overlay re-renders on any selection toggle")
+- **Estimated scope**: 3 source files (`src/core/selection-store.ts`, `src/content/app.tsx`) + tests
+
+## Problem
+
+Every `OverlayBinding` subscribes to `selection.count` purely as a change-proxy, then reads `selection.isSelected()` during render:
+
+```tsx
+// src/content/app.tsx:42-44,63 — current
+  useSignalValue(selection.count);
+  const isHovered = useSignalValue(hovered);
+  const selectMode = useSignalValue(selection.selectMode);
+  …
+      selected={selection.isSelected(author.screenName)}
+```
+
+So each selection toggle re-renders EVERY overlay on screen (O(visible tweets) full VDOM renders per click while sweeping a thread) just to refresh one overlay's boolean. With plan 011 unlanded it is O(all tweets ever seen).
+
+`App` uses the same proxy idiom:
+
+```tsx
+// src/content/app.tsx:95,116-117 — current
+  const count = useSignalValue(selection.count);
+  …
+  const authors = selection.list();
+  void count; // count subscription re-renders the authors list above
+```
+
+This proxy is also a **latent correctness bug**: `count` is `computed(() => selected.value.size)` (src/core/selection-store.ts:37), so a size-neutral map update notifies nobody. `SelectionStore.add()` can merge new fields (userId, avatarUrl) into an already-selected author (src/core/selection-store.ts:49-55) — size unchanged → no signal → the ActionBar facepile and review popover keep stale author objects. Today the stale-merge direction masks this; **the moment plan 010 fixes the merge precedence, resolved fields will still never reach the UI** unless this plan lands. The invariant "every visible mutation changes count" is load-bearing, unwritten, and untested.
+
+## Target
+
+```ts
+// src/core/selection-store.ts — expose a contents-tracking signal (interface, lines 15-25)
+export interface SelectionStore {
+  readonly count: ReadonlySignal<number>;
+  readonly selectMode: ReadonlySignal<boolean>;
+  /** Live view of the selection contents; notifies on ANY map change, including size-neutral field merges. */
+  readonly authors: ReadonlySignal<readonly TweetAuthor[]>;
+  isSelected(screenName: string): boolean;
+  add(author: TweetAuthor): void;
+  remove(screenName: string): void;
+  toggle(author: TweetAuthor): void;
+  clear(): void;
+  setSelectMode(on: boolean): void;
+  list(): TweetAuthor[];
+}
+```
+
+```ts
+// src/core/selection-store.ts — implementation (next to count, line 37)
+  const count = computed(() => selected.value.size);
+  const authors = computed<readonly TweetAuthor[]>(() => [...selected.value.values()]);
+```
+
+`list()` stays for plain-code callers (controller) but delegates: `list: () => [...authors.value]`. Every `mutate()` replaces the map object (src/core/selection-store.ts:39-43), so `authors` re-runs and notifies on every mutation, size-neutral or not.
+
+```tsx
+// src/content/app.tsx — OverlayBinding subscribes to its own boolean (replacing lines 42-44,63)
+import { computed, type ReadonlySignal } from "@preact/signals-core";
+import { useEffect, useMemo, useState } from "preact/hooks";
+…
+  const isSelected = useSignalValue(
+    // One computed per overlay: tracks the map signal via isSelected's .value read,
+    // but only notifies (→ re-renders) when THIS author's boolean flips.
+    useMemo(() => computed(() => selection.isSelected(author.screenName)), [selection, author]),
+  );
+  const isHovered = useSignalValue(hovered);
+  const selectMode = useSignalValue(selection.selectMode);
+  …
+      selected={isSelected}
+```
+
+(`selection.isSelected` reads `selected.value` internally, so calling it inside `computed()` tracks the map signal; signals-core computeds only notify subscribers when their own value changes — that is the entire mechanism of this fix.)
+
+```tsx
+// src/content/app.tsx — App drops the proxy idiom (replacing lines 95,116-117)
+  const authors = useSignalValue(selection.authors);
+```
+
+Delete `const count = useSignalValue(selection.count);`, `const authors = selection.list();`, and the `void count;` line with its comment. `authors` is `readonly TweetAuthor[]`; `ActionBar` receives it as before (`authors={authors}` — adjust the `ActionBar` prop type to `readonly TweetAuthor[]` if the compiler complains; it only reads/maps).
+
+## Repo conventions to follow
+
+- Store shape: factory returning a frozen-shape object with `ReadonlySignal` fields — imitate `count`/`selectMode` in src/core/selection-store.ts:45-75.
+- Hook usage in components: one `useSignalValue` per subscribed signal at the top of the component — imitate `App` (src/content/app.tsx:95-102).
+- Tests: `tests/core/selection-store.test.ts` exists (plan 010 references it) — follow its arrange/act/assert style.
+
+## Steps
+
+1. In `src/core/selection-store.ts`, add the `authors` computed and interface entry (exact code above); change `list()` to delegate to it.
+2. In `src/content/app.tsx` `OverlayBinding`, replace the `useSignalValue(selection.count)` proxy + render-time `selection.isSelected(...)` with the memoized per-overlay computed (exact code above). Add `useMemo` to the `preact/hooks` import and `computed` to the `@preact/signals-core` import.
+3. In `src/content/app.tsx` `App`, replace the `count`/`list()`/`void count` trio with `const authors = useSignalValue(selection.authors);`.
+4. Tests in `tests/core/selection-store.test.ts`:
+   - `authors` notifies on a size-neutral merge: add an author, subscribe to `authors`, `add()` the same screenName with a new `userId` — the subscriber must fire and the emitted array must contain the merged fields. **This is the regression test plan 010 needs; mention plan 010 in the test comment.**
+   - A per-author `computed(() => store.isSelected("jane"))` does not notify when a different author is toggled (assert via a subscription counter).
+5. Component-level test (testing-library/preact, follow existing tests/ style): render two `OverlayBinding`s for different authors with a shared store; toggle author A; assert author B's overlay did not re-render (probe: a render counter incremented in a test wrapper component).
+6. Re-read the diff and remove unrelated churn.
+
+## Boundaries
+
+- Do NOT remove `count` from the store — the badge subscription uses it (src/content/main.tsx:226).
+- Do NOT change `mutate()`'s copy-on-write behavior — the `authors` computed depends on map-object replacement.
+- Do NOT touch overlay mount/teardown (plan 011) or `use-signal-value.ts`.
+- Do NOT add dependencies.
+- STOP if the `OverlayBinding` region has drifted from commit 7ce587e; report the drift.
+
+## Verification
+
+- **Mechanical**: `bun run typecheck && bun run lint && bun run format:check && bun run test` all exit 0. `npx react-doctor@latest --scope changed` adds no new diagnostics, score not lower than baseline 62.
+- **Behavior check**: on x.com in select mode with ~10 tweets visible, enable Preact DevTools "Highlight updates" and click one post: only that post's overlay and the ActionBar may flash — the other overlays must not. Then verify the facepile still updates when selecting/deselecting (the `authors` path).
+- **Done when**: the two store tests and the render-isolation test pass, the Highlight-updates observation matches, and required checks pass.

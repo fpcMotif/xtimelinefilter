@@ -1,0 +1,187 @@
+# Plan 008: Keep the assign-success Undo visible for the whole undo window
+
+> **Executor instructions**: Follow this plan step by step. Run every
+> verification command and confirm the expected result before moving to the
+> next step. If anything in the "STOP conditions" section occurs, stop and
+> report — do not improvise. When done, update the status row for this plan
+> in `plans/README.md` — unless a reviewer dispatched you and told you they
+> maintain the index.
+>
+> **Drift check (run first)**: `git diff --stat 7ce587e..HEAD -- src/core/assign-feedback.ts src/core/undo.ts src/content/controller.ts tests/core/assign-feedback.test.ts tests/content/controller.test.ts`
+> If any in-scope file changed since this plan was written, compare the
+> "Current state" excerpts against the live code before proceeding; on a
+> mismatch, treat it as a STOP condition.
+
+## Status
+
+- **Priority**: P2
+- **Effort**: S
+- **Risk**: LOW
+- **Depends on**: none
+- **Category**: bug (UX consistency on a mutation path)
+- **Planned at**: commit `7ce587e`, 2026-07-17
+
+## Why this matters
+
+After a successful assign, the feedback toast offers an Undo action — but the toast auto-dismisses after 4 seconds while the armed undo stays live for 10. A user who reads the outcome, hesitates, and reaches for Undo finds the pill gone; meanwhile the `Z` key still fires the now-invisible undo for 6 more seconds. The mute flow already does this correctly (its toast passes `durationMs: UNDO_WINDOW_MS`), so the two undo surfaces contradict each other. After this plan, any toast offering Undo stays visible exactly as long as the undo is armed.
+
+## Current state
+
+- `src/core/assign-feedback.ts` — pure mapping from run results to the toast spec; the success branch omits `durationMs`.
+- `src/core/toast-store.ts` — applies the 4 s default to non-danger toasts without an explicit `durationMs`.
+- `src/content/controller.ts` — owns `UNDO_WINDOW_MS = 10_000` and arms the undo; the mute flow already passes it as the toast duration.
+- `tests/core/assign-feedback.test.ts` — feedback-mapping tests; pattern anchor.
+
+The success branch, `src/core/assign-feedback.ts:106-110`:
+
+```ts
+  const toast: AssignFeedback["toast"] = { kind: "success", title: addedLine(s.added, list.name) };
+  if (s.alreadyMember > 0) toast.line = alreadyInLine(s.alreadyMember);
+  const actions: FeedbackAction[] = ["view-list"];
+  if (undoable.length > 0) actions.push("undo");
+  return { toast, actions, undoable, deselect };
+```
+
+The default that hides it early, `src/core/toast-store.ts:47` and :73-78:
+
+```ts
+export const DEFAULT_TOAST_MS = 4000;
+```
+
+```ts
+      const duration =
+        spec.durationMs !== undefined
+          ? spec.durationMs
+          : spec.kind === "danger"
+            ? null
+            : DEFAULT_TOAST_MS;
+```
+
+The correct exemplar in the mute flow, `src/content/controller.ts:212-215`:
+
+```ts
+      toasts.show({
+        kind: "success",
+        title: mutedLine(author.screenName),
+        durationMs: UNDO_WINDOW_MS,
+```
+
+`UNDO_WINDOW_MS` is defined in and exported from `src/content/controller.ts:34` (`export const UNDO_WINDOW_MS = 10_000;`) and imported by `tests/content/controller.test.ts:4`. Layering note: `src/core/assign-feedback.ts` must NOT import from `src/content/*` (core→content imports exist only for the ADR-0004 selectors table); the constant needs a core home.
+
+Also check the stopped branch (`assign-feedback.ts:53-60`): it offers no Undo action today (`actions: []`), so it needs no duration change — but if a reviewer decides stopped runs should offer Undo, the duration must come with it. Do not change that branch's actions in this plan.
+
+## Commands you will need
+
+| Purpose   | Command                          | Expected on success |
+|-----------|----------------------------------|---------------------|
+| Install   | `bun install --frozen-lockfile`  | exit 0              |
+| Typecheck | `bun run typecheck`              | exit 0, no errors   |
+| Lint      | `bun run lint`                   | exit 0              |
+| Format    | `bun run format:check`           | exit 0              |
+| All tests | `bun run test`                   | all pass            |
+| Focused   | `bunx vitest run tests/core/assign-feedback.test.ts tests/content/controller.test.ts` | all pass |
+
+## Scope
+
+**In scope** (the only files you should modify):
+- `src/core/undo.ts` (new home for the shared constant)
+- `src/content/controller.ts` (import + re-export for compatibility)
+- `src/core/assign-feedback.ts` (use it in the success branch)
+- `tests/core/assign-feedback.test.ts` (new assertion)
+
+**Out of scope** (do NOT touch, even though they look related):
+- `src/core/toast-store.ts` — the 4 s default is correct for toasts without timed actions; do not change global defaults.
+- `src/ui/Toast.tsx` — rendering is fine.
+- The stopped/partial/rate-limit branches of `assign-feedback.ts` — danger toasts already persist (`durationMs: null`); the stopped branch has no Undo action.
+- `tests/content/controller.test.ts` — its `UNDO_WINDOW_MS` import must keep working via the re-export; no edits expected.
+
+## Git workflow
+
+- Branch: `advisor/008-assign-toast-undo-lifetime`
+- One commit; message style e.g. `fix: keep assign Undo visible for the full undo window`.
+- Do NOT push, open a PR, or commit at all unless the operator instructed it — otherwise leave the changes in the working tree.
+
+## Steps
+
+### Step 1: Move the constant to core
+
+In `src/core/undo.ts`, add:
+
+```ts
+/** Mute/assign undo window (story beat 6: "Z, 10s window"). */
+export const UNDO_WINDOW_MS = 10_000;
+```
+
+In `src/content/controller.ts`, replace the local definition (:33-34) with an import-plus-re-export so existing imports (`tests/content/controller.test.ts:4`) keep working:
+
+```ts
+import { UNDO_WINDOW_MS } from "@/core/undo";
+// ...other imports stay...
+export { UNDO_WINDOW_MS };
+```
+
+(Place the `export { UNDO_WINDOW_MS };` near the top-level exports; delete the old `export const UNDO_WINDOW_MS = 10_000;` line and its doc comment, since the constant now lives with the registry it describes.)
+
+**Verify**: `bun run typecheck` → exit 0.
+
+### Step 2: Use it in the success toast
+
+In `src/core/assign-feedback.ts`, import `UNDO_WINDOW_MS` from `@/core/undo` and set the duration on the success branch:
+
+```ts
+  const toast: AssignFeedback["toast"] = {
+    kind: "success",
+    title: addedLine(s.added, list.name),
+    // Undo is armed for UNDO_WINDOW_MS — keep the pill visible exactly that long
+    // (mirrors the mute flow); otherwise Z fires an invisible undo.
+    durationMs: UNDO_WINDOW_MS,
+  };
+```
+
+**Verify**: `bun run typecheck` → exit 0.
+
+### Step 3: Pin the behavior in the feedback tests
+
+In `tests/core/assign-feedback.test.ts`, find the success-case test (all-added results → success toast with `view-list`/`undo` actions). Add an assertion that the toast carries `durationMs: UNDO_WINDOW_MS` (import the constant from `@/core/undo`), e.g.:
+
+```ts
+expect(fb.toast.durationMs).toBe(UNDO_WINDOW_MS);
+```
+
+**Verify**: `bunx vitest run tests/core/assign-feedback.test.ts` → all pass.
+
+### Step 4: Full gate
+
+**Verify**: `bun run typecheck && bun run lint && bun run format:check && bun run test` → all exit 0.
+
+## Test plan
+
+- Updated test: the success-branch case in `tests/core/assign-feedback.test.ts` asserts the 10 s duration (Step 3). Model after the existing success-case test in that file.
+- Existing suites (toast-store, controller) must pass unchanged — the default-duration logic is untouched, and the re-export keeps the controller's public surface.
+- Verification: `bunx vitest run tests/core/assign-feedback.test.ts tests/content/controller.test.ts tests/core/toast-store.test.ts` → all pass.
+
+## Done criteria
+
+Machine-checkable. ALL must hold:
+
+- [ ] `bun run typecheck` exits 0
+- [ ] `bun run lint` and `bun run format:check` exit 0
+- [ ] `bun run test` exits 0; the feedback test asserts `durationMs: UNDO_WINDOW_MS`
+- [ ] `grep -rn "UNDO_WINDOW_MS" src/` shows the definition only in `src/core/undo.ts` (plus import/re-export sites)
+- [ ] `grep -n "10_000" src/content/controller.ts` returns no matches (no duplicate literal)
+- [ ] No files outside the in-scope list are modified (`git status --short`)
+- [ ] `plans/README.md` status row updated
+
+## STOP conditions
+
+Stop and report back (do not improvise) if:
+
+- The success-branch excerpt no longer matches (drift), or the stopped branch has gained an Undo action (then its duration semantics need a product decision — report).
+- Something else imports `UNDO_WINDOW_MS` from `@/content/controller` beyond the known test file (check with grep before moving it; the re-export should cover all cases, but confirm).
+- `assign-feedback.ts` has gained other toast-producing branches without durations since this plan was written.
+
+## Maintenance notes
+
+- The constant now lives with the undo registry it configures; any future timed action (e.g. a block-undo) should import it from `@/core/undo`, not redefine it.
+- In PR review, confirm the mute flow still compiles against the moved constant and that no toast offering a timed action uses the bare 4 s default.
+- Deliberately deferred: whether a *stopped* run should offer Undo for the partial adds (product decision; if adopted, use the same `durationMs`).

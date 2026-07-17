@@ -1,0 +1,194 @@
+# Plan 003: Make assign runs single-flight
+
+> **Executor instructions**: Follow this plan step by step. Run every
+> verification command and confirm the expected result before moving to the
+> next step. If anything in the "STOP conditions" section occurs, stop and
+> report — do not improvise. When done, update the status row for this plan
+> in `plans/README.md` — unless a reviewer dispatched you and told you they
+> maintain the index.
+>
+> **Drift check (run first)**: `git diff --stat 7ce587e..HEAD -- src/content/controller.ts tests/content/controller.test.ts`
+> If any in-scope file changed since this plan was written, compare the
+> "Current state" excerpts against the live code before proceeding; on a
+> mismatch, treat it as a STOP condition.
+
+## Status
+
+- **Priority**: P1
+- **Effort**: S
+- **Risk**: LOW
+- **Depends on**: none
+- **Category**: bug
+- **Planned at**: commit `7ce587e`, 2026-07-17
+
+## Why this matters
+
+`runAssign` starts unconditionally and resets the shared `stopRequested` flag on entry. Keyboard paths stay live while a run is in flight — the keyboard layer is never disabled — so a user can start a second assign run (via `Alt+Shift+l`, or `Alt+l` → Enter in the picker, or a lingering Retry toast) while the first is still pacing requests. Two loops then hit X concurrently, doubling the request rate and defeating the ADR-0005 invariant "one explicit user gesture → one assign run, human-paced". Worse, the stop semantics invert: the user presses Stop (`stopRequested = true`), then triggers a new run, and the new run's `stopRequested = false` reset silently **revives the stopped run** — it keeps adding people the user believes they stopped. After this plan, a second run cannot start while one is in flight.
+
+## Current state
+
+- `src/content/controller.ts` — the headless conductor; contains `runAssign` and all re-entry paths.
+- `src/content/app-state.ts` — owns the `running` signal (`Signal<RunningAssign | null>`), already the source of truth for "a run is in flight".
+- `tests/content/controller.test.ts` — controller tests with a `FakeApi` harness; pattern anchor.
+
+The unguarded entry, `src/content/controller.ts:132-151`:
+
+```ts
+  async function runAssign(
+    authors: TweetAuthor[],
+    list: XList,
+    source: AssignSource,
+  ): Promise<void> {
+    if (authors.length === 0) return;
+    app.pickerOpen.value = false;
+    app.reviewOpen.value = false;
+    stopRequested = false;
+    void deps.usage?.record(list.id);
+
+    app.running.value = { current: 0, total: authors.length, listName: list.name };
+    const results = await assignAuthorsToList(authors, list, backend, {
+      ...deps.assignOpts,
+      onProgress: (current, total) => {
+        app.running.value = { current, total, listName: list.name };
+      },
+      shouldStop: () => stopRequested,
+    });
+    app.running.value = null;
+    // ... feedback/deselect/undo wiring (unchanged)
+```
+
+Re-entry paths (all verified): `command("add-to-default-list")` → `void addToDefaultList()` → `runAssign` (`controller.ts:316-318,191-206`); `command("add-to-list")` → `openPicker` → `onPick` → `assignSelectedTo` (`controller.ts:302-315`, picker `onPick` in `src/content/app.tsx:150`); the Retry toast action (`controller.ts:174`). The pointer path is already blocked by the UI (during a run `ActionBar` renders only the progress surface, `src/ui/ActionBar.tsx:33`) — the keyboard layer (`src/content/main.tsx:203`) is not.
+
+The stop-revival mechanism: `stopRequested` is a closure shared by every run; entry resets it (`controller.ts:140`), and each run's `shouldStop: () => stopRequested` reads the same variable (`controller.ts:149`).
+
+Conventions: controller tests use a `harness()` helper with `FakeApi`, real stores, and no-op timers (`tests/content/controller.test.ts:51-80`); `flush = () => new Promise((r) => setTimeout(r, 0))` drains microtasks. Domain vocabulary (from `docs/CONTEXT.md`): a run is an **Assign**; outcomes are **AssignOutcome**; keep comments in that vocabulary.
+
+## Commands you will need
+
+| Purpose   | Command                          | Expected on success |
+|-----------|----------------------------------|---------------------|
+| Install   | `bun install --frozen-lockfile`  | exit 0              |
+| Typecheck | `bun run typecheck`              | exit 0, no errors   |
+| Lint      | `bun run lint`                   | exit 0              |
+| Format    | `bun run format:check`           | exit 0              |
+| All tests | `bun run test`                   | all pass            |
+| Focused   | `bunx vitest run tests/content/controller.test.ts` | all pass |
+
+## Scope
+
+**In scope** (the only files you should modify):
+- `src/content/controller.ts`
+- `tests/content/controller.test.ts`
+
+**Out of scope** (do NOT touch, even though they look related):
+- `src/content/main.tsx` / `src/content/keyboard.ts` — disabling the keyboard layer during a run is NOT the chosen approach; the guard belongs in the controller so every entry path (including future ones) is covered.
+- `src/core/actions/assign-to-list.ts` — the pacing loop is correct; concurrency is the caller's concern.
+- `src/ui/ActionBar.tsx` — pointer blocking already works via the progress surface.
+- Per-run stop tokens (replacing the shared boolean) — a larger refactor; unnecessary once runs can't overlap. Mention as deferred in the commit message if you like, but do not implement.
+
+## Git workflow
+
+- Branch: `advisor/003-single-flight-assign`
+- One commit; message style e.g. `fix: ignore assign re-entry while a run is in flight`.
+- Do NOT push, open a PR, or commit at all unless the operator instructed it — otherwise leave the changes in the working tree.
+
+## Steps
+
+### Step 1: Guard `runAssign` re-entry
+
+In `src/content/controller.ts`, add the single-flight guard as the first statement of `runAssign`:
+
+```ts
+  async function runAssign(
+    authors: TweetAuthor[],
+    list: XList,
+    source: AssignSource,
+  ): Promise<void> {
+    // Single-flight: one gesture → one run (ADR-0005). A second trigger while
+    // running would interleave paced requests and reset the stop flag.
+    if (app.running.value) return;
+    if (authors.length === 0) return;
+    // ... rest unchanged
+```
+
+**Verify**: `bun run typecheck` → exit 0.
+
+### Step 2: Add regression tests
+
+In `tests/content/controller.test.ts`, add a describe block (or extend the existing assign-run describe) with two tests. Use the existing `harness()` helper and `FakeApi`. To hold a run in flight, give `backend.addImpl` a controllable gate:
+
+```ts
+it("ignores a second assign trigger while a run is in flight", async () => {
+  const { controller, selection, backend, app } = harness();
+  selection.add({ screenName: "jane" });
+  let release!: () => void;
+  backend.addImpl = () => new Promise<void>((r) => { release = r; });
+
+  const first = controller.assignSelectedTo(LISTS[0]!);
+  await flush(); // run is now awaiting the gated add
+  expect(app.running.value).not.toBeNull();
+
+  await controller.assignSelectedTo(LISTS[1]!); // must no-op
+  release();
+  await first;
+
+  expect(backend.added).toEqual(["jane"]); // exactly one run's worth of calls
+});
+
+it("a stop requested before a rejected re-entry still stops the original run", async () => {
+  const { controller, selection, backend } = harness();
+  selection.add({ screenName: "a" });
+  selection.add({ screenName: "b" });
+  const calls: string[] = [];
+  backend.addImpl = async (author) => { calls.push(author.screenName); };
+
+  const first = controller.assignSelectedTo(LISTS[0]!);
+  controller.stopRun();
+  await controller.assignSelectedTo(LISTS[0]!); // rejected: must NOT reset the stop flag
+  await first;
+
+  expect(calls.length).toBeLessThan(2); // the original run honored the stop
+});
+```
+
+Note on the second test: `assignAuthorsToList` checks `shouldStop()` before each attempt and paces with an injected `sleep`; the controller harness should pass `assignOpts: { sleep: async () => {} }` — check whether `harness()` already injects `assignOpts` (read the harness below line 80; if it doesn't, add it in these two tests via a local harness override rather than changing the shared helper). The exact assertion (`toBeLessThan(2)` vs `toEqual(["a"])`) should match the observed pacing; the load-bearing assertion is that the second call did not reset the stop.
+
+Adjust the harness destructuring to whatever the helper actually returns (read it first — it returns at least `{ controller, selection, app, backend, ... }`).
+
+**Verify**: `bunx vitest run tests/content/controller.test.ts` → all pass, including the 2 new tests.
+
+### Step 3: Full gate
+
+**Verify**: `bun run typecheck && bun run lint && bun run format:check && bun run test` → all exit 0.
+
+## Test plan
+
+- New tests (Step 2): re-entry no-op; stop-flag not reset by rejected re-entry. Model structure after the existing assign-run tests in `tests/content/controller.test.ts` (same harness, `flush()` for microtask draining).
+- Existing suite must pass unchanged — the guard only adds an early return on a path no current test exercises concurrently.
+- Verification: `bunx vitest run tests/content/controller.test.ts` → all pass, including 2 new tests.
+
+## Done criteria
+
+Machine-checkable. ALL must hold:
+
+- [ ] `bun run typecheck` exits 0
+- [ ] `bun run lint` and `bun run format:check` exit 0
+- [ ] `bun run test` exits 0; both new concurrency tests exist and pass
+- [ ] `grep -n "app.running.value) return" src/content/controller.ts` returns exactly 1 match
+- [ ] No files outside the in-scope list are modified (`git status --short`)
+- [ ] `plans/README.md` status row updated
+
+## STOP conditions
+
+Stop and report back (do not improvise) if:
+
+- The `runAssign` excerpt no longer matches (drift) — in particular if `app.running` has been replaced by different state.
+- The harness in `tests/content/controller.test.ts` differs structurally from what's described (no `FakeApi.addImpl` seam), and the tests can't be expressed without modifying the harness — report the mismatch instead of redesigning the harness.
+- The guard breaks an existing test (would mean some test relies on concurrent runs — surprising; report it).
+
+## Maintenance notes
+
+- Future entry points for assign runs (new commands, UI gestures) are automatically covered — the guard sits in `runAssign`, not at the call sites. Keep it that way: do not add call-site guards that could drift.
+- In PR review, confirm the guard is the FIRST statement (before `authors.length === 0`), so a rejected re-entry never touches picker/review state or `stopRequested`.
+- Deliberately deferred: per-run stop tokens (a `RunHandle` object replacing the shared `stopRequested` boolean). With single-flight enforced the shared flag is safe; revisit only if concurrent runs are ever intentionally allowed.
+- Interaction with plan 005 (token-scoped toast Undo): both touch `controller.ts`; land this one first and rebase/merge plan 005 onto it.

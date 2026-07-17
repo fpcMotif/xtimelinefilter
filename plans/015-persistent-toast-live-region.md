@@ -1,0 +1,106 @@
+# 015 — Pre-mount the toast live regions so screen readers hear results
+
+- **Status**: TODO
+- **Commit**: 7ce587e
+- **Severity**: HIGH
+- **Category**: Accessibility
+- **Rule**: Beyond the scan (manual; WCAG 4.1.3 Status Messages)
+- **Estimated scope**: 1 source file (`src/ui/Toast.tsx`) + 1 test file
+
+## Problem
+
+Live regions only announce content that is INSERTED INTO an already-present live region. The toast stack does the opposite — the region is created on demand, with its text already inside:
+
+```tsx
+// src/ui/Toast.tsx:10-25 — current
+export function ToastHost({ store }: { store: ToastStore }) {
+  const toasts = useSignalValue(store.toasts);
+  if (toasts.length === 0) return null;
+  return (
+    <div class="fixed bottom-20 left-1/2 z-[2147483646] flex -translate-x-1/2 flex-col items-center gap-2">
+      {toasts.map((t) => ( … ))}
+```
+
+```tsx
+// src/ui/Toast.tsx:44-46 — current: the live role mounts WITH the toast
+    <output
+      role={toast.kind === "danger" ? "alert" : "status"}
+```
+
+A screen-reader user completes an assign and never hears "Added 3 people to X · Undo Z" — the 10 s undo window opens and expires in silence. (`role="alert"` insertions fire in some SR/browser pairs; `role="status"` insertions reliably do not.) Every toast in the product — assign results, undo confirmations, errors — is affected. This is the single highest-leverage announcement fix because every flow ends in a toast.
+
+## Target
+
+Two live regions (polite for success/info, assertive for danger) are mounted once with the app and stay empty until a toast arrives; `ToastView` becomes a plain presentational `<div>` so the regions own all live semantics (nested live roles would double-announce).
+
+```tsx
+// src/ui/Toast.tsx — ToastHost (replacing lines 10-25)
+export function ToastHost({ store }: { store: ToastStore }) {
+  const toasts = useSignalValue(store.toasts);
+  const polite = toasts.filter((t) => t.kind !== "danger");
+  const danger = toasts.filter((t) => t.kind === "danger");
+  return (
+    // Both regions must pre-exist in the accessibility tree for insertions to
+    // announce (WCAG 4.1.3); render them always, empty or not.
+    <div class="pointer-events-none fixed bottom-20 left-1/2 z-[2147483646] flex -translate-x-1/2 flex-col items-center gap-2">
+      <div role="status" aria-live="polite" class="contents">
+        {polite.map((t) => (
+          <ToastView key={t.id} toast={t} onAct={(i) => store.act(t.id, i)} onDismiss={() => store.dismiss(t.id)} />
+        ))}
+      </div>
+      <div role="alert" aria-live="assertive" class="contents">
+        {danger.map((t) => (
+          <ToastView key={t.id} toast={t} onAct={(i) => store.act(t.id, i)} onDismiss={() => store.dismiss(t.id)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+```tsx
+// src/ui/Toast.tsx — ToastView root element (replacing lines 43-47): <output role=…> becomes a plain div;
+// pointer-events restored per-toast because the wrapper now disables them.
+  return (
+    <div
+      class={`${KIND_CLASS[toast.kind]} pointer-events-auto shadow-elevated flex max-w-[420px] items-center gap-3 rounded-2xl px-4 py-2.5 text-sm tabular-nums transition-[opacity,transform] duration-300 ease-out starting:translate-y-2 starting:opacity-0`}
+    >
+      … children unchanged …
+    </div>
+  );
+```
+
+Notes pinned down so the executor makes no judgment calls:
+
+- The wrapper gets `pointer-events-none` because it is now permanently mounted at bottom-center; each toast restores `pointer-events-auto` (the Undo/Dismiss buttons must stay clickable).
+- `class="contents"` (Tailwind `display: contents`) keeps the two region wrappers out of the flex layout so the visual stack is unchanged.
+- The `<output>` element is replaced by `<div>` deliberately: `<output>` has an implicit `status` role, which nested inside the new live regions would double-announce.
+- Closing `</output>` at line 75 becomes `</div>`.
+
+## Repo conventions to follow
+
+- Presentational components stay in this file; store logic stays in `src/core/toast-store.ts` (do not touch it).
+- Tailwind utility classes inline, no new CSS.
+- Tests: testing-library/preact + vitest with the real `createToastStore` — imitate the existing toast tests (find them under `tests/`; `tests/core/toast-store.test.ts` covers the store, and any existing `ToastHost` render test shows the setup).
+
+## Steps
+
+1. Apply the exact `ToastHost` and `ToastView` edits above to `src/ui/Toast.tsx`.
+2. Tests:
+   - render `ToastHost` with an EMPTY store: a `role="status"` element and a `role="alert"` element are both present (this is the regression test — today `ToastHost` returns `null`);
+   - push a success toast via the store: its title renders INSIDE the `role="status"` region; push a danger toast: inside `role="alert"`;
+   - a toast's action button still fires `store.act` on click (guards the pointer-events restructuring).
+3. Re-read the diff and remove unrelated churn.
+
+## Boundaries
+
+- Do NOT change `toast-store.ts`, toast durations, or strings (plans 005/008/009 own toast behavior — this plan is markup-only).
+- Do NOT add `aria-atomic` or re-announce on updates — out of scope.
+- Do NOT add dependencies.
+- STOP if `src/ui/Toast.tsx` has drifted from commit 7ce587e; report the drift.
+
+## Verification
+
+- **Mechanical**: `bun run typecheck && bun run lint && bun run format:check && bun run test` all exit 0. `npx react-doctor@latest --scope changed` adds no new diagnostics, score not lower than baseline 62.
+- **Behavior check**: visually, toasts must look and stack exactly as before (bottom-center, gap, entrance transition) and Undo/✕ must still be clickable. With NVDA or VoiceOver running, perform an assign: the success toast text must be spoken; trigger a failure (network off): the danger toast must interrupt.
+- **Done when**: the three tests pass, both SR announcements are heard live, and the visual stack is unchanged.

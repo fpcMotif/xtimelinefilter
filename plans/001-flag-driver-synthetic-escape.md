@@ -1,0 +1,207 @@
+# Plan 001: Flag the DOM driver's synthetic Escape so Lasso's keyboard layer ignores it
+
+> **Executor instructions**: Follow this plan step by step. Run every
+> verification command and confirm the expected result before moving to the
+> next step. If anything in the "STOP conditions" section occurs, stop and
+> report — do not improvise. When done, update the status row for this plan
+> in `plans/README.md` — unless a reviewer dispatched you and told you they
+> maintain the index.
+>
+> **Drift check (run first)**: `git diff --stat 7ce587e..HEAD -- src/core/x-client/dom-page-driver.ts src/content/keyboard.ts src/content/selectors.ts src/content/app-state.ts tests/core/x-client/dom-page-driver.test.ts`
+> If any in-scope file changed since this plan was written, compare the
+> "Current state" excerpts against the live code before proceeding; on a
+> mismatch, treat it as a STOP condition.
+
+## Status
+
+- **Priority**: P1
+- **Effort**: S
+- **Risk**: LOW
+- **Depends on**: none
+- **Category**: bug
+- **Planned at**: commit `7ce587e`, 2026-07-17
+
+## Why this matters
+
+`DomXListApi.addMember`/`removeMember` call `driver.close()` after every author, and `close()` dismisses X's Lists dialog by dispatching a synthetic `Escape` keydown. That event is **not** marked as Lasso-internal, so Lasso's own capture-phase keyboard layer treats it as user input: during an assign run it exits select mode or **clears the user's entire selection mid-run** — silently discarding the failed/protected authors the Retry toast promises stay selected. Because the keyboard layer then calls `stopImmediatePropagation()`, X's dialog may never receive the Escape either, leaving it stuck open. The codebase has an explicit invariant for this (`SYNTHETIC_EVENT_FLAG`, documented in `src/content/selectors.ts`) and one correct exemplar (`caret-actions.ts`); the driver is the one violator. After this plan, driver-internal cleanup events are invisible to Lasso's command layer and reach X untouched.
+
+## Current state
+
+- `src/core/x-client/dom-page-driver.ts` — real PageDriver automating X's Lists dialog; contains the bug.
+- `src/content/selectors.ts` — centralized x.com DOM hook table; defines the flag contract.
+- `src/content/keyboard.ts` — capture-phase keydown layer; skips only flagged events.
+- `src/content/app-state.ts` — `handleEscape()` grammar: picker → review → select mode → clear selection.
+- `src/core/x-client/caret-actions.ts` — the correct exemplar for flagging synthetic events.
+- `tests/core/x-client/dom-page-driver.test.ts` — synthetic-X driver tests; pattern anchor for the new test.
+
+The bug, `src/core/x-client/dom-page-driver.ts:102-105`:
+
+```ts
+    async close() {
+      doc.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await settle(80);
+    },
+```
+
+The invariant it violates, `src/content/selectors.ts:20-26`:
+
+```ts
+/**
+ * Expando set on keyboard events that Lasso itself synthesizes (e.g. the
+ * Escape that dismisses a stuck caret menu). The keyboard layer must ignore
+ * these — otherwise driver-internal cleanup would exit select mode, clear the
+ * selection, and swallow the event before X sees it.
+ */
+export const SYNTHETIC_EVENT_FLAG = "__lassoSyntheticEvent";
+```
+
+The keyboard layer only skips flagged events, `src/content/keyboard.ts:104`:
+
+```ts
+    if ((e as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]) return;
+```
+
+The correct exemplar, `src/core/x-client/caret-actions.ts:230-236`:
+
+```ts
+    const init = { key: "Escape", bubbles: true, cancelable: true, composed: true };
+    for (const node of [doc, doc.body]) {
+      const ev = win ? new win.KeyboardEvent("keydown", init) : new KeyboardEvent("keydown", init);
+      // Marked so Lasso's own keyboard layer ignores it — this Escape is aimed
+      // at X's menu, not at Lasso's select mode / picker / selection.
+      (ev as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] = true;
+      node.dispatchEvent(ev);
+    }
+```
+
+Why mid-run selection loss happens: `runAssign` only deselects *after* the run completes (`src/content/controller.ts:155`), so during the run `selection.count > 0`, and an unflagged Escape reaching `handleEscape` (`src/content/app-state.ts:59-65`) exits select mode or clears the selection, returning `true` — which makes the keyboard layer swallow the event (`src/content/keyboard.ts:113-115`).
+
+Conventions: `dom-page-driver.ts` already imports from `@/content/selectors` (line 1) — add `SYNTHETIC_EVENT_FLAG` to that existing import. Test style: synthetic-X DOM fixtures driving the real driver, see `tests/core/x-client/dom-page-driver.test.ts` (`setupSyntheticX`).
+
+## Commands you will need
+
+| Purpose   | Command                          | Expected on success |
+|-----------|----------------------------------|---------------------|
+| Install   | `bun install --frozen-lockfile`  | exit 0              |
+| Typecheck | `bun run typecheck`              | exit 0, no errors   |
+| Lint      | `bun run lint`                   | exit 0              |
+| Format    | `bun run format:check`           | exit 0              |
+| All tests | `bun run test`                   | all pass            |
+| Focused   | `bunx vitest run tests/core/x-client/dom-page-driver.test.ts` | all pass |
+
+## Scope
+
+**In scope** (the only files you should modify):
+- `src/core/x-client/dom-page-driver.ts`
+- `tests/core/x-client/dom-page-driver.test.ts`
+
+**Out of scope** (do NOT touch, even though they look related):
+- `src/core/x-client/caret-actions.ts` — already flags its events correctly; it is the exemplar, not a target.
+- `src/content/keyboard.ts` — the layer behaves correctly; the event producer is what's broken.
+- Any `isTrusted`-based gating — that is a separate plan (`plans/002-gate-event-listeners-on-istrusted.md`); do not conflate them.
+- `src/core/x-client/dom-api.ts` — the caller is fine.
+
+## Git workflow
+
+- Branch: `advisor/001-flag-driver-escape`
+- One commit for the fix + test; message style follows the repo's imperative/conventional mix (e.g. `fix: flag DOM driver synthetic Escape so the keyboard layer ignores it`).
+- Do NOT push, open a PR, or commit at all unless the operator instructed it — otherwise leave the changes in the working tree.
+
+## Steps
+
+### Step 1: Add the failing regression test first
+
+In `tests/core/x-client/dom-page-driver.test.ts`, add a test inside the existing `describe("createDomPageDriver (synthetic x.com)")` block. It must assert two things after `close()`: (a) the dispatched Escape carries `SYNTHETIC_EVENT_FLAG`, and (b) Lasso's keyboard layer does not consume it while a plain body listener (the X stand-in) still receives it. Shape:
+
+```ts
+it("close() dispatches a flagged Escape that Lasso's keyboard layer ignores but X still sees", async () => {
+  setupSyntheticX(document);
+  const d = driver();
+  await d.openListsDialog({ screenName: "jack" });
+
+  const run = vi.fn(() => true); // consume-anything spy, stands in for handleEscape
+  const dispose = installKeyboardLayer({
+    keymap: [{ combo: "Escape", command: "escape" }],
+    run,
+    doc: document,
+  });
+  let xSawEscape = false;
+  let flagged = false;
+  document.body.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Escape") {
+      xSawEscape = true;
+      flagged =
+        (e as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] === true;
+    }
+  });
+
+  await d.close();
+  dispose();
+  expect(run).not.toHaveBeenCalled(); // Lasso ignored its own cleanup event
+  expect(xSawEscape).toBe(true); // X's dialog still receives it
+  expect(flagged).toBe(true);
+});
+```
+
+Add the needed imports to the test file: `installKeyboardLayer` from `@/content/keyboard`, `SYNTHETIC_EVENT_FLAG` from `@/content/selectors`, and `vi` from `vitest` (join the existing import).
+
+**Verify**: `bunx vitest run tests/core/x-client/dom-page-driver.test.ts` → the new test FAILS (flag is absent today); all other tests pass.
+
+### Step 2: Flag the event in `close()`
+
+Modify `src/core/x-client/dom-page-driver.ts`:
+
+1. Add `SYNTHETIC_EVENT_FLAG` to the existing import from `@/content/selectors` (line 1).
+2. Replace the body of `close()` so the event is constructed via the document's view (matching the caret-actions exemplar) and flagged before dispatch:
+
+```ts
+    async close() {
+      const win = doc.defaultView;
+      const ev = win
+        ? new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+        : new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      // Marked so Lasso's keyboard layer ignores it — this Escape is aimed at
+      // X's Lists dialog, not at Lasso's select mode / picker / selection.
+      (ev as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] = true;
+      doc.body.dispatchEvent(ev);
+      await settle(80);
+    },
+```
+
+**Verify**: `bunx vitest run tests/core/x-client/dom-page-driver.test.ts` → all tests pass, including the new one.
+
+### Step 3: Full gate
+
+**Verify**: `bun run typecheck && bun run lint && bun run format:check && bun run test` → all exit 0.
+
+## Test plan
+
+- New test (Step 1): flagged Escape reaches body listeners, is ignored by the keyboard layer, and carries the flag. Model its structure after the existing `"commits harmlessly when the Save button is absent and closes with Escape"` test in the same file (which observes `keydown` on `document.body`).
+- Existing suite must pass unchanged — this is a one-producer fix with no behavior change for real user keypresses.
+- Verification: `bunx vitest run tests/core/x-client/dom-page-driver.test.ts` → all pass, including 1 new test.
+
+## Done criteria
+
+Machine-checkable. ALL must hold:
+
+- [ ] `bun run typecheck` exits 0
+- [ ] `bun run lint` and `bun run format:check` exit 0
+- [ ] `bun run test` exits 0; the new keyboard-layer regression test exists and passes
+- [ ] `grep -n "SYNTHETIC_EVENT_FLAG" src/core/x-client/dom-page-driver.ts` returns at least 2 matches (import + assignment)
+- [ ] No files outside the in-scope list are modified (`git status --short`)
+- [ ] `plans/README.md` status row updated
+
+## STOP conditions
+
+Stop and report back (do not improvise) if:
+
+- The excerpt at `src/core/x-client/dom-page-driver.ts:102-105` no longer matches (drift).
+- `installKeyboardLayer` has changed signature since this plan (check `src/content/keyboard.ts`) — the test depends on `{ keymap, run, doc }`.
+- The new test fails for a reason other than the missing flag (e.g. fixture mismatch) after one reasonable correction.
+- You find a second unflagged synthetic-event producer — report it; do not expand scope.
+
+## Maintenance notes
+
+- Plan 002 (`isTrusted` gating) lands a broader net: once all untrusted events are ignored, this flag becomes defense-in-depth rather than the only guard. Keep it — the documented invariant in `selectors.ts` requires flagging regardless, and the flag also communicates intent to any future listener Lasso adds.
+- In PR review, scrutinize that the event still bubbles and is cancelable (X's dialog dismissal depends on it) and that the `win.KeyboardEvent` fallback path matches the caret-actions idiom.
+- If a future driver action synthesizes other input events, it must follow this same flagging pattern.
