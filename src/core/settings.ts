@@ -40,18 +40,44 @@ export interface SettingsStore {
   subscribe(cb: (s: LassoSettings) => void): () => void;
 }
 
-/** Typed wrapper over chrome.storage.sync with in-context change notification. */
+/**
+ * Typed wrapper over chrome.storage.local with in-context change notification.
+ * Settings used to live in storage.sync; Chrome Sync replicates that area to
+ * the user's Google account, which contradicts the product's local-only privacy
+ * claims (PRIVACY_LINE / ADR-0005 invariant 3) — so the store is local now and
+ * any pre-migration synced copy is moved across once on first read.
+ */
 export function createSettings(
-  area: StorageLike = chrome.storage.sync as unknown as StorageLike,
+  area: StorageLike = chrome.storage.local as unknown as StorageLike,
+  legacySyncArea: StorageLike | null = chrome.storage.sync as unknown as StorageLike,
 ): SettingsStore {
   const subs = new Set<(s: LassoSettings) => void>();
+  let migrated = false;
+
+  async function migrateOnce(): Promise<void> {
+    if (migrated) return;
+    migrated = true;
+    if (!legacySyncArea) return;
+    try {
+      const localRaw = (await area.get(KEY))[KEY];
+      if (localRaw !== undefined) return; // local already authoritative
+      const synced = (await legacySyncArea.get(KEY))[KEY];
+      if (synced === undefined) return;
+      await area.set({ [KEY]: synced });
+      await legacySyncArea.remove?.(KEY);
+    } catch {
+      // migration is best-effort; a failure must never break settings reads
+    }
+  }
 
   async function get(): Promise<LassoSettings> {
+    await migrateOnce();
     const raw = (await area.get(KEY))[KEY] as Partial<LassoSettings> | undefined;
     return { ...DEFAULT_SETTINGS, ...raw };
   }
 
   async function set(patch: Partial<LassoSettings>): Promise<LassoSettings> {
+    await migrateOnce();
     const next = { ...(await get()), ...patch };
     await area.set({ [KEY]: next });
     for (const cb of subs) cb(next);

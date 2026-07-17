@@ -9,7 +9,7 @@ export const STORAGE_KEYS = {
   lists: "lasso:lists",
   /** chrome.storage.local — per-List pick counts/recency */
   listUsage: "lasso:list-usage",
-  /** chrome.storage.sync — user settings */
+  /** chrome.storage.local — user settings (migrated off sync; see settings.ts) */
   settings: "lasso:settings",
   /** chrome.storage.local — onboarding + decaying-hint state */
   coach: "lasso:coach",

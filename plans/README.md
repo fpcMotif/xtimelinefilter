@@ -14,7 +14,7 @@ Verification gate for every plan (also inside each file): `bun install --frozen-
 | 004 | Match Lists dialog rows by exact name | P1 | S | 001 | DONE |
 | 005 | Bind toast Undo buttons to their armed action | P1 | M | 003 | DONE |
 | 006 | Lazy GraphQL creds, unbrickable boot, real `getLists` | P1 | S | — | DONE |
-| 007 | Move settings to storage.local + migration | P1 | S | — | TODO |
+| 007 | Move settings to storage.local + migration | P1 | S | — | DONE |
 | 008 | Keep assign Undo visible for the full window | P2 | S | — | TODO |
 | 009 | Report unmute failures with the right verb | P2 | S | 005 | TODO |
 | 010 | Selection-store merge keeps resolved fields | P2 | S | — | TODO |
