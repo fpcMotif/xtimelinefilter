@@ -10,9 +10,16 @@ Execute in the order below unless dependencies say otherwise. Each executor: rea
 |------|-------|----------|--------|------------|--------|
 | [011](011-teardown-overlay-roots.md) | Tear down per-tweet overlay roots on article removal | P1 | M | — | TODO |
 | [012](012-scope-selection-subscriptions.md) | Scope overlay subscriptions to their own selected state | P1 | S-M | 010, 011 | TODO |
-| [013](013-select-click-outermost-article.md) | Select-mode clicks resolve the outermost article | P1 | S | 011 | TODO |
+| [013](013-select-click-outermost-article.md) | Select-mode clicks resolve the outermost article | P1 | S | 011 | TODO — likely superseded, see below |
 | [014](014-picker-keyboard-contract.md) | Picker keyboard contract: imperative focus + combobox ARIA | P1 | M | — | TODO |
 | [015](015-persistent-toast-live-region.md) | Pre-mounted toast live regions | P1 | S | — | TODO |
+
+## Open PRs overlap this batch — check before executing
+
+Parallel sessions are solving the same findings on their own branches. Verify against the open PR list before starting any plan here; a plan whose fix has landed elsewhere should be closed as REJECTED ("finding fixed independently"), not executed twice.
+
+- **[013](013-select-click-outermost-article.md) ≈ PR #12** (`claude/fix-select-tap-quote`, not draft) — same premise (quote-tweets nest `article[data-testid="tweet"]`, the inner one wins the click), same fix (resolve the outermost article), plus tests in `tests/content/main.tsx`. If #12 merges, 013 is done — reject it rather than re-landing it.
+- **Flaky-test class** — PR #13 deflakes `tweet-scanner.test.ts`. A different test from the one [000](../review/000-harden-the-verification-harness.md) fixes (`dom-page-driver.test.ts:224`), same root cause: real timers racing parallel workers. Land both; they don't conflict.
 
 ## Dependency notes
 

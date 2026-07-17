@@ -37,6 +37,8 @@ The sync removal stays: it clears a pre-migration straggler. Only the local list
 
 No existing test catches this: `tests/options/OptionsApp.test.tsx:35` wires the **sync** fake as the store's primary area, so its "wipes all of it" assertion passes vacuously for settings.
 
+**Check PR #3 first** (`add-tests-clearLassoData-…`, not draft): it adds tests to `tests/core/storage-keys.test.ts` — this plan's test file. If it merged first, either it pins the current (wrong) behaviour, in which case re-pin it here rather than deleting the test, or it already covers the local wipe, in which case only Step 2 remains.
+
 ## Scope
 
 **In scope**: `src/core/storage-keys.ts`, `tests/core/storage-keys.test.ts` (or the file that owns `clearLassoData` coverage — grep first), `plans/review/README.md` (status row).
