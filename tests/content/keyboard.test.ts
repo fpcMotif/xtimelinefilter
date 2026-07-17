@@ -15,6 +15,12 @@ const keymap: KeyBinding[] = [
   { combo: "x", command: "toggle-select" },
 ];
 
+/** happy-dom/real-DOM dispatch makes constructed events untrusted; shadow the getter. */
+function trusted<E extends Event>(e: E): E {
+  Object.defineProperty(e, "isTrusted", { value: true });
+  return e;
+}
+
 describe("combo normalization", () => {
   it("canonicalizes modifier order and key case", () => {
     expect(canonicalCombo("Shift+Alt+L")).toBe("Alt+Shift+l");
@@ -101,16 +107,25 @@ describe("installKeyboardLayer", () => {
     const run = vi.fn();
     dispose = installKeyboardLayer({ keymap, run, doc: document });
     const e = new KeyboardEvent("keydown", { key: "m", altKey: true, cancelable: true });
-    document.dispatchEvent(e);
+    document.dispatchEvent(trusted(e));
     expect(run).toHaveBeenCalledWith("mute");
     expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("ignores untrusted (page-synthesized) keydown events", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({ keymap, run, doc: document });
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "m", altKey: true, cancelable: true }),
+    );
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("uses the default document when none is passed", () => {
     const run = vi.fn();
     dispose = installKeyboardLayer({ keymap, run });
     const e = new KeyboardEvent("keydown", { key: "x", cancelable: true });
-    document.dispatchEvent(e);
+    document.dispatchEvent(trusted(e));
     expect(run).toHaveBeenCalledWith("toggle-select");
   });
 
@@ -125,6 +140,7 @@ describe("installKeyboardLayer", () => {
     } as unknown as Document;
     dispose = installKeyboardLayer({ keymap, run, doc });
     handler?.({
+      isTrusted: true,
       key: "x",
       altKey: false,
       ctrlKey: false,
@@ -150,7 +166,7 @@ describe("installKeyboardLayer", () => {
       altKey: true,
       cancelable: true,
     });
-    document.dispatchEvent(e);
+    document.dispatchEvent(trusted(e));
     expect(run).toHaveBeenCalledWith("not-interested");
     expect(e.defaultPrevented).toBe(true);
   });
@@ -169,22 +185,22 @@ describe("installKeyboardLayer", () => {
       isComposing: true,
       cancelable: true,
     });
-    document.dispatchEvent(e);
+    document.dispatchEvent(trusted(e));
     expect(run).toHaveBeenCalledWith("not-interested");
   });
 
   it("runs bare x for selection", () => {
     const run = vi.fn();
     dispose = installKeyboardLayer({ keymap, run, doc: document });
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
+    document.dispatchEvent(trusted(new KeyboardEvent("keydown", { key: "x" })));
     expect(run).toHaveBeenCalledWith("toggle-select");
   });
 
   it("ignores unbound keys (e.g. native j/k)", () => {
     const run = vi.fn();
     dispose = installKeyboardLayer({ keymap, run, doc: document });
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "m" })); // bare m = native DM, not ours
+    document.dispatchEvent(trusted(new KeyboardEvent("keydown", { key: "j" })));
+    document.dispatchEvent(trusted(new KeyboardEvent("keydown", { key: "m" }))); // bare m = native DM, not ours
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -193,7 +209,9 @@ describe("installKeyboardLayer", () => {
     const input = document.createElement("input");
     document.body.appendChild(input);
     dispose = installKeyboardLayer({ keymap, run, doc: document });
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "m", altKey: true, bubbles: true }));
+    input.dispatchEvent(
+      trusted(new KeyboardEvent("keydown", { key: "m", altKey: true, bubbles: true })),
+    );
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -204,7 +222,9 @@ describe("installKeyboardLayer", () => {
     const input = document.createElement("input");
     host.attachShadow({ mode: "open" }).appendChild(input);
     dispose = installKeyboardLayer({ keymap, run, doc: document });
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true, composed: true }));
+    input.dispatchEvent(
+      trusted(new KeyboardEvent("keydown", { key: "x", bubbles: true, composed: true })),
+    );
     expect(run).not.toHaveBeenCalled();
   });
 });
@@ -241,7 +261,7 @@ describe("story beats 5 & 6 — the full keyboard layer", () => {
       doc: document,
     });
     const e = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
-    document.dispatchEvent(e);
+    document.dispatchEvent(trusted(e));
     expect(run).toHaveBeenCalledWith("escape");
     expect(e.defaultPrevented).toBe(false);
     dispose2();

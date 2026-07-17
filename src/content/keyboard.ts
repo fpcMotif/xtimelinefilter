@@ -99,6 +99,9 @@ export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
   const table = new Map(opts.keymap.map((b) => [canonicalCombo(b.combo), b.command]));
 
   const handler = (e: KeyboardEvent): void => {
+    // Only UA-dispatched input is user intent — page scripts (and Lasso's own
+    // synthetic drivers) must not steer selection, mute, or assign.
+    if (!e.isTrusted) return;
     // Lasso's own driver synthesizes Escape to dismiss stuck X menus — that is
     // cleanup aimed at X, not user input for this layer.
     if ((e as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]) return;

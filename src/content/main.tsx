@@ -129,6 +129,8 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
   document.addEventListener(
     "mousemove",
     (e) => {
+      // Synthetic mousemoves must not steer the quick-action target.
+      if (!e.isTrusted) return;
       let t = (e.target as Element | null)?.closest?.(Selectors.TWEET) ?? null;
       // Quoted tweets nest articles — the outermost one owns the caret and author.
       while (t) {
@@ -207,6 +209,8 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
   document.addEventListener(
     "click",
     (e) => {
+      // Page-spoofed clicks must not toggle the selection.
+      if (!e.isTrusted) return;
       if (!selection.selectMode.value) return;
       const origin = (e.composedPath?.()[0] ?? e.target) as Element | null;
       if (origin?.closest?.(`[${OVERLAY_FLAG}]`)) return; // the check handles itself
