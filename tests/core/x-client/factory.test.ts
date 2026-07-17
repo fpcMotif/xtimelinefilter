@@ -22,17 +22,14 @@ const restApi = new RestXListApi(
   }),
 );
 const domApi = new DomXListApi(fakeDriver);
-const gqlApi = new GraphqlXListApi(
-  { csrf: "c", bearer: "b" },
-  {
-    fetch: (async () => new Response("{}")) as unknown as typeof fetch,
-    config: {
-      baseUrl: "https://x.com/i/api/graphql",
-      ops: { ListAddMember: "a", ListRemoveMember: "r", UserByScreenName: "u" },
-      features: {},
-    },
+const gqlApi = new GraphqlXListApi(() => ({ csrf: "c", bearer: "b" }), {
+  fetch: (async () => new Response("{}")) as unknown as typeof fetch,
+  config: {
+    baseUrl: "https://x.com/i/api/graphql",
+    ops: { ListAddMember: "a", ListRemoveMember: "r", UserByScreenName: "u" },
+    features: {},
   },
-);
+});
 
 const builders = { rest: () => restApi, dom: () => domApi, graphql: () => gqlApi };
 

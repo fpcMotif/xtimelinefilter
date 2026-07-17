@@ -87,11 +87,20 @@ function injectOverlay(article: Element, author: TweetAuthor, deps: OverlayDeps)
 }
 
 let started = false;
+let booting = false;
 
 async function start(settings: LassoSettings, activatedByUser: boolean): Promise<void> {
-  if (started) return;
-  started = true;
+  if (started || booting) return;
+  booting = true;
+  try {
+    await boot(settings, activatedByUser);
+    started = true; // latch only after a successful boot — a failure must be retryable
+  } finally {
+    booting = false;
+  }
+}
 
+async function boot(settings: LassoSettings, activatedByUser: boolean): Promise<void> {
   const selection = createSelectionStore();
   const appState = createAppState(selection);
   const toasts = createToastStore();
@@ -107,7 +116,10 @@ async function start(settings: LassoSettings, activatedByUser: boolean): Promise
     rest: () => new RestXListApi(pageFetch, () => auth.credentials()),
     dom: () => new DomXListApi(createDomPageDriver()),
     graphql: () =>
-      new GraphqlXListApi(auth.credentials(), { fetch: pageFetch, config: DEFAULT_GRAPHQL_CONFIG }),
+      new GraphqlXListApi(() => auth.credentials(), {
+        fetch: pageFetch,
+        config: DEFAULT_GRAPHQL_CONFIG,
+      }),
   });
   // List discovery via the stable v1.1 endpoint, decoupled from the add-backend.
   const listCache = createListCache(() =>
@@ -270,7 +282,9 @@ async function main(): Promise<void> {
           sendResponse({ awake: started });
           return;
         }
-        if (msg?.type === "lasso-activate") void start(settings, true);
+        if (msg?.type === "lasso-activate") {
+          void start(settings, true).catch((e) => console.error("[Lasso] start failed", e));
+        }
       },
     );
   } catch {
@@ -278,7 +292,7 @@ async function main(): Promise<void> {
   }
 
   if (settings.activation === "auto") {
-    await start(settings, false);
+    await start(settings, false).catch((e) => console.error("[Lasso] start failed", e));
   } else {
     // on-demand: stay inert until the popup wakes this tab (ADR-0006); the
     // toolbar shows a "zz" badge so dormancy is visible.

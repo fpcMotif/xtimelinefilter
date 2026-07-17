@@ -1,5 +1,6 @@
 import type { TweetAuthor } from "@/core/selection-store";
 
+import { fetchOwnedLists } from "./lists-provider";
 import {
   type Credentials,
   type GraphqlConfig,
@@ -19,8 +20,10 @@ export interface GraphqlDeps {
  * the ct0 csrf + bearer headers). queryId lives in the URL path; ids are strings.
  */
 export class GraphqlXListApi implements XListApi {
+  // creds are read lazily per call so constructing the backend never throws
+  // (ct0 may not be readable at startup / when logged out) — same as REST.
   constructor(
-    private readonly creds: Credentials,
+    private readonly getCreds: () => Credentials,
     private readonly deps: GraphqlDeps,
   ) {}
 
@@ -64,10 +67,10 @@ export class GraphqlXListApi implements XListApi {
     return typeof restId === "string" ? restId : null;
   }
 
-  async getLists(): Promise<XList[]> {
-    // TODO(next TDD cycle): implement via v1.1 lists/ownerships (simpler/stabler
-    // than walking ListsManagementPageTimeline GraphQL). Tracked in blueprint §9.
-    throw new XApiError("unknown", "GraphqlXListApi.getLists not implemented yet");
+  getLists(): Promise<XList[]> {
+    // Interface satisfied via the stable v1.1 ownerships endpoint (per the old
+    // TODO's own guidance) — the same provider every other consumer uses.
+    return fetchOwnedLists({ fetch: this.deps.fetch, creds: this.getCreds() });
   }
 
   private async mutateMember(
@@ -90,9 +93,10 @@ export class GraphqlXListApi implements XListApi {
   }
 
   private authHeaders(): Record<string, string> {
+    const creds = this.getCreds();
     return {
-      authorization: `Bearer ${this.creds.bearer}`,
-      "x-csrf-token": this.creds.csrf,
+      authorization: `Bearer ${creds.bearer}`,
+      "x-csrf-token": creds.csrf,
       "x-twitter-active-user": "yes",
       "x-twitter-auth-type": "OAuth2Session",
     };

@@ -24,12 +24,12 @@ const config: GraphqlConfig = {
   features: {},
 };
 const gqlFresh = (): XListApi =>
-  new GraphqlXListApi(creds, {
+  new GraphqlXListApi(() => creds, {
     fetch: (async () => jsonResponse({ data: { list: {} } })) as unknown as typeof fetch,
     config,
   });
 const gqlMember = (): XListApi =>
-  new GraphqlXListApi(creds, {
+  new GraphqlXListApi(() => creds, {
     fetch: (async () =>
       jsonResponse({
         errors: [{ message: "User is already a member of this List." }],

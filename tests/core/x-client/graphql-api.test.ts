@@ -26,7 +26,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 function makeApi(fetchImpl: typeof fetch) {
-  return new GraphqlXListApi(creds, { fetch: fetchImpl, config });
+  return new GraphqlXListApi(() => creds, { fetch: fetchImpl, config });
 }
 
 describe("GraphqlXListApi.addMember", () => {
@@ -162,10 +162,39 @@ describe("GraphqlXListApi.resolveUserId", () => {
 });
 
 describe("GraphqlXListApi.getLists", () => {
-  it("throws the explicit not-implemented error", async () => {
-    await expect(makeApi(vi.fn() as unknown as typeof fetch).getLists()).rejects.toMatchObject({
-      kind: "unknown",
-      message: "GraphqlXListApi.getLists not implemented yet",
+  it("returns the user's owned lists via v1.1", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ lists: [{ id_str: "L1", name: "Research" }] }),
+    );
+    const lists = await makeApi(fetchMock as unknown as typeof fetch).getLists();
+
+    expect(lists).toEqual([{ id: "L1", name: "Research" }]);
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("lists/ownerships.json");
+  });
+});
+
+describe("GraphqlXListApi credentials", () => {
+  it("reads credentials lazily per call", async () => {
+    const authError = new XApiError("auth", "ct0 not readable (logged out)");
+    const getCreds = vi
+      .fn<() => Credentials>()
+      .mockImplementationOnce(() => {
+        throw authError;
+      })
+      .mockImplementation(() => creds);
+    const fetchMock = vi.fn(async () => jsonResponse({ data: { list: { id: "L1" } } }));
+
+    // Load-bearing: construction must not touch creds, so a getCreds that
+    // would throw right now still builds a usable backend.
+    const api = new GraphqlXListApi(getCreds, {
+      fetch: fetchMock as unknown as typeof fetch,
+      config,
     });
+
+    await expect(api.addMember(list, author)).rejects.toBe(authError);
+    // ct0 readable again (log-in / rotation): the retry re-reads creds and succeeds.
+    await expect(api.addMember(list, author)).resolves.toBeUndefined();
+    expect(getCreds).toHaveBeenCalledTimes(2);
   });
 });
