@@ -31,7 +31,13 @@
         margin: 0;
         background: var(--bg);
         color: var(--ink);
-        font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font:
+          16px/1.55 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
       }
       main {
         max-width: 900px;
@@ -107,7 +113,8 @@
     <main>
       <h1>Why the fix kept failing</h1>
       <p class="lead">
-        The old loop proved that Lasso could dispatch a click. It did not prove that X accepted the click.
+        The old loop proved that Lasso could dispatch a click. It did not prove that X accepted the
+        click.
       </p>
 
       <section class="grid" aria-label="Failure comparison">
@@ -125,7 +132,9 @@
 
       <h2>The pattern to remember</h2>
       <p>
-        Browser extensions run content scripts in an isolated world. That world can touch the DOM, but page apps can still behave differently from a real user click. When a site ignores synthetic clicks, use a tiny main-world bridge and verify a site-owned side effect.
+        Browser extensions run content scripts in an isolated world. That world can touch the DOM,
+        but page apps can still behave differently from a real user click. When a site ignores
+        synthetic clicks, use a tiny main-world bridge and verify a site-owned side effect.
       </p>
 
       <h2>Quick exercise</h2>
