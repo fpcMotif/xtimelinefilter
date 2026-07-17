@@ -134,6 +134,9 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     list: XList,
     source: AssignSource,
   ): Promise<void> {
+    // Single-flight: one gesture → one run (ADR-0005). A second trigger while
+    // running would interleave paced requests and reset the stop flag.
+    if (app.running.value) return;
     if (authors.length === 0) return;
     app.pickerOpen.value = false;
     app.reviewOpen.value = false;

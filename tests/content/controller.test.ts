@@ -217,6 +217,46 @@ describe("the assign run (story beats 4 & 7)", () => {
   });
 });
 
+describe("single-flight assign runs (ADR-0005)", () => {
+  it("ignores a second assign trigger while a run is in flight", async () => {
+    const h = harness();
+    h.selection.add({ screenName: "jane" });
+    let release!: () => void;
+    h.backend.addImpl = () =>
+      new Promise<void>((r) => {
+        release = r;
+      });
+
+    const first = h.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush(); // run is now awaiting the gated add
+    expect(h.app.running.value).not.toBeNull();
+
+    await h.controller.assignSelectedTo(LISTS[1] as XList); // must no-op
+    release();
+    await first;
+
+    expect(h.backend.added).toEqual(["jane"]); // exactly one run's worth of calls
+  });
+
+  it("a stop requested before a rejected re-entry still stops the original run", async () => {
+    const h = harness();
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    const calls: string[] = [];
+    h.backend.addImpl = async (author) => {
+      calls.push(author.screenName);
+    };
+
+    const first = h.controller.assignSelectedTo(LISTS[0] as XList);
+    h.controller.stopRun();
+    // rejected: must NOT reset the stop flag
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await first;
+
+    expect(calls.length).toBeLessThan(2); // the original run honored the stop
+  });
+});
+
 describe("Alt+Shift+L — the graduation chord (story beat 6)", () => {
   it("adds the hovered author straight to the default List, no picker", async () => {
     const h = harness();

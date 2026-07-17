@@ -10,7 +10,7 @@ Verification gate for every plan (also inside each file): `bun install --frozen-
 |------|-------|----------|--------|------------|--------|
 | 001 | Flag the DOM driver's synthetic Escape | P1 | S | — | DONE |
 | 002 | Gate input listeners on `Event.isTrusted` | P1 | S | 001 | DONE |
-| 003 | Make assign runs single-flight | P1 | S | — | TODO |
+| 003 | Make assign runs single-flight | P1 | S | — | DONE |
 | 004 | Match Lists dialog rows by exact name | P1 | S | 001 | TODO |
 | 005 | Bind toast Undo buttons to their armed action | P1 | M | 003 | TODO |
 | 006 | Lazy GraphQL creds, unbrickable boot, real `getLists` | P1 | S | — | TODO |
