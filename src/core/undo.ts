@@ -1,5 +1,8 @@
 import type { ToastTimers } from "@/core/toast-store";
 
+/** Mute/assign undo window (story beat 6: "Z, 10s window"). */
+export const UNDO_WINDOW_MS = 10_000;
+
 /**
  * Tracks the single most recent undoable action so the global `Z` key can
  * trigger it inside its window (story beats 4 & 6). Arming replaces any prior

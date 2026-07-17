@@ -27,11 +27,11 @@ import {
   WAKE_TOAST,
 } from "@/core/strings";
 import type { ToastAction, ToastStore } from "@/core/toast-store";
+import { UNDO_WINDOW_MS } from "@/core/undo";
 import type { UndoRegistry } from "@/core/undo";
 import type { XList, XListApi } from "@/core/x-client/types";
 
-/** Mute/assign undo window (story beat 6: "Z, 10s window"). */
-export const UNDO_WINDOW_MS = 10_000;
+export { UNDO_WINDOW_MS };
 
 export type AssignSource = "pointer" | "keyboard";
 

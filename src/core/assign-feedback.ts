@@ -12,6 +12,7 @@ import {
   rateLimitLine,
 } from "@/core/strings";
 import type { ToastSpec } from "@/core/toast-store";
+import { UNDO_WINDOW_MS } from "@/core/undo";
 import type { AssignResult, XList } from "@/core/x-client/types";
 
 export type FeedbackAction = "view-list" | "undo" | "retry";
@@ -103,7 +104,13 @@ export function feedbackFor(
     };
   }
 
-  const toast: AssignFeedback["toast"] = { kind: "success", title: addedLine(s.added, list.name) };
+  const toast: AssignFeedback["toast"] = {
+    kind: "success",
+    title: addedLine(s.added, list.name),
+    // Undo is armed for UNDO_WINDOW_MS — keep the pill visible exactly that long
+    // (mirrors the mute flow); otherwise Z fires an invisible undo.
+    durationMs: UNDO_WINDOW_MS,
+  };
   if (s.alreadyMember > 0) toast.line = alreadyInLine(s.alreadyMember);
   const actions: FeedbackAction[] = ["view-list"];
   if (undoable.length > 0) actions.push("undo");

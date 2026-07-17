@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { feedbackFor } from "@/core/assign-feedback";
+import { UNDO_WINDOW_MS } from "@/core/undo";
 import type { AssignResult } from "@/core/x-client/types";
 
 const LIST = { id: "L1", name: "Design Folks" };
@@ -19,6 +20,7 @@ describe("feedbackFor — every failure is a designed beat (story beat 8)", () =
       nowMs: NOW,
     });
     expect(f.toast).toMatchObject({ kind: "success", title: "Added 2 to Design Folks" });
+    expect(f.toast.durationMs).toBe(UNDO_WINDOW_MS); // Undo is armed 10s — the pill stays visible that long
     expect(f.toast.line).toBeUndefined();
     expect(f.actions).toEqual(["view-list", "undo"]);
     expect(f.undoable.map((a) => a.screenName)).toEqual(["a", "b"]);
