@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { installKeyboardLayer } from "@/content/keyboard";
+import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
 import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
 
 /**
@@ -108,6 +110,33 @@ describe("createDomPageDriver (synthetic x.com)", () => {
     await d.commit();
     await d.close();
     expect(escaped).toBe(true);
+  });
+
+  it("close() dispatches a flagged Escape that Lasso's keyboard layer ignores but X still sees", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+
+    const run = vi.fn(() => true); // consume-anything spy, stands in for handleEscape
+    const dispose = installKeyboardLayer({
+      keymap: [{ combo: "Escape", command: "escape" }],
+      run,
+      doc: document,
+    });
+    let xSawEscape = false;
+    let flagged = false;
+    document.body.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Escape") {
+        xSawEscape = true;
+        flagged = (e as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] === true;
+      }
+    });
+
+    await d.close();
+    dispose();
+    expect(run).not.toHaveBeenCalled(); // Lasso ignored its own cleanup event
+    expect(xSawEscape).toBe(true); // X's dialog still receives it
+    expect(flagged).toBe(true);
   });
 
   it("throws a clear error when the author has no visible tweet", async () => {

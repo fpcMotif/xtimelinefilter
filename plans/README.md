@@ -8,7 +8,7 @@ Verification gate for every plan (also inside each file): `bun install --frozen-
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | Flag the DOM driver's synthetic Escape | P1 | S | — | TODO |
+| 001 | Flag the DOM driver's synthetic Escape | P1 | S | — | DONE |
 | 002 | Gate input listeners on `Event.isTrusted` | P1 | S | 001 | TODO |
 | 003 | Make assign runs single-flight | P1 | S | — | TODO |
 | 004 | Match Lists dialog rows by exact name | P1 | S | 001 | TODO |

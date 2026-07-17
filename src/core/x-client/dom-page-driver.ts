@@ -1,4 +1,9 @@
-import { ADD_TO_LISTS_TEXT, DriverSelectors, Selectors } from "@/content/selectors";
+import {
+  ADD_TO_LISTS_TEXT,
+  DriverSelectors,
+  Selectors,
+  SYNTHETIC_EVENT_FLAG,
+} from "@/content/selectors";
 import type { TweetAuthor } from "@/core/selection-store";
 import { extractAuthor } from "@/core/tweet-extractor";
 
@@ -100,7 +105,14 @@ export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver
       await settle(120);
     },
     async close() {
-      doc.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      const win = doc.defaultView;
+      const ev = win
+        ? new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+        : new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      // Marked so Lasso's keyboard layer ignores it — this Escape is aimed at
+      // X's Lists dialog, not at Lasso's select mode / picker / selection.
+      (ev as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] = true;
+      doc.body.dispatchEvent(ev);
       await settle(80);
     },
   };
