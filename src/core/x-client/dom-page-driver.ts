@@ -11,6 +11,7 @@ import type { PageDriver } from "./page-driver";
 
 const click = (el: Element): void => (el as HTMLElement).click();
 const textOf = (el: Element): string => el.textContent as string;
+const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
 
 /**
  * Real PageDriver that automates X's sanctioned "Add/remove from Lists" UI
@@ -45,8 +46,15 @@ export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver
     return [...dialog.querySelectorAll(DriverSelectors.MENUITEM)] as HTMLElement[];
   }
 
+  // Exact match only: substring matching picks "Close Friends" for "Friends".
+  // Prefer the row's name-bearing child (extra row text — member counts,
+  // checkmarks — must not participate); fall back to the whole row's text.
   function rowByName(name: string): HTMLElement | undefined {
-    return rows().find((r) => textOf(r).includes(name));
+    const wanted = norm(name);
+    return rows().find((r) => {
+      const nameEl = r.querySelector("span, div");
+      return norm(nameEl ? textOf(nameEl) : textOf(r)) === wanted;
+    });
   }
 
   function waitFor(selector: string): Promise<Element> {

@@ -9,7 +9,11 @@ import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
  * driver's traversal logic. The real selectors still need live DevTools
  * confirmation (blueprint §8) — this guards the logic against regressions.
  */
-function setupSyntheticX(doc: Document): void {
+function setupSyntheticXWithLists(
+  doc: Document,
+  names: string[],
+  checked: string[] = ["Friends"],
+): void {
   doc.body.innerHTML = `
     <article data-testid="tweet" role="article">
       <div data-testid="User-Name">
@@ -33,10 +37,15 @@ function setupSyntheticX(doc: Document): void {
     item.addEventListener("click", () => {
       const dialog = doc.createElement("div");
       dialog.setAttribute("role", "dialog");
-      dialog.innerHTML = `
-        <div role="menuitem"><span>Research</span><div role="checkbox" aria-checked="false"></div></div>
-        <div role="menuitem"><span>Friends</span><div role="checkbox" aria-checked="true"></div></div>
-        <button data-testid="confirmationSheetConfirm">Save</button>`;
+      dialog.innerHTML =
+        names
+          .map(
+            (name) =>
+              `<div role="menuitem"><span>${name}</span><div role="checkbox" aria-checked="${
+                checked.includes(name) ? "true" : "false"
+              }"></div></div>`,
+          )
+          .join("") + `<button data-testid="confirmationSheetConfirm">Save</button>`;
       for (const row of dialog.querySelectorAll('[role="menuitem"]')) {
         row.addEventListener("click", () => {
           const box = row.querySelector('[role="checkbox"]') as HTMLElement;
@@ -49,6 +58,10 @@ function setupSyntheticX(doc: Document): void {
       doc.body.appendChild(dialog);
     });
   });
+}
+
+function setupSyntheticX(doc: Document): void {
+  setupSyntheticXWithLists(doc, ["Research", "Friends"]);
 }
 
 afterEach(() => {
@@ -79,6 +92,19 @@ describe("createDomPageDriver (synthetic x.com)", () => {
     await d.toggleList("Research");
     expect(await d.isChecked("Research")).toBe(true);
     await d.commit(); // clicks Save without throwing
+  });
+
+  it("matches rows by exact name, not substring", async () => {
+    // "Close Friends" renders before "Friends" (alphabetical), and both contain
+    // "Friends" — a substring matcher toggles the wrong row.
+    setupSyntheticXWithLists(document, ["Close Friends", "Friends"], []);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+
+    expect(await d.isChecked("Friends")).toBe(false); // not the "Close Friends" row's state
+    await d.toggleList("Friends");
+    expect(await d.isChecked("Friends")).toBe(true);
+    expect(await d.isChecked("Close Friends")).toBe(false); // untouched
   });
 
   it("treats a row without a checkbox as unchecked", async () => {
