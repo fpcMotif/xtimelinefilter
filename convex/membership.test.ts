@@ -223,6 +223,48 @@ describe("recordAssign", () => {
   });
 });
 
+describe("upsertOwner screenName", () => {
+  test('a later write with the "" pre-hydration placeholder keeps the stored handle', async () => {
+    const t = convexTest(schema, modules);
+    const results = [{ memberScreenName: "alice", action: "add" as const, outcome: "added" }];
+
+    await t.mutation(api.membership.recordAssign, { deviceKey: DEVICE_KEY, owner, list, results });
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner: { userId: owner.userId, screenName: "" },
+      list,
+      results,
+    });
+
+    const accounts = await t.run(async (ctx) => ctx.db.query("accounts").collect());
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ userId: "100", screenName: "operator" });
+  });
+
+  test('the "" placeholder is stored on first contact and upgraded by a resolved write', async () => {
+    const t = convexTest(schema, modules);
+    const results = [{ memberScreenName: "alice", action: "add" as const, outcome: "added" }];
+    const anon = { userId: "300", screenName: "" };
+
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner: anon,
+      list,
+      results,
+    });
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner: { userId: "300", screenName: "resolved" },
+      list,
+      results,
+    });
+
+    const accounts = await t.run(async (ctx) => ctx.db.query("accounts").collect());
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ userId: "300", screenName: "resolved" });
+  });
+});
+
 describe("reconcileAuthor", () => {
   test("mirrors X's truth: a List dropped from listIds flips present:true -> false", async () => {
     const t = convexTest(schema, modules);

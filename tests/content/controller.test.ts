@@ -456,6 +456,27 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     warn.mockRestore();
   });
 
+  it("a throwing Owner read (malformed twid cookie) leaves the assign flow intact and warns once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { store, calls } = recordingStore();
+    const results: boolean[] = [];
+    const h = harness({
+      membershipStore: store,
+      currentOwner: () => {
+        throw new URIError("URI malformed"); // decodeURIComponent on a corrupt cookie
+      },
+      onMirrorResult: (r) => void results.push(r.ok),
+    });
+    h.selection.add({ screenName: "a" });
+    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await flush();
+    expect(h.backend.added).toEqual(["a"]); // X flow unaffected
+    expect(calls.length).toBe(0); // nothing recorded without an Owner
+    expect(results).toEqual([false]); // surfaced as a Mirror failure
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
   it("mirrors undo removals as remove changes", async () => {
     const { store, calls } = recordingStore();
     const h = harness({ membershipStore: store, currentOwner: () => owner });

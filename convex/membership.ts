@@ -35,7 +35,9 @@ async function upsertOwner(
     });
   } else {
     await ctx.db.patch(existing._id, {
-      screenName: owner.screenName,
+      // screenName is best-effort and may be "" pre-hydration (see Owner in
+      // membership-store/types.ts) — never clobber a stored real handle with it.
+      ...(owner.screenName !== "" ? { screenName: owner.screenName } : {}),
       lastSeenAt: now,
     });
   }

@@ -138,14 +138,13 @@ export function createLassoController(deps: ControllerDeps): LassoController {
    * Mirror the changes from a run, stamped with the Owner logged in right now.
    * Fire-and-forget: the Mirror is off-to-the-side and must never block or break
    * the X flow — no Owner skips it, and a failure is swallowed (ADR-0009). The
-   * try/catch also absorbs a *synchronous* throw from the seam (.catch alone only
-   * attaches to a returned promise), and the first failure is surfaced once
+   * try/catch also absorbs a *synchronous* throw from the seam or from the Owner
+   * read itself — a malformed twid cookie must not abort the flow (.catch alone
+   * only attaches to a returned promise) — and the first failure is surfaced once
    * so a silently-blocked Mirror — e.g. a page-CSP-rejected POST — is observable.
    */
   function recordToMirror(list: XList, changes: MembershipChange[]): void {
     if (changes.length === 0) return;
-    const owner = currentOwner();
-    if (!owner) return;
     const onFail = (err: unknown): void => {
       deps.onMirrorResult?.({ ok: false, at: now() });
       if (mirrorWarned) return;
@@ -153,6 +152,8 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       console.warn("[Lasso] Mirror write failed (off-to-the-side; X flow unaffected)", err);
     };
     try {
+      const owner = currentOwner();
+      if (!owner) return;
       void membershipStore
         .recordAssign(owner, list, changes)
         .then(() => deps.onMirrorResult?.({ ok: true, at: now() }))
