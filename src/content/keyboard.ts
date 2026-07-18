@@ -28,7 +28,9 @@ export interface KeyBinding {
  * command still exists for programmatic use, it just has no default key. Escape/z/?
  * and the filter keys' handlers return false when Lasso has nothing to do, so X's
  * own keys keep working. f/h are free on x.com (only g+f / g+h chords use them,
- * which the chord guard passes through).
+ * which the chord guard passes through). Capital letters ("X" ≡ "Shift+x") are
+ * expressible and collision-free — X binds only bare keys — but none are bound
+ * by default yet.
  */
 export const DEFAULT_KEYMAP: KeyBinding[] = [
   { combo: "Alt+n", command: "not-interested" },
@@ -52,7 +54,10 @@ export const CHORD_WINDOW_MS = 1000;
 
 const MOD_ORDER = ["Alt", "Ctrl", "Meta", "Shift"] as const;
 
-/** Canonical "Alt+Shift+l" form: modifiers in a fixed order, single keys lowercased. */
+/**
+ * Canonical "Alt+Shift+l" form: modifiers in a fixed order, single keys
+ * lowercased. A bare capital letter is sugar for its Shift chord: "X" ≡ "Shift+x".
+ */
 export function canonicalCombo(combo: string): string {
   const parts = combo
     .split("+")
@@ -60,6 +65,7 @@ export function canonicalCombo(combo: string): string {
     .filter(Boolean);
   const mods = new Set(parts.slice(0, -1).map((m) => m.toLowerCase()));
   const key = parts.at(-1) ?? "";
+  if (/^[A-Z]$/.test(key)) mods.add("shift");
   const ordered = MOD_ORDER.filter((m) => mods.has(m.toLowerCase()));
   return [...ordered, key.length === 1 ? key.toLowerCase() : key].join("+");
 }
@@ -83,9 +89,12 @@ export function eventToCombo(e: KeyboardEvent): string {
   // letter/digit (Windows/Linux Dvorak etc.); fall back to the physical key otherwise.
   const raw = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const key = e.altKey && !/^[a-z0-9]$/.test(raw) ? (keyFromCode(e.code) ?? raw) : raw;
-  // A lone Shift is already encoded in the produced character ("?" is Shift+/),
-  // so "?" binds as "?", while chords like Alt+Shift+l keep their Shift.
-  if (key.length === 1 && mods.length === 1 && mods[0] === "Shift") mods.length = 0;
+  // For punctuation a lone Shift is already encoded in the produced character
+  // ("?" is Shift+/), so "?" binds as "?". Letters keep their Shift: "Shift+x"
+  // is a distinct combo from "x", so capital-letter bindings are expressible
+  // (X's own shortcuts are all bare keys, so Shift chords never collide).
+  if (key.length === 1 && mods.length === 1 && mods[0] === "Shift" && !/^[a-z]$/.test(key))
+    mods.length = 0;
   return [...mods, key].join("+");
 }
 

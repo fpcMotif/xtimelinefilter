@@ -339,3 +339,44 @@ describe("X g-chord passthrough (g+h Home, g+s Settings, g+f Drafts, …)", () =
     expect(run).toHaveBeenCalledWith("toggle-filter");
   });
 });
+
+describe("capital-letter combos (Shift+letter is distinct from the bare letter)", () => {
+  let dispose: (() => void) | undefined;
+  afterEach(() => {
+    dispose?.();
+    dispose = undefined;
+  });
+
+  it('canonicalCombo treats a bare capital as its Shift chord ("X" ≡ "Shift+x")', () => {
+    expect(canonicalCombo("X")).toBe("Shift+x");
+    expect(canonicalCombo("Shift+x")).toBe("Shift+x");
+    expect(canonicalCombo("Alt+X")).toBe("Alt+Shift+x");
+  });
+
+  it("eventToCombo keeps Shift on letters but folds it into punctuation", () => {
+    expect(eventToCombo(new KeyboardEvent("keydown", { key: "X", shiftKey: true }))).toBe(
+      "Shift+x",
+    );
+    expect(eventToCombo(new KeyboardEvent("keydown", { key: "x" }))).toBe("x");
+    expect(eventToCombo(new KeyboardEvent("keydown", { key: "?", shiftKey: true }))).toBe("?");
+  });
+
+  it("Shift+X no longer aliases the bare-x binding, and a capital binding fires", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({
+      keymap: [
+        { combo: "x", command: "toggle-select" },
+        { combo: "X", command: "toggle-select-mode" },
+      ],
+      run,
+      doc: document,
+    });
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "X", shiftKey: true, cancelable: true }),
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith("toggle-select-mode");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "x", cancelable: true }));
+    expect(run).toHaveBeenCalledWith("toggle-select");
+  });
+});
