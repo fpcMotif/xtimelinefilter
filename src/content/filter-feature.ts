@@ -1,7 +1,7 @@
 import { createFilterApplier } from "@/content/filter-applier";
 import { FilterAttributes } from "@/content/filter-attributes";
 import { mountFilterSurfaces, type SurfaceManager } from "@/content/surface-mount";
-import { createFilterStore, type FilterStore } from "@/core/filter-store";
+import { type Conduct, createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { SettingsStore } from "@/core/settings";
 import { createUiRoot } from "@/ui/mount";
 
@@ -30,7 +30,7 @@ export interface FilterFeatureDeps {
   /** Shared filter store (so the controller conducts the same one the surfaces show); omit ⇒ the feature creates its own. */
   store?: FilterStore;
   /** Route in-page Filter commands through the controller's fail-open wall; omit ⇒ surfaces edit the store directly. */
-  conduct?: (run: (s: FilterStore) => void) => void;
+  conduct?: Conduct;
 }
 
 // Page-level CSS for collapse-to-stub: the cell lives in x.com's DOM, not our

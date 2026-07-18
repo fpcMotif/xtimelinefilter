@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { buildPaletteItems, type PaletteItem } from "@/core/filter-projection";
-import type { FilterStore } from "@/core/filter-store";
+import type { Conduct, FilterStore } from "@/core/filter-store";
 import { useSignalValue } from "@/ui/use-signal-value";
 
 /**
@@ -35,7 +35,7 @@ export interface FilterPaletteProps {
    * Conduct each invoked item through the controller's fail-open wall (the palette
    * is the in-page command surface). Omit ⇒ items run directly on the store.
    */
-  conduct?: (run: (s: FilterStore) => void) => void;
+  conduct?: Conduct;
 }
 
 /**

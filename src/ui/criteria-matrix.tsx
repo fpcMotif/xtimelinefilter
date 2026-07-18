@@ -1,5 +1,5 @@
 import { CRITERIA_GROUPS } from "@/core/filter-criteria";
-import type { FilterStore } from "@/core/filter-store";
+import type { Conduct, FilterStore } from "@/core/filter-store";
 import type { FilterMode } from "@/core/filter-types";
 import { useSignalValue } from "@/ui/use-signal-value";
 
@@ -18,7 +18,7 @@ export interface CriteriaMatrixProps {
    * controller's fail-open wall. Omitted (popup-less surfaces like Options) ⇒
    * the cycle runs directly on the store.
    */
-  conduct?: (run: (s: FilterStore) => void) => void;
+  conduct?: Conduct;
   /**
    * Render the family-grouped chips. The legend always shows; the chips hide
    * when `false` so the in-page pill can collapse them with the master toggle

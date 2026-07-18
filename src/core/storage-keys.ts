@@ -19,13 +19,27 @@ export const STORAGE_KEYS = {
   mirrorStatus: "lasso:mirror-status",
 } as const;
 
-const LOCAL_KEYS = [
-  STORAGE_KEYS.lists,
-  STORAGE_KEYS.listUsage,
-  STORAGE_KEYS.coach,
-  STORAGE_KEYS.mirrorStatus,
-];
-const SYNC_KEYS = [STORAGE_KEYS.settings, STORAGE_KEYS.filter];
+/**
+ * Which storage area each key lives in. `Record<keyof typeof STORAGE_KEYS, …>`
+ * makes the compiler reject a key added above but not placed here, so the
+ * privacy wipe can never silently skip a new store.
+ */
+const KEY_AREAS: Record<keyof typeof STORAGE_KEYS, "local" | "sync"> = {
+  lists: "local",
+  listUsage: "local",
+  settings: "sync",
+  filter: "sync",
+  coach: "local",
+  mirrorStatus: "local",
+};
+
+const keysIn = (area: "local" | "sync"): string[] =>
+  (Object.keys(STORAGE_KEYS) as (keyof typeof STORAGE_KEYS)[])
+    .filter((k) => KEY_AREAS[k] === area)
+    .map((k) => STORAGE_KEYS[k]);
+
+const LOCAL_KEYS = keysIn("local");
+const SYNC_KEYS = keysIn("sync");
 
 /** Wipes everything Lasso keeps ("Clear Lasso data"), local and sync alike. */
 export async function clearLassoData(local: StorageLike, sync: StorageLike): Promise<void> {

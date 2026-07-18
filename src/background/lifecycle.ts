@@ -24,15 +24,20 @@ export function handleInstalled(details: { reason: string }, api: InstallApi): v
   api.setUninstallURL(UNINSTALL_FORM_URL);
 }
 
-/** Messages the content script sends about its per-tab state. */
-export interface BadgeMessage {
+/**
+ * Loose input shape for whatever the content script sends about its per-tab
+ * state (badge + wake notifications). Deliberately NOT protocol.ts's strict
+ * `BadgeMessage` wire type — this is the tolerant-reader side, hence the
+ * distinct name.
+ */
+export interface BadgeStateInput {
   type?: string;
   count?: number;
   state?: "asleep" | "awake";
 }
 
 /** Badge text for a message, or null when the message is not badge-related. */
-export function badgeTextFor(msg: BadgeMessage | undefined): string | null {
+export function badgeTextFor(msg: BadgeStateInput | undefined): string | null {
   if (msg?.type === "lasso:badge" && typeof msg.count === "number") {
     return msg.count > 0 ? String(msg.count) : "";
   }

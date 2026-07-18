@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 
-import type { FilterStore } from "@/core/filter-store";
+import type { Conduct, FilterStore } from "@/core/filter-store";
 import { Button, Input, PresetApplyPill, Switch } from "@/ui/components";
 import { CriteriaMatrix } from "@/ui/criteria-matrix";
 import { useSignalValue } from "@/ui/use-signal-value";
@@ -14,7 +14,7 @@ export interface FilterPanelProps {
    * the controller's fail-open wall; preferences (master enable, languages, presets)
    * stay direct. Omit ⇒ commands run directly on the store.
    */
-  conduct?: (run: (s: FilterStore) => void) => void;
+  conduct?: Conduct;
 }
 
 /**

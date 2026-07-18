@@ -3,7 +3,7 @@ import { createElement, render, type VNode } from "preact";
 /** Props vary per surface, so the registry stores loosely-typed trees. */
 type AnyVNode = VNode<any>;
 
-import type { FilterStore } from "@/core/filter-store";
+import type { Conduct, FilterStore } from "@/core/filter-store";
 import type { LassoSettings, SettingsStore } from "@/core/settings";
 import { FilterPalette } from "@/ui/filter-palette";
 import { FunnelPill } from "@/ui/funnel-pill";
@@ -16,7 +16,7 @@ export interface SurfaceMountDeps {
   hiddenCount: () => number;
   inScope: () => boolean;
   /** Conduct in-page Filter commands through the controller's fail-open wall (ADR-0010). */
-  conduct?: (run: (s: FilterStore) => void) => void;
+  conduct?: Conduct;
 }
 
 export interface SurfaceManager {

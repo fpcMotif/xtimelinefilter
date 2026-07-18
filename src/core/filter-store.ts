@@ -16,6 +16,13 @@ const KEY = STORAGE_KEYS.filter;
 
 const NEXT_MODE: Record<FilterMode, FilterMode> = { off: "only", only: "hide", hide: "off" };
 
+/**
+ * Routes an in-page Filter *command* through the conductor's fail-open wall
+ * instead of mutating the store directly. Surfaces accept it as an optional
+ * prop; the convention with no conductor is `conduct ?? ((run) => run(store))`.
+ */
+export type Conduct = (run: (store: FilterStore) => void) => void;
+
 export interface FilterStore {
   /** Reactive filter configuration; consumers `.subscribe` or read `.value`. */
   readonly state: ReadonlySignal<FilterState>;

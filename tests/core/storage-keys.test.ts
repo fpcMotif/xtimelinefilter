@@ -44,3 +44,16 @@ describe("clearLassoData", () => {
     expect(sync.set).toHaveBeenCalledWith(Object.fromEntries(SYNC_KEYS.map((k) => [k, undefined])));
   });
 });
+
+describe("area partition", () => {
+  it("covers every STORAGE_KEYS entry (the privacy wipe is exhaustive)", async () => {
+    const removed: string[] = [];
+    const grab = async (keys: string[]): Promise<void> => {
+      removed.push(...keys);
+    };
+    const local: StorageLike = { get: vi.fn(), set: vi.fn(), remove: grab };
+    const sync: StorageLike = { get: vi.fn(), set: vi.fn(), remove: grab };
+    await clearLassoData(local, sync);
+    expect(removed.toSorted()).toEqual(Object.values(STORAGE_KEYS).toSorted());
+  });
+});

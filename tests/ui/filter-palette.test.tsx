@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/preact";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFilterStore, type FilterStore } from "@/core/filter-store";
+import { type Conduct, createFilterStore } from "@/core/filter-store";
 import { FilterPalette } from "@/ui/filter-palette";
 
 function setup(
@@ -9,7 +9,7 @@ function setup(
     open?: boolean;
     onClose?: () => void;
     prepare?: (store: ReturnType<typeof createFilterStore>) => void;
-    conduct?: (run: (s: FilterStore) => void) => void;
+    conduct?: Conduct;
   } = {},
 ) {
   const store = createFilterStore({ navLanguages: ["ja"] });

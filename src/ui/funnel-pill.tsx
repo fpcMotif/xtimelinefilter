@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { activeCriteriaCount } from "@/core/filter-projection";
-import type { FilterStore } from "@/core/filter-store";
+import type { Conduct, FilterStore } from "@/core/filter-store";
 import { FilterPanel } from "@/ui/filter-panel";
 import { useSignalValue } from "@/ui/use-signal-value";
 
@@ -22,7 +22,7 @@ export interface FunnelPillProps {
   position: { x: number; y: number };
   onPositionChange: (pos: { x: number; y: number }) => void;
   /** Conduct in-page Filter commands through the controller's fail-open wall (passed to the panel). */
-  conduct?: (run: (s: FilterStore) => void) => void;
+  conduct?: Conduct;
 }
 
 function clamp(v: number, min: number, max: number): number {

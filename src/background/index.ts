@@ -24,5 +24,3 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender) => {
     }
   }
 });
-
-export const backgroundModule = true;
