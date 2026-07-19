@@ -1,15 +1,15 @@
 import type { GraphqlConfig } from "./types";
 
 /**
- * Seed snapshot of the internal GraphQL endpoints (ADR-0004). queryIds + the
- * features object ROTATE every ~2–4 weeks (blueprint §8), so this is only a
- * starting point — the GraphQL backend is opt-in and the runtime sniffer
- * (sniffGraphqlConfig) refreshes these from the app's own traffic. Treat 404 /
- * "features cannot be null" as a signal to re-discover.
+ * Static snapshot of the internal GraphQL endpoints (ADR-0004). queryIds + the
+ * features object may rotate, so GraphQL is explicit opt-in. A 404 fails as a
+ * typed, visible error; update this file after a live, deliberate verification.
+ * Do not bridge MAIN-world observations into this isolated-world client without
+ * a reviewed threat model.
  *
  * ⚠️ These query ids are point-in-time and MUST be verified live before relying
- * on the GraphQL backend; the DOM backend is the default precisely because it
- * needs none of this.
+ * on the GraphQL backend. REST is the current default, but uses undocumented web
+ * v1.1 endpoints; it needs none of this query-id configuration.
  */
 export const DEFAULT_GRAPHQL_CONFIG: GraphqlConfig = {
   baseUrl: "https://x.com/i/api/graphql",

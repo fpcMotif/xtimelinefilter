@@ -147,6 +147,16 @@ function funnelButton(page: Page): Locator {
   return pillRoot(page).getByRole("button", { name: "Timeline filter" });
 }
 
+const VIDEO_A11Y_NAME = {
+  off: "Video. Current mode: off. Click to show only.",
+  only: "Video. Current mode: show only. Click to hide.",
+  hide: "Video. Current mode: hide. Click to turn off.",
+} as const;
+
+function videoChip(panel: Locator, mode: keyof typeof VIDEO_A11Y_NAME): Locator {
+  return panel.getByRole("button", { name: VIDEO_A11Y_NAME[mode], exact: true });
+}
+
 /**
  * Dismiss the first-run welcome card. On a fresh storage it is always shown (a
  * full-screen modal that intercepts clicks), set asynchronously after the coach's
@@ -197,10 +207,9 @@ test.describe("filter surfaces (real bundle, chrome stubbed)", () => {
     await funnelButton(page).click();
     const panel = page.locator("#lasso-filter-surfaces [role='dialog']");
     await expect(panel).toBeVisible();
-    const video = panel.getByRole("button", { name: "Video", exact: true });
-    await expect(video).toHaveAttribute("data-mode", "off");
-    await video.click(); // off → only
-    await expect(video).toHaveAttribute("data-mode", "only");
+    await expect(videoChip(panel, "off")).toHaveAttribute("data-mode", "off");
+    await videoChip(panel, "off").click(); // off → only
+    await expect(videoChip(panel, "only")).toHaveAttribute("data-mode", "only");
 
     // Then non-video cells collapse to the "· hidden — show" stub and video
     // cells remain. Two video posts stay; the text + photo posts collapse.
@@ -214,7 +223,7 @@ test.describe("filter surfaces (real bundle, chrome stubbed)", () => {
       "[data-testid='cellInnerDiv']:not([data-lasso-filtered]) article",
       (els) => els.map((el) => el.getAttribute("data-handle")),
     );
-    expect(visibleHandles.sort()).toEqual(["alice", "carol"]);
+    expect(visibleHandles.toSorted()).toEqual(["alice", "carol"]);
 
     // And the pill badge shows an active count (one active criterion).
     await expect(badge).toHaveText("1");
@@ -265,19 +274,18 @@ test.describe("filter surfaces (real bundle, chrome stubbed)", () => {
 
     // And applying it re-establishes "Video: only" and the same cells hidden.
     // First turn Video off so applying the preset is what restores the state.
-    const videoAfter = reloadedPanel.getByRole("button", { name: "Video", exact: true });
-    await videoAfter.click(); // only → hide
-    await videoAfter.click(); // hide → off
-    await expect(videoAfter).toHaveAttribute("data-mode", "off");
+    await videoChip(reloadedPanel, "only").click(); // only → hide
+    await videoChip(reloadedPanel, "hide").click(); // hide → off
+    await expect(videoChip(reloadedPanel, "off")).toHaveAttribute("data-mode", "off");
     await expect(page.locator(COLLAPSED)).toHaveCount(0);
 
     await presetChip.click();
-    await expect(videoAfter).toHaveAttribute("data-mode", "only");
+    await expect(videoChip(reloadedPanel, "only")).toHaveAttribute("data-mode", "only");
     await expect(page.locator(COLLAPSED)).toHaveCount(2);
     const handlesAfter = await page.$$eval(
       "[data-testid='cellInnerDiv']:not([data-lasso-filtered]) article",
       (els) => els.map((el) => el.getAttribute("data-handle")),
     );
-    expect(handlesAfter.sort()).toEqual(["alice", "carol"]);
+    expect(handlesAfter.toSorted()).toEqual(["alice", "carol"]);
   });
 });

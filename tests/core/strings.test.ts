@@ -80,7 +80,9 @@ describe("canonical strings", () => {
   });
 
   it("15 — trust line", () => {
-    expect(S.TRUST_LINE).toBe("Lasso runs entirely in your browser. Nothing leaves x.com.");
+    expect(S.TRUST_LINE).toBe(
+      "Lasso never sends your X session credentials to the Mirror. Mirror sync is off until you configure it.",
+    );
   });
 
   it("16 — wake toast", () => {
@@ -179,7 +181,7 @@ describe("derived copy", () => {
     expect(S.CREATE_LIST_URL).toBe("https://x.com/i/lists/create");
     expect(S.SHORTCUTS_TITLE).toBe("Keyboard shortcuts");
     expect(S.PRIVACY_LINE).toBe(
-      "Lasso has no servers. Your X session, your Lists, and your usage stats never leave this browser.",
+      "Lasso keeps your X session credentials between your browser and X. With Mirror configured, it sends its device key, Owner/List catalog, membership snapshots, and assignment audit events to your Convex deployment.",
     );
     expect(S.POPUP_ACTIVE).toBe("Active on x.com");
     expect(S.POPUP_ASLEEP).toBe("Asleep — click to wake");

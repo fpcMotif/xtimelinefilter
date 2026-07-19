@@ -1,3 +1,7 @@
+import type { ContentToBackground } from "@/core/protocol";
+
+import type { BadgePresentation } from "./tab-badge-writer";
+
 /**
  * Pure background logic (testable without chrome.*): the install moment opens
  * the product itself as the tour (story beat 2), and the toolbar badge mirrors
@@ -24,18 +28,15 @@ export function handleInstalled(details: { reason: string }, api: InstallApi): v
   api.setUninstallURL(UNINSTALL_FORM_URL);
 }
 
-/** Messages the content script sends about its per-tab state. */
-export interface BadgeMessage {
-  type?: string;
-  count?: number;
-  state?: "asleep" | "awake";
-}
-
-/** Badge text for a message, or null when the message is not badge-related. */
-export function badgeTextFor(msg: BadgeMessage | undefined): string | null {
-  if (msg?.type === "lasso:badge" && typeof msg.count === "number") {
-    return msg.count > 0 ? String(msg.count) : "";
+/** Complete visual state for a badge message, or null when unrelated. */
+export function badgePresentationFor(
+  msg: ContentToBackground | undefined,
+): BadgePresentation | null {
+  if (msg?.type === "lasso:badge") {
+    return msg.count > 0 ? { text: String(msg.count), backgroundColor: "#1d9bf0" } : { text: "" };
   }
-  if (msg?.type === "lasso:state") return msg.state === "asleep" ? "zz" : "";
+  if (msg?.type === "lasso:state") {
+    return msg.state === "asleep" ? { text: "zz", backgroundColor: "#536471" } : { text: "" };
+  }
   return null;
 }

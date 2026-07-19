@@ -1,10 +1,12 @@
 import { signal, type ReadonlySignal } from "@preact/signals-core";
 
+import { CRITERIA_BY_ID, LINK_DEST_LABELS } from "@/core/filter-criteria";
 import type {
   CriterionId,
   FilterMode,
   FilterPreset,
   FilterState,
+  LinkDest,
   LinkRule,
 } from "@/core/filter-types";
 import { syncArea, type StorageLike } from "@/core/storage-areas";
@@ -51,6 +53,8 @@ export interface FilterStore {
   load(): Promise<void>;
   /** Replace the whole config in one shot (the conductor undoes a filter command by restoring a snapshot); persists + syncs. */
   restore(state: FilterState): void;
+  /** Stop the storage listener. Safe to call more than once. */
+  dispose(): void;
 }
 
 export interface FilterStoreDeps {
@@ -80,28 +84,142 @@ function defaultState(navLanguages: readonly string[]): FilterState {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeCriteria(raw: unknown): Record<CriterionId, FilterMode> {
+  if (!isRecord(raw)) return {};
+  const criteria: Record<CriterionId, FilterMode> = {};
+  for (const [id, mode] of Object.entries(raw)) {
+    if (CRITERIA_BY_ID.has(id) && (mode === "only" || mode === "hide")) criteria[id] = mode;
+  }
+  return criteria;
+}
+
+function normalizeLanguages(raw: unknown, fallback: readonly string[]): string[] {
+  if (!Array.isArray(raw)) return [...fallback];
+  return normalizeLangs(raw.filter((language): language is string => typeof language === "string"));
+}
+
+function normalizeLinkRules(raw: unknown): LinkRule[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((rule) => {
+    if (
+      !isRecord(rule) ||
+      typeof rule.host !== "string" ||
+      typeof rule.dest !== "string" ||
+      !Object.hasOwn(LINK_DEST_LABELS, rule.dest)
+    )
+      return [];
+    return [{ host: rule.host, dest: rule.dest as LinkDest }];
+  });
+}
+
+function normalizePresets(raw: unknown): FilterPreset[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((preset) => {
+    if (
+      !isRecord(preset) ||
+      typeof preset.id !== "string" ||
+      typeof preset.name !== "string" ||
+      typeof preset.onlyMyLanguages !== "boolean" ||
+      !isRecord(preset.criteria) ||
+      (preset.myLanguages !== undefined && !Array.isArray(preset.myLanguages))
+    )
+      return [];
+    const next: FilterPreset = {
+      id: preset.id,
+      name: preset.name,
+      criteria: normalizeCriteria(preset.criteria),
+      onlyMyLanguages: preset.onlyMyLanguages,
+    };
+    if (preset.myLanguages !== undefined)
+      next.myLanguages = normalizeLanguages(preset.myLanguages, []);
+    return [next];
+  });
+}
+
+/**
+ * Decode persisted Filter state at every storage boundary. Unknown fields and
+ * invalid nested records never reach reactive consumers or the filter engine.
+ */
+export function normalizeFilterState(raw: unknown, defaults: FilterState): FilterState {
+  const value = isRecord(raw) ? raw : {};
+  return {
+    enabled: typeof value.enabled === "boolean" ? value.enabled : defaults.enabled,
+    criteria: normalizeCriteria(value.criteria),
+    onlyMyLanguages:
+      typeof value.onlyMyLanguages === "boolean" ? value.onlyMyLanguages : defaults.onlyMyLanguages,
+    myLanguages: normalizeLanguages(value.myLanguages, defaults.myLanguages),
+    linkRules: normalizeLinkRules(value.linkRules),
+    presets: normalizePresets(value.presets),
+    compactHidden:
+      typeof value.compactHidden === "boolean" ? value.compactHidden : defaults.compactHidden,
+  };
+}
+
+function selectionChanged(a: FilterState, b: FilterState): boolean {
+  if (a.enabled !== b.enabled || a.onlyMyLanguages !== b.onlyMyLanguages) return true;
+  const aCriteria = Object.entries(a.criteria);
+  const bCriteria = Object.entries(b.criteria);
+  if (
+    aCriteria.length !== bCriteria.length ||
+    aCriteria.some(([id, mode]) => b.criteria[id as CriterionId] !== mode)
+  )
+    return true;
+  if (
+    a.myLanguages.length !== b.myLanguages.length ||
+    a.myLanguages.some((language, index) => b.myLanguages[index] !== language)
+  )
+    return true;
+  return (
+    a.linkRules.length !== b.linkRules.length ||
+    a.linkRules.some(
+      (rule, index) =>
+        b.linkRules[index]?.host !== rule.host || b.linkRules[index]?.dest !== rule.dest,
+    )
+  );
+}
+
 /**
  * Reactive, persisted store for the one global filter (storage.sync). A thin
  * reactive face over {@link syncedStore} (cache + merge + echo + listener); its
- * writes are wrapped fail-soft so a storage failure falls back to in-memory
- * defaults and never throws into the page (spec §8).
+ * writes are wrapped fail-soft so a storage failure restores confirmed cache
+ * authority and never throws into the page (spec §8).
  */
 export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
   const area = deps.storage ?? syncArea();
   const navLanguages =
     deps.navLanguages ?? (typeof navigator !== "undefined" ? navigator.languages : []);
-  const store = syncedStore<FilterState>(KEY, defaultState(navLanguages), area);
-  const state = signal<FilterState>(store.current());
+  const defaults = defaultState(navLanguages);
+  const store = syncedStore<FilterState>(KEY, defaults, area);
+  const normalize = (raw: unknown): FilterState => normalizeFilterState(raw, defaults);
+  const state = signal<FilterState>(normalize(store.current()));
   const revealed = signal<boolean>(false);
 
   // Persist via syncedStore's strict write, wrapped fail-soft: a storage.sync
-  // failure falls back to in-memory defaults and never throws into the page (§8).
-  function persist(): void {
-    void store.write(state.value).catch(() => {});
+  // failure restores confirmed authority and never throws into the page (§8).
+  function persist(snapshot: FilterState): void {
+    void store.write(snapshot).then(
+      () => {
+        // An external change may have displaced this queued optimistic snapshot.
+        // If its own ordered write later confirms, restore only that exact cache.
+        if (store.current() === snapshot && state.value !== snapshot)
+          state.value = normalize(store.current());
+      },
+      () => {
+        // syncedStore restores its cache on a failed write. Restore this reactive
+        // face too, but only if this exact optimistic snapshot is still current:
+        // a later successful write must win over an older rejection.
+        if (state.value === snapshot) state.value = normalize(store.current());
+      },
+    );
   }
   function update(patch: Partial<FilterState>): void {
-    state.value = { ...state.value, ...patch };
-    persist();
+    const snapshot = { ...state.value, ...patch };
+    state.value = snapshot;
+    persist(snapshot);
   }
   // Any change to the selection ends a "show all" peek — adjusting the filter
   // is the natural signal that the user wants to see its effect again.
@@ -118,9 +236,12 @@ export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
 
   // Bridge cross-context writes (popup / Options / sibling tabs) into this
   // store's signal so an edit anywhere reaches every open surface live.
-  store.onExternalChange((next) => {
+  const stopExternalChanges = store.onExternalChange((raw) => {
+    const next = normalize(raw);
+    if (selectionChanged(state.value, next)) resumeFiltering();
     state.value = next; // external change — adopt without re-persisting
   });
+  let disposed = false;
 
   return {
     state,
@@ -186,14 +307,20 @@ export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
     },
     async load() {
       await store.hydrate().catch(() => {}); // §8: storage failure keeps in-memory defaults
-      state.value = store.current();
+      state.value = normalize(store.current());
     },
     restore(next) {
       // Undo is a selection edit like any other: it must end a "show all" peek,
       // or Z reverts the config while the timeline visibly changes nothing.
       resumeFiltering();
-      state.value = next;
-      persist();
+      const normalized = normalize(next);
+      state.value = normalized;
+      persist(normalized);
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      stopExternalChanges();
     },
   };
 }

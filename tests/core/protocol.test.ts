@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  isLassoMessage,
+  isContentToBackgroundMessage,
+  isPopupToContentMessage,
   PAGE_ACTIVATE_CHANNEL,
   PAGE_ACTIVATE_READY,
   PAGE_ACTIVATE_REQUEST,
@@ -24,49 +25,69 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("isLassoMessage", () => {
+describe("content → background guard", () => {
+  it("rejects an object with no type field", () => {
+    expect(isContentToBackgroundMessage({})).toBe(false);
+  });
+
   it("accepts a valid badge message", () => {
-    expect(isLassoMessage({ type: "lasso:badge", count: 3 })).toBe(true);
+    expect(isContentToBackgroundMessage({ type: "lasso:badge", count: 3 })).toBe(true);
   });
 
   it("rejects a badge message whose count is not a number", () => {
-    expect(isLassoMessage({ type: "lasso:badge", count: "3" })).toBe(false);
+    expect(isContentToBackgroundMessage({ type: "lasso:badge", count: "3" })).toBe(false);
   });
 
+  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects an unsafe badge count: %s",
+    (count) => {
+      expect(isContentToBackgroundMessage({ type: "lasso:badge", count })).toBe(false);
+    },
+  );
+
   it("accepts a valid awake state message", () => {
-    expect(isLassoMessage({ type: "lasso:state", state: "awake" })).toBe(true);
+    expect(isContentToBackgroundMessage({ type: "lasso:state", state: "awake" })).toBe(true);
   });
 
   it("accepts a valid asleep state message", () => {
-    expect(isLassoMessage({ type: "lasso:state", state: "asleep" })).toBe(true);
+    expect(isContentToBackgroundMessage({ type: "lasso:state", state: "asleep" })).toBe(true);
   });
 
   it("rejects a state message with an unrecognized state value", () => {
-    expect(isLassoMessage({ type: "lasso:state", state: "dozing" })).toBe(false);
+    expect(isContentToBackgroundMessage({ type: "lasso:state", state: "dozing" })).toBe(false);
   });
 
-  it("accepts a status request", () => {
-    expect(isLassoMessage({ type: "lasso:status" })).toBe(true);
-  });
-
-  it("accepts an activate request", () => {
-    expect(isLassoMessage({ type: "lasso-activate" })).toBe(true);
+  it("rejects popup messages", () => {
+    expect(isContentToBackgroundMessage({ type: "lasso:status" })).toBe(false);
+    expect(isContentToBackgroundMessage({ type: "lasso-activate" })).toBe(false);
   });
 
   it("rejects an unknown type", () => {
-    expect(isLassoMessage({ type: "lasso:unknown" })).toBe(false);
+    expect(isContentToBackgroundMessage({ type: "lasso:unknown" })).toBe(false);
+  });
+});
+
+describe("popup → content guard", () => {
+  it("accepts popup requests", () => {
+    expect(isPopupToContentMessage({ type: "lasso:status" })).toBe(true);
+    expect(isPopupToContentMessage({ type: "lasso-activate" })).toBe(true);
+  });
+
+  it("rejects content messages", () => {
+    expect(isPopupToContentMessage({ type: "lasso:badge", count: 3 })).toBe(false);
+    expect(isPopupToContentMessage({ type: "lasso:state", state: "awake" })).toBe(false);
   });
 
   it("rejects a non-object payload", () => {
-    expect(isLassoMessage("lasso:badge")).toBe(false);
+    expect(isPopupToContentMessage("lasso:badge")).toBe(false);
   });
 
   it("rejects null", () => {
-    expect(isLassoMessage(null)).toBe(false);
+    expect(isPopupToContentMessage(null)).toBe(false);
   });
 
   it("rejects an object with no type field", () => {
-    expect(isLassoMessage({ count: 3 })).toBe(false);
+    expect(isPopupToContentMessage({ count: 3 })).toBe(false);
   });
 });
 
@@ -84,7 +105,7 @@ describe("sendToBackground", () => {
     const sendMessage = vi.fn(() => Promise.reject(new Error("no receiver")));
     globalThis.chrome = { runtime: { sendMessage } } as unknown as typeof chrome;
 
-    expect(() => sendToBackground({ type: "lasso:status" })).not.toThrow();
+    expect(() => sendToBackground({ type: "lasso:state", state: "awake" })).not.toThrow();
     // let the swallowed rejection's microtask settle before the test ends.
     await Promise.resolve();
     await Promise.resolve();
@@ -102,7 +123,7 @@ describe("sendToBackground", () => {
   it("is a no-op when chrome.runtime is absent", () => {
     globalThis.chrome = {} as unknown as typeof chrome;
 
-    expect(() => sendToBackground({ type: "lasso-activate" })).not.toThrow();
+    expect(() => sendToBackground({ type: "lasso:state", state: "asleep" })).not.toThrow();
   });
 });
 

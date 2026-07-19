@@ -30,6 +30,14 @@ describe("createSelectionStore", () => {
     expect(s.list()[0]).toMatchObject({ screenName: "Alice", userId: "7" });
   });
 
+  it("keeps first canonical identity while filling explicitly undefined fields", () => {
+    const s = createSelectionStore();
+    s.add({ screenName: "Alice", userId: undefined, displayName: undefined });
+    s.add({ screenName: "alice", userId: "7", displayName: "Alice Cooper" });
+
+    expect(s.list()).toEqual([{ screenName: "Alice", userId: "7", displayName: "Alice Cooper" }]);
+  });
+
   it("removes by screenName (case-insensitive)", () => {
     const s = createSelectionStore();
     s.add(alice);

@@ -21,7 +21,7 @@ export interface GraphqlDeps {
  */
 export class GraphqlXListApi implements XListApi {
   constructor(
-    private readonly creds: Credentials,
+    private readonly getCredentials: () => Credentials,
     private readonly deps: GraphqlDeps,
   ) {}
 
@@ -46,7 +46,7 @@ export class GraphqlXListApi implements XListApi {
     return userId;
   }
 
-  async resolveUserId(screenName: string): Promise<string | null> {
+  private async resolveUserId(screenName: string): Promise<string | null> {
     const op = this.deps.config.ops.UserByScreenName;
     const params = new URLSearchParams({
       variables: JSON.stringify({ screen_name: screenName, withSafetyModeUserFields: true }),
@@ -56,19 +56,13 @@ export class GraphqlXListApi implements XListApi {
     const res = await this.deps.fetch(url, {
       method: "GET",
       credentials: "include",
-      headers: authHeaders(this.creds),
+      headers: authHeaders(this.getCredentials()),
     });
-    const json = (await ensureOk(res, GRAPHQL_PROFILE)) as {
+    const json = (await this.ensureOk(res, "UserByScreenName")) as {
       data?: { user?: { result?: { rest_id?: string } } };
     };
     const restId = json?.data?.user?.result?.rest_id;
     return typeof restId === "string" ? restId : null;
-  }
-
-  async getLists(): Promise<XList[]> {
-    // TODO(next TDD cycle): implement via v1.1 lists/ownerships (simpler/stabler
-    // than walking ListsManagementPageTimeline GraphQL). Tracked in blueprint §9.
-    throw new XApiError("unknown", "GraphqlXListApi.getLists not implemented yet");
   }
 
   private async mutateMember(
@@ -81,12 +75,23 @@ export class GraphqlXListApi implements XListApi {
     const res = await this.deps.fetch(url, {
       method: "POST",
       credentials: "include",
-      headers: { ...authHeaders(this.creds), "content-type": "application/json" },
+      headers: { ...authHeaders(this.getCredentials()), "content-type": "application/json" },
       body: JSON.stringify({
         variables: { listId: String(listId), userId: String(userId) },
         queryId,
       }),
     });
-    await ensureOk(res, GRAPHQL_PROFILE);
+    await this.ensureOk(res, opName);
+  }
+
+  /** A static query id can rotate; report that boundary failure plainly and typed. */
+  private ensureOk(res: Response, opName: string): Promise<unknown> {
+    if (res.status === 404) {
+      throw new XApiError(
+        "not-found",
+        `GraphQL ${opName} endpoint was not found; its query ID may have rotated.`,
+      );
+    }
+    return ensureOk(res, GRAPHQL_PROFILE);
   }
 }

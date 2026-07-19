@@ -2,6 +2,7 @@ import { useRef } from "preact/hooks";
 
 import { TRUST_LINE, WELCOME_CTA, WELCOME_ROWS, WELCOME_SKIP, WELCOME_TITLE } from "@/core/strings";
 import { Button } from "@/ui/components";
+import { UI_LAYER } from "@/ui/layers";
 import { useFocusTrap } from "@/ui/use-focus-trap";
 
 export interface WelcomeCardProps {
@@ -19,7 +20,7 @@ export function WelcomeCard({ onTrySelectMode, onSkip }: WelcomeCardProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
   return (
-    <div class="bg-scrim fixed inset-0 z-[2147483646] grid place-items-center">
+    <div class="bg-scrim fixed inset-0 grid place-items-center" style={{ zIndex: UI_LAYER.modal }}>
       <div
         ref={dialogRef}
         role="dialog"

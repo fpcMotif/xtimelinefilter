@@ -112,6 +112,30 @@ describe("decide", () => {
     expect(decide(f({ hasText: false }), st({}))).toBe("show");
   });
 
+  describe("unknown criteria stay inert", () => {
+    it("does not turn an unknown only criterion into a hide-all family", () => {
+      const only = st({ criteria: { "mystery:thing": "only" } });
+      expect(decide(f({ hasPhoto: true }), only)).toBe("show");
+    });
+
+    it("ignores an unknown only value beside a known value with the same prefix", () => {
+      const only = st({ criteria: { "kind:bogus": "only", "kind:photo": "only" } });
+      expect(decide(f({ hasPhoto: true }), only)).toBe("show");
+      expect(decide(f({ hasVideo: true }), only)).toBe("hide");
+    });
+
+    it("ignores an unknown only family beside a known family", () => {
+      const only = st({ criteria: { "mystery:thing": "only", "kind:photo": "only" } });
+      expect(decide(f({ hasPhoto: true }), only)).toBe("show");
+      expect(decide(f({ hasVideo: true }), only)).toBe("hide");
+    });
+
+    it("keeps language criteria inert in both only and hide modes", () => {
+      expect(decide(f({ lang: "en" }), st({ criteria: { "language:en": "only" } }))).toBe("show");
+      expect(decide(f({ lang: "en" }), st({ criteria: { "language:en": "hide" } }))).toBe("show");
+    });
+  });
+
   it("honors user link rules when classifying link destinations", () => {
     const gate = st({
       criteria: { "linkDest:reddit": "only" },

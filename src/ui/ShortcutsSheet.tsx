@@ -4,6 +4,7 @@ import type { CommandId, KeyBinding } from "@/content/keyboard";
 import { keycaps, type Platform } from "@/core/keycaps";
 import { SHORTCUTS_FOOTER, SHORTCUTS_TITLE } from "@/core/strings";
 import { Kbd } from "@/ui/components";
+import { UI_LAYER } from "@/ui/layers";
 import { useFocusTrap } from "@/ui/use-focus-trap";
 
 export const COMMAND_LABELS: Record<CommandId, string> = {
@@ -34,7 +35,7 @@ export function ShortcutsSheet({ keymap, platform, onClose }: ShortcutsSheetProp
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
   return (
-    <div class="bg-scrim fixed inset-0 z-[2147483646] grid place-items-center">
+    <div class="bg-scrim fixed inset-0 grid place-items-center" style={{ zIndex: UI_LAYER.modal }}>
       <div
         ref={dialogRef}
         role="dialog"

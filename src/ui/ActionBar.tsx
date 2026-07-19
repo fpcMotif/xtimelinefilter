@@ -1,8 +1,11 @@
-import { useState } from "preact/hooks";
+import type { RefObject } from "preact";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { RunningAssign } from "@/content/app-state";
 import type { TweetAuthor } from "@/core/selection-store";
 import { formatCount, peopleSelected, progressLine, SELECT_MODE_BAR, STOP } from "@/core/strings";
+import { UI_LAYER } from "@/ui/layers";
+import { focusWithoutScroll } from "@/ui/use-focus-trap";
 
 export interface ActionBarProps {
   authors: TweetAuthor[];
@@ -22,7 +25,8 @@ export interface ActionBarProps {
 }
 
 const BAR_CLASS =
-  "bg-card shadow-elevated fixed bottom-6 left-1/2 z-[2147483646] flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2";
+  "bg-card shadow-elevated fixed bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2";
+const COUNT_TOOLTIP_ID = "lasso-selection-count-tooltip";
 
 /**
  * The floating bar (story beats 4 & 7): facepile · "N people selected" ·
@@ -30,24 +34,42 @@ const BAR_CLASS =
  * it becomes the progress surface with a Stop pill.
  */
 export function ActionBar(props: ActionBarProps) {
+  const previousAuthorCount = useRef(props.authors.length);
+  const focusDone =
+    props.selectMode && props.authors.length === 0 && previousAuthorCount.current > 0;
+  useEffect(() => {
+    previousAuthorCount.current = props.authors.length;
+  }, [props.authors.length]);
+
   if (props.running) return <ProgressBar running={props.running} onStop={props.onStop} />;
   if (props.authors.length === 0) {
-    return props.selectMode ? <SelectModeBar onDone={props.onDone} /> : null;
+    return props.selectMode ? (
+      <SelectModeBar onDone={props.onDone} focusOnMount={focusDone} />
+    ) : null;
   }
   return <SelectionBar {...props} />;
 }
 
 function ProgressBar({ running, onStop }: { running: RunningAssign; onStop(): void }) {
+  const stopRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => focusWithoutScroll(stopRef.current), []);
+
   return (
-    <section aria-label="Lasso progress" class={BAR_CLASS}>
+    <section aria-label="Lasso progress" class={BAR_CLASS} style={{ zIndex: UI_LAYER.app }}>
       <span
         aria-hidden="true"
         class="border-border border-t-primary h-4 w-4 animate-spin rounded-full border-2"
       />
-      <span class="text-foreground text-sm tabular-nums">
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        class="text-foreground text-sm tabular-nums"
+      >
         {progressLine(running.current, running.total, running.listName)}
       </span>
       <button
+        ref={stopRef}
         type="button"
         onClick={onStop}
         class="border-border text-foreground hover:bg-secondary focus-visible:ring-ring/55 rounded-full border px-3 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
@@ -58,12 +80,18 @@ function ProgressBar({ running, onStop }: { running: RunningAssign; onStop(): vo
   );
 }
 
-function SelectModeBar({ onDone }: { onDone(): void }) {
+function SelectModeBar({ onDone, focusOnMount }: { onDone(): void; focusOnMount: boolean }) {
+  const doneRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (focusOnMount) focusWithoutScroll(doneRef.current);
+  }, [focusOnMount]);
+
   return (
-    <section aria-label="Lasso select mode" class={BAR_CLASS}>
+    <section aria-label="Lasso select mode" class={BAR_CLASS} style={{ zIndex: UI_LAYER.app }}>
       <CrosshairGlyph />
       <span class="text-muted-foreground text-sm">{SELECT_MODE_BAR}</span>
       <button
+        ref={doneRef}
         type="button"
         onClick={onDone}
         class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/55 rounded-full px-4 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
@@ -76,10 +104,75 @@ function SelectModeBar({ onDone }: { onDone(): void }) {
 
 function SelectionBar(props: ActionBarProps) {
   const [tooltip, setTooltip] = useState<string | null>(null);
+  const hoverGeneration = useRef(0);
+  const reviewTriggerRef = useRef<HTMLButtonElement>(null);
+  const reviewDialogRef = useRef<HTMLDivElement>(null);
+  const wasReviewOpen = useRef(false);
+  const pendingReviewFocusIndex = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      hoverGeneration.current += 1;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (props.reviewOpen) {
+      focusWithoutScroll(
+        reviewDialogRef.current?.querySelector<HTMLButtonElement>("button") ?? null,
+      );
+    } else if (wasReviewOpen.current) {
+      focusWithoutScroll(reviewTriggerRef.current);
+    }
+    wasReviewOpen.current = props.reviewOpen;
+  }, [props.reviewOpen]);
+
+  useEffect(() => {
+    const requestedIndex = pendingReviewFocusIndex.current;
+    if (requestedIndex === null) return;
+    pendingReviewFocusIndex.current = null;
+    if (!props.reviewOpen) return;
+    const buttons = reviewDialogRef.current?.querySelectorAll<HTMLButtonElement>("button");
+    if (!buttons?.length) return;
+    focusWithoutScroll(buttons[Math.min(requestedIndex, buttons.length - 1)] ?? null);
+  }, [props.authors, props.reviewOpen]);
+
+  function removeFromReview(screenName: string, index: number): void {
+    pendingReviewFocusIndex.current = index;
+    props.onRemove(screenName);
+  }
+
+  function onCountEnter() {
+    const generation = ++hoverGeneration.current;
+    setTooltip(null);
+    const request = props.onCountHover?.();
+    if (!request) return;
+    void request.then(
+      (text) => {
+        if (hoverGeneration.current === generation) setTooltip(text);
+      },
+      () => {
+        if (hoverGeneration.current === generation) setTooltip(null);
+      },
+    );
+  }
+
+  function onCountLeave() {
+    hoverGeneration.current += 1;
+    setTooltip(null);
+  }
+
   return (
-    <section aria-label="Lasso selection" class={BAR_CLASS}>
-      {props.reviewOpen && <ReviewPopover authors={props.authors} onRemove={props.onRemove} />}
+    <section aria-label="Lasso selection" class={BAR_CLASS} style={{ zIndex: UI_LAYER.app }}>
+      {props.reviewOpen && (
+        <ReviewPopover
+          dialogRef={reviewDialogRef}
+          authors={props.authors}
+          onRemove={removeFromReview}
+        />
+      )}
       <button
+        ref={reviewTriggerRef}
         type="button"
         aria-label="Review selected people"
         aria-expanded={props.reviewOpen}
@@ -95,21 +188,26 @@ function SelectionBar(props: ActionBarProps) {
           </span>
         )}
       </button>
-      <span
+      <button
+        type="button"
         class="text-muted-foreground relative text-sm tabular-nums"
-        onMouseEnter={() => void props.onCountHover?.().then(setTooltip)}
-        onMouseLeave={() => setTooltip(null)}
+        aria-describedby={tooltip ? COUNT_TOOLTIP_ID : undefined}
+        onMouseEnter={onCountEnter}
+        onMouseLeave={onCountLeave}
+        onFocus={onCountEnter}
+        onBlur={onCountLeave}
       >
         {peopleSelected(props.authors.length)}
         {tooltip && (
           <span
+            id={COUNT_TOOLTIP_ID}
             role="tooltip"
             class="bg-foreground text-background shadow-elevated absolute bottom-full left-1/2 z-10 mb-1.5 w-max -translate-x-1/2 rounded-md px-2 py-1 text-xs"
           >
             {tooltip}
           </span>
         )}
-      </span>
+      </button>
       <button
         type="button"
         onClick={props.onAssign}
@@ -142,17 +240,20 @@ function SelectionBar(props: ActionBarProps) {
 function ReviewPopover({
   authors,
   onRemove,
+  dialogRef,
 }: {
   authors: TweetAuthor[];
-  onRemove(screenName: string): void;
+  onRemove(screenName: string, index: number): void;
+  dialogRef: RefObject<HTMLDivElement>;
 }) {
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-label="Selected people"
       class="bg-card shadow-elevated absolute bottom-full left-0 mb-2 max-h-[280px] w-64 overflow-y-auto rounded-2xl p-1"
     >
-      {authors.map((a) => (
+      {authors.map((a, index) => (
         <div
           key={a.screenName}
           class="hover:bg-secondary flex items-center gap-2 rounded-lg px-2 py-1.5"
@@ -162,7 +263,7 @@ function ReviewPopover({
           <button
             type="button"
             aria-label={`Remove @${a.screenName}`}
-            onClick={() => onRemove(a.screenName)}
+            onClick={() => onRemove(a.screenName, index)}
             class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/55 rounded-full px-1.5 outline-none focus-visible:ring-2"
           >
             ✕

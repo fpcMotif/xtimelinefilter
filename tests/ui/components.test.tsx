@@ -1,4 +1,5 @@
 import { fireEvent, render, waitFor } from "@testing-library/preact";
+import { useState } from "preact/hooks";
 import { describe, expect, it, vi } from "vitest";
 
 import type { TweetAuthor } from "@/core/selection-store";
@@ -15,30 +16,56 @@ describe("TweetOverlay", () => {
   it("reflects selected state and toggles on click", () => {
     const onToggle = vi.fn();
     const { container, rerender } = render(
-      <TweetOverlay selected={false} visible onToggle={onToggle} />,
+      <TweetOverlay screenName="alice" selected={false} visible onToggle={onToggle} />,
     );
     const btn = container.querySelector("button") as HTMLElement;
     expect(btn.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(btn);
     expect(onToggle).toHaveBeenCalledTimes(1);
-    rerender(<TweetOverlay selected visible onToggle={onToggle} />);
+    rerender(<TweetOverlay screenName="alice" selected visible onToggle={onToggle} />);
     expect(container.querySelector("button")?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("reports keyboard focus so its coach tip can be exposed without hover", () => {
+    const onFocusChange = vi.fn();
+    const { getByLabelText } = render(
+      <TweetOverlay
+        screenName="alice"
+        selected={false}
+        visible
+        onToggle={() => {}}
+        onFocusChange={onFocusChange}
+      />,
+    );
+    const button = getByLabelText("Select @alice");
+    fireEvent.focus(button);
+    fireEvent.blur(button);
+    expect(onFocusChange).toHaveBeenNthCalledWith(1, true);
+    expect(onFocusChange).toHaveBeenNthCalledWith(2, false);
   });
 
   it("is hidden by default (pristine timeline) but selected checks stay visible", () => {
     const { container, rerender } = render(
-      <TweetOverlay selected={false} visible={false} onToggle={() => {}} />,
+      <TweetOverlay screenName="alice" selected={false} visible={false} onToggle={() => {}} />,
     );
     expect(container.querySelector("button")?.className).toContain("opacity-0");
-    rerender(<TweetOverlay selected visible={false} onToggle={() => {}} />);
+    rerender(<TweetOverlay screenName="alice" selected visible={false} onToggle={() => {}} />);
     expect(container.querySelector("button")?.className).not.toContain("opacity-0");
   });
 
   it("renders the one-time first-hover tooltip when given", () => {
-    const { getByRole } = render(
-      <TweetOverlay selected={false} visible onToggle={() => {}} tooltip="Select — tip" />,
+    const { getByLabelText, getByRole } = render(
+      <TweetOverlay
+        screenName="alice"
+        selected={false}
+        visible
+        onToggle={() => {}}
+        tooltip="Select — tip"
+      />,
     );
-    expect(getByRole("tooltip").textContent).toBe("Select — tip");
+    const tooltip = getByRole("tooltip");
+    expect(tooltip.textContent).toBe("Select — tip");
+    expect(getByLabelText("Select @alice").getAttribute("aria-describedby")).toBe(tooltip.id);
   });
 });
 
@@ -105,6 +132,83 @@ describe("ActionBar", () => {
     expect(props.onRemove).toHaveBeenCalledWith("jane");
   });
 
+  it("moves focus into the review dialog and restores its trigger on close", async () => {
+    function ControlledBar() {
+      const [reviewOpen, setReviewOpen] = useState(false);
+      return (
+        <>
+          <ActionBar
+            {...barProps({ authors: authors("jane"), reviewOpen, onToggleReview: setReviewOpen })}
+          />
+          <button type="button" onClick={() => setReviewOpen(false)}>
+            Close review
+          </button>
+        </>
+      );
+    }
+
+    const screen = render(<ControlledBar />);
+    const trigger = screen.getByLabelText("Review selected people");
+    fireEvent.click(trigger);
+    const remove = await screen.findByLabelText("Remove @jane");
+    await waitFor(() => expect(document.activeElement).toBe(remove));
+
+    remove.focus();
+    fireEvent.click(screen.getByText("Close review"));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it("keeps focus on the nearest review row after removing a person", async () => {
+    function ControlledBar() {
+      const [selected, setSelected] = useState(authors("jane", "bob", "zoe"));
+      return (
+        <ActionBar
+          {...barProps({
+            authors: selected,
+            reviewOpen: true,
+            onRemove: (screenName) =>
+              setSelected((current) =>
+                current.filter((author) => author.screenName !== screenName),
+              ),
+          })}
+        />
+      );
+    }
+
+    const screen = render(<ControlledBar />);
+    const bob = screen.getByLabelText("Remove @bob");
+    bob.focus();
+    fireEvent.click(bob);
+
+    const zoe = screen.getByLabelText("Remove @zoe");
+    await waitFor(() => expect(document.activeElement).toBe(zoe));
+
+    fireEvent.click(zoe);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Remove @jane")));
+  });
+
+  it("moves focus to Done after removing the final person in select mode", async () => {
+    function ControlledBar() {
+      const [selected, setSelected] = useState(authors("jane"));
+      return (
+        <ActionBar
+          {...barProps({
+            authors: selected,
+            selectMode: true,
+            reviewOpen: selected.length > 0,
+            onRemove: () => setSelected([]),
+          })}
+        />
+      );
+    }
+
+    const screen = render(<ControlledBar />);
+    fireEvent.click(screen.getByLabelText("Remove @jane"));
+
+    const done = screen.getByText("Done");
+    await waitFor(() => expect(document.activeElement).toBe(done));
+  });
+
   it("becomes the progress surface with a Stop pill during a run", () => {
     const props = barProps({
       authors: authors("a", "b"),
@@ -114,6 +218,45 @@ describe("ActionBar", () => {
     expect(getByText("Adding 2 of 7 to Design Folks…")).toBeTruthy();
     fireEvent.click(getByText("Stop"));
     expect(props.onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves focus to Stop when an assignment starts", async () => {
+    function ControlledBar() {
+      const [running, setRunning] = useState<ActionBarProps["running"]>(null);
+      return (
+        <ActionBar
+          {...barProps({
+            authors: authors("jane"),
+            running,
+            onAssign: () => setRunning({ current: 0, total: 1, listName: "Builders" }),
+          })}
+        />
+      );
+    }
+
+    const screen = render(<ControlledBar />);
+    const assign = screen.getByText("Add to List");
+    assign.focus();
+    fireEvent.click(assign);
+
+    const stop = screen.getByText("Stop");
+    await waitFor(() => expect(document.activeElement).toBe(stop));
+  });
+
+  it("announces assignment progress as one polite status", () => {
+    const screen = render(
+      <ActionBar
+        {...barProps({
+          authors: authors("a", "b"),
+          running: { current: 2, total: 7, listName: "Design Folks" },
+        })}
+      />,
+    );
+
+    const status = screen.getByRole("status");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.getAttribute("aria-atomic")).toBe("true");
+    expect(status.textContent).toBe("Adding 2 of 7 to Design Folks…");
   });
 
   it("hovering the count may show the unit tooltip", async () => {
@@ -127,6 +270,17 @@ describe("ActionBar", () => {
     );
   });
 
+  it("shows the count tooltip to keyboard focus and describes its trigger", async () => {
+    const onCountHover = vi.fn(async () => "Lasso adds people to Lists, not posts.");
+    const { getByText, findByRole } = render(
+      <ActionBar {...barProps({ authors: authors("a"), onCountHover })} />,
+    );
+    const count = getByText("1 person selected");
+    fireEvent.focus(count);
+    const tooltip = await findByRole("tooltip");
+    expect(count.getAttribute("aria-describedby")).toBe(tooltip.id);
+  });
+
   it("clears the count tooltip on mouse leave", async () => {
     const onCountHover = vi.fn(async () => "tip");
     const { getByText, findByRole, queryByRole } = render(
@@ -137,6 +291,69 @@ describe("ActionBar", () => {
     await findByRole("tooltip");
     fireEvent.mouseLeave(count);
     await waitFor(() => expect(queryByRole("tooltip")).toBeNull());
+  });
+
+  it("does not show a tooltip when its hover ends before the request resolves", async () => {
+    let resolve!: (text: string | null) => void;
+    const onCountHover = vi.fn(
+      () =>
+        new Promise<string | null>((done) => {
+          resolve = done;
+        }),
+    );
+    const { getByText, queryByRole } = render(
+      <ActionBar {...barProps({ authors: authors("a"), onCountHover })} />,
+    );
+    const count = getByText("1 person selected");
+    fireEvent.mouseEnter(count);
+    fireEvent.mouseLeave(count);
+    resolve("late tip");
+
+    await Promise.resolve();
+    expect(queryByRole("tooltip")).toBeNull();
+  });
+
+  it("ignores a superseded count tooltip request", async () => {
+    let resolveFirst!: (text: string | null) => void;
+    let resolveSecond!: (text: string | null) => void;
+    const onCountHover = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<string | null>((done) => {
+            resolveFirst = done;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<string | null>((done) => {
+            resolveSecond = done;
+          }),
+      );
+    const { getByText, findByRole } = render(
+      <ActionBar {...barProps({ authors: authors("a"), onCountHover })} />,
+    );
+    const count = getByText("1 person selected");
+    fireEvent.mouseEnter(count);
+    fireEvent.mouseLeave(count);
+    fireEvent.mouseEnter(count);
+    resolveFirst("stale");
+    resolveSecond("fresh");
+
+    expect((await findByRole("tooltip")).textContent).toBe("fresh");
+  });
+
+  it("handles a rejected count tooltip request", async () => {
+    const onCountHover = vi.fn(async () => {
+      throw new Error("tooltip unavailable");
+    });
+    const { getByText, queryByRole } = render(
+      <ActionBar {...barProps({ authors: authors("a"), onCountHover })} />,
+    );
+    fireEvent.mouseEnter(getByText("1 person selected"));
+
+    await Promise.resolve();
+    expect(queryByRole("tooltip")).toBeNull();
   });
 
   it("resolves a null count tooltip to no tooltip", async () => {

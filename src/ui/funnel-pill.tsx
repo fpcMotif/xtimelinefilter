@@ -3,30 +3,35 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { activeCriteriaCount } from "@/core/filter-projection";
 import type { FilterStore } from "@/core/filter-store";
 import { FilterPanel } from "@/ui/filter-panel";
+import { UI_LAYER } from "@/ui/layers";
 import { useSignalValue } from "@/ui/use-signal-value";
-
-/**
- * z-index for the funnel-pill layer. Distinct from — and below — the selection
- * `ActionBar` (which sits at 2147483646, see src/ui/ActionBar.tsx) so the two
- * floating surfaces never overlap (spec §5 / §10 coexistence).
- */
-const PILL_Z = 2147483640;
 
 const PILL_SIZE = 44;
 const POPOVER_W = 320;
 const POPOVER_GAP = 8;
+const KEYBOARD_STEP = 8;
+const KEYBOARD_FAST_STEP = 32;
+const ARROW_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+
+type Position = { x: number; y: number };
 
 export interface FunnelPillProps {
   store: FilterStore;
   hiddenCount: () => number;
   position: { x: number; y: number };
   onPositionChange: (pos: { x: number; y: number }) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   /** Conduct in-page Filter commands through the controller's fail-open wall (passed to the panel). */
   conduct?: (run: (s: FilterStore) => void) => void;
 }
 
 function clamp(v: number, min: number, max: number): number {
   return Math.min(Math.max(v, min), max);
+}
+
+function positionsEqual(first: Position, second: Position): boolean {
+  return first.x === second.x && first.y === second.y;
 }
 
 function viewport(): { w: number; h: number } {
@@ -48,25 +53,48 @@ export function FunnelPill({
   hiddenCount,
   position,
   onPositionChange,
+  open,
+  onOpenChange,
   conduct,
 }: FunnelPillProps) {
   const state = useSignalValue(store.state);
-  const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(position);
+  const posRef = useRef<Position>(position);
   const rootRef = useRef<HTMLDivElement>(null);
+  const disposeDrag = useRef<(() => void) | null>(null);
+  const keyboardMove = useRef<{ start: Position; last: Position } | null>(null);
   // A drag's bookkeeping lives in the pointerdown closure; pointerup latches its
   // `moved` flag here so the trailing synthetic click can tell a drag from a tap.
   const suppressClick = useRef(false);
 
   // Keep local position in sync when the caller hands us a new persisted value.
-  useEffect(() => setPos({ x: position.x, y: position.y }), [position.x, position.y]);
+  useEffect(() => {
+    const next = { x: position.x, y: position.y };
+    // The parent owns persisted position. Do not let a stale, uncommitted key
+    // sequence overwrite an external settings update.
+    keyboardMove.current = null;
+    posRef.current = next;
+    setPos(next);
+  }, [position.x, position.y]);
 
-  // Escape + outside-click close the popover.
+  useEffect(() => () => disposeDrag.current?.(), []);
+
+  function setLocalPosition(next: Position): void {
+    posRef.current = next;
+    setPos(next);
+  }
+
+  function commitKeyboardMove(): void {
+    const move = keyboardMove.current;
+    keyboardMove.current = null;
+    if (move && !positionsEqual(move.start, move.last)) {
+      onPositionChange(move.last);
+    }
+  }
+
+  // The keyboard layer owns Escape. This component only handles pointer dismissal.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
     const onOutside = (e: Event) => {
       // `onOutside` is only registered while the popover is open and rendered, so
       // the ref is always attached here.
@@ -79,31 +107,44 @@ export function FunnelPill({
       const host = (root.getRootNode() as ShadowRoot)?.host as Node | undefined;
       const inside =
         path.includes(root) || (!!host && path.includes(host)) || root.contains(e.target as Node);
-      if (path.length > 0 && !inside) setOpen(false);
+      if (path.length > 0 && !inside) onOpenChange(false);
     };
-    document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onOutside);
     return () => {
-      document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onOutside);
     };
-  }, [open]);
+  }, [open, onOpenChange]);
 
   function onPointerDown(e: PointerEvent) {
-    const drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, moved: false, last: pos };
+    disposeDrag.current?.();
+    const start = posRef.current;
+    const drag = {
+      dx: e.clientX - start.x,
+      dy: e.clientY - start.y,
+      moved: false,
+      last: start,
+    };
     const onMove = (ev: PointerEvent) => {
       const { w, h } = viewport();
       const next = {
         x: clamp(ev.clientX - drag.dx, 0, Math.max(0, w - PILL_SIZE)),
         y: clamp(ev.clientY - drag.dy, 0, Math.max(0, h - PILL_SIZE)),
       };
-      if (next.x !== pos.x || next.y !== pos.y) drag.moved = true;
+      if (!positionsEqual(next, drag.last)) drag.moved = true;
       drag.last = next;
-      setPos(next); // live position is local state only — no persistence per move
+      setLocalPosition(next); // live position is local state only — no persistence per move
     };
-    const onUp = () => {
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      if (disposeDrag.current === dispose) disposeDrag.current = null;
+    };
+    const onUp = () => {
+      dispose();
       suppressClick.current = drag.moved;
       // Persist ONCE on drop. onPositionChange writes chrome.storage.sync, which
       // Chrome caps at ~120 writes/min — reporting every pointermove burned the
@@ -111,8 +152,11 @@ export function FunnelPill({
       // silently for minutes (the felt "state latency").
       if (drag.moved) onPositionChange(drag.last);
     };
+    const onCancel = () => dispose();
+    disposeDrag.current = dispose;
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
   }
 
   function onClick() {
@@ -121,11 +165,52 @@ export function FunnelPill({
       suppressClick.current = false;
       return;
     }
-    setOpen((v) => !v);
+    onOpenChange(!open);
+  }
+
+  function onKeyDown(event: KeyboardEvent): void {
+    const direction = {
+      ArrowLeft: { x: -1, y: 0 },
+      ArrowRight: { x: 1, y: 0 },
+      ArrowUp: { x: 0, y: -1 },
+      ArrowDown: { x: 0, y: 1 },
+    }[event.key];
+    if (!direction) return;
+
+    // Arrow keys reposition the pill, not the document. Stop here so X and
+    // Lasso's document keyboard layer never interpret the same interaction.
+    event.preventDefault();
+    event.stopPropagation();
+
+    const { w, h } = viewport();
+    const step = event.shiftKey ? KEYBOARD_FAST_STEP : KEYBOARD_STEP;
+    const current = posRef.current;
+    const next = {
+      x: clamp(current.x + direction.x * step, 0, Math.max(0, w - PILL_SIZE)),
+      y: clamp(current.y + direction.y * step, 0, Math.max(0, h - PILL_SIZE)),
+    };
+    if (positionsEqual(current, next)) return;
+
+    const move = keyboardMove.current ?? {
+      start: current,
+      last: current,
+    };
+    move.last = next;
+    keyboardMove.current = move;
+    setLocalPosition(next);
+  }
+
+  function onKeyUp(event: KeyboardEvent): void {
+    if (!ARROW_KEYS.has(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    commitKeyboardMove();
   }
 
   const enabled = state.enabled;
-  const badge = enabled ? activeCriteriaCount(state) : 0;
+  const armed = activeCriteriaCount(state);
+  const badge = enabled ? armed : 0;
+  const accessibleName = `Timeline filter, ${enabled ? "on" : "off"}, ${armed} ${armed === 1 ? "filter" : "filters"} armed`;
   const popover = open ? popoverStyle(pos) : null;
 
   return (
@@ -133,17 +218,25 @@ export function FunnelPill({
       ref={rootRef}
       data-funnel-pill-root=""
       class="fixed"
-      style={{ left: `${pos.x}px`, top: `${pos.y}px`, zIndex: PILL_Z }}
+      style={{ left: `${pos.x}px`, top: `${pos.y}px`, zIndex: UI_LAYER.pill }}
     >
       <button
         type="button"
-        aria-label="Timeline filter"
+        aria-label={accessibleName}
+        aria-describedby="lasso-funnel-pill-keyboard-help"
         aria-expanded={open}
         data-enabled={String(enabled)}
         onPointerDown={onPointerDown}
         onClick={onClick}
+        onKeyDown={onKeyDown}
+        onKeyUp={onKeyUp}
+        onBlur={commitKeyboardMove}
         class="bg-card text-card-foreground shadow-elevated focus-visible:ring-ring/55 relative grid h-11 w-11 place-items-center rounded-full transition-[opacity,transform] duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
-        style={{ opacity: enabled ? 1 : 0.5, touchAction: "none", cursor: "grab" }}
+        style={{
+          opacity: enabled ? 1 : 0.5,
+          touchAction: "none",
+          cursor: "grab",
+        }}
       >
         <FunnelGlyph />
         {enabled && badge > 0 && (
@@ -155,6 +248,9 @@ export function FunnelPill({
           </span>
         )}
       </button>
+      <span id="lasso-funnel-pill-keyboard-help" class="sr-only">
+        Use Arrow keys to move the filter button. Hold Shift to move faster.
+      </span>
 
       {popover && (
         <div

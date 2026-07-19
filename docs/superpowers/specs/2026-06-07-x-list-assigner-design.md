@@ -1,9 +1,9 @@
 # Lasso — X List Assigner · Design Spec
 
-> Status: **first-pass — partially SUPERSEDED** · Date: 2026-06-07 · Owner: f
+> Status: **historical — fully SUPERSEDED** · Date: 2026-06-07 · Owner: f
 > A Manifest V3 Chrome extension to assign tweet **authors** to your X (Twitter) **Lists**, in bulk, from the timeline — minimalist, extensible, swift.
 >
-> ⚠️ Superseded by the docs-first, research-grounded [blueprint](../../blueprint/2026-06-07-lasso-blueprint.md) and [ADRs](../../adr/) for two key decisions: (1) **DOM automation is the default backend, GraphQL is opt-in** (not GraphQL-default); (2) **authenticated calls run in the content script (same-origin), not the service worker**. See blueprint §0 for the full delta. The product framing below still holds.
+> Do not use this file as the current implementation spec. It preserves the first-pass decision history. The [blueprint](../../blueprint/2026-06-07-lasso-blueprint.md), [domain context](../../CONTEXT.md), and [ADRs](../../adr/) own current backend, host, module, toolchain, and data-topology decisions. The problem framing below still holds.
 
 ---
 

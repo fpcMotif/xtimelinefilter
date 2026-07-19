@@ -36,27 +36,126 @@ const pillIn = (root: Element) => root.querySelector("[data-funnel-pill-root]");
 const paletteIn = (root: Element) =>
   root.querySelector('[role="dialog"][aria-label="Filter command palette"]');
 
-/** Dispatch a "mod+shift+f"-style combo as a keydown on the document. */
-function dispatchHotkey(combo: string) {
-  const parts = combo.toLowerCase().split("+");
-  const key = parts[parts.length - 1]!;
-  document.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key,
-      ctrlKey: parts.includes("mod") || parts.includes("ctrl"),
-      metaKey: parts.includes("meta") || parts.includes("cmd"),
-      shiftKey: parts.includes("shift"),
-      altKey: parts.includes("alt"),
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
-}
-
 /** Let the manager settle its initial async settings.get(). */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("mountFilterSurfaces", () => {
+  it("keeps a subscription event newer than a pending initial read", async () => {
+    const root = document.createElement("div");
+    const read = deferred<LassoSettings>();
+    let emit!: (s: LassoSettings) => void;
+    const newer = {
+      ...DEFAULT_SETTINGS,
+      surfaces: { pill: false, palette: true },
+      paletteHotkey: "alt+p",
+    };
+    const settings: SettingsStore = {
+      get: () => {
+        // A storage event can fire synchronously as get() starts. The listener
+        // must already exist, or this event is lost.
+        expect(emit).toBeTypeOf("function");
+        emit(newer);
+        return read.promise;
+      },
+      set: async () => DEFAULT_SETTINGS,
+      subscribe(cb) {
+        emit = cb;
+        return () => {};
+      },
+    };
+
+    const manager = mountFilterSurfaces({
+      root,
+      store: createFilterStore({ navLanguages: ["ja"] }),
+      settings,
+      hiddenCount: () => 0,
+      inScope: () => true,
+    });
+    read.resolve({ ...DEFAULT_SETTINGS, surfaces: { pill: true, palette: false } });
+    await flush();
+
+    expect(pillIn(root)).toBeNull();
+    expect(manager.paletteHotkey()).toBe("alt+p");
+    manager.unmount();
+  });
+
+  it("keeps listening after the initial read fails", async () => {
+    const root = document.createElement("div");
+    const read = deferred<LassoSettings>();
+    let emit!: (s: LassoSettings) => void;
+    const settings: SettingsStore = {
+      get: async () => read.promise,
+      set: async () => DEFAULT_SETTINGS,
+      subscribe(cb) {
+        emit = cb;
+        return () => {};
+      },
+    };
+
+    const manager = mountFilterSurfaces({
+      root,
+      store: createFilterStore({ navLanguages: ["ja"] }),
+      settings,
+      hiddenCount: () => 0,
+      inScope: () => true,
+    });
+    read.reject(new Error("storage unavailable"));
+    await flush();
+    emit({ ...DEFAULT_SETTINGS, surfaces: { pill: true, palette: false } });
+
+    expect(pillIn(root)).toBeTruthy();
+    manager.unmount();
+  });
+
+  it.each([
+    [
+      "throws",
+      () => {
+        throw new Error("write failed");
+      },
+    ],
+    ["rejects", () => Promise.reject(new Error("write failed"))],
+  ])("absorbs cosmetic pill-position saves when settings.set %s", async (_kind, fail) => {
+    const root = document.createElement("div");
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: fail as SettingsStore["set"],
+      subscribe: () => () => {},
+    };
+    const manager = mountFilterSurfaces({
+      root,
+      store: createFilterStore({ navLanguages: ["ja"] }),
+      settings,
+      hiddenCount: () => 0,
+      inScope: () => true,
+    });
+    await flush();
+    const button = root.querySelector("[data-funnel-pill-root] button") as HTMLElement;
+    button.dispatchEvent(
+      new PointerEvent("pointerdown", { clientX: 40, clientY: 60, bubbles: true }),
+    );
+    document.dispatchEvent(
+      new PointerEvent("pointermove", { clientX: 120, clientY: 140, bubbles: true }),
+    );
+    document.dispatchEvent(
+      new PointerEvent("pointerup", { clientX: 120, clientY: 140, bubbles: true }),
+    );
+    await flush();
+
+    expect(button).toBeTruthy();
+    manager.unmount();
+  });
+
   it("mounts only enabled in-page surfaces, persists pill position, and tears down out of scope", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -84,13 +183,25 @@ describe("mountFilterSurfaces", () => {
     expect(onPositionChange).toBeTruthy();
     const pillButton = onPositionChange as HTMLButtonElement;
     pillButton.dispatchEvent(
-      new PointerEvent("pointerdown", { clientX: 40, clientY: 60, bubbles: true }),
+      new PointerEvent("pointerdown", {
+        clientX: 40,
+        clientY: 60,
+        bubbles: true,
+      }),
     );
     document.dispatchEvent(
-      new PointerEvent("pointermove", { clientX: 120, clientY: 140, bubbles: true }),
+      new PointerEvent("pointermove", {
+        clientX: 120,
+        clientY: 140,
+        bubbles: true,
+      }),
     );
     document.dispatchEvent(
-      new PointerEvent("pointerup", { clientX: 120, clientY: 140, bubbles: true }),
+      new PointerEvent("pointerup", {
+        clientX: 120,
+        clientY: 140,
+        bubbles: true,
+      }),
     );
     expect(settings.set).toHaveBeenCalled();
     const posCall = (settings.set as ReturnType<typeof vi.fn>).mock.calls.find(
@@ -117,7 +228,7 @@ describe("mountFilterSurfaces", () => {
     manager.unmount();
   });
 
-  it("opens the palette on the configured hotkey and drops the listener when surfaces.palette is disabled", async () => {
+  it("exposes live palette intents and drops them when surfaces.palette is disabled", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     const store = createFilterStore({ navLanguages: ["ja"] });
@@ -137,29 +248,53 @@ describe("mountFilterSurfaces", () => {
 
     // No overlay until the hotkey fires.
     expect(paletteIn(root)).toBeNull();
+    expect(manager.isPaletteOpen()).toBe(false);
 
-    // The configured combo opens the palette overlay.
-    dispatchHotkey("mod+shift+f");
+    expect(manager.paletteHotkey()).toBe("mod+shift+f");
+    expect(manager.togglePalette()).toBe(true);
     expect(paletteIn(root)).toBeTruthy();
+    expect(manager.isPaletteOpen()).toBe(true);
 
-    // Escape closes it again (handled by the manager while the palette is open).
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(manager.dismiss()).toBe(true);
     expect(paletteIn(root)).toBeNull();
+    expect(manager.isPaletteOpen()).toBe(false);
 
-    // Disabling the surface tears down the listener: the hotkey no longer opens it.
+    // Disabling the surface tears down its keyboard intent.
     await settings.set({ surfaces: { pill: false, palette: false } });
     manager.update();
-    dispatchHotkey("mod+shift+f");
+    expect(manager.paletteHotkey()).toBeNull();
+    expect(manager.togglePalette()).toBe(false);
+    expect(manager.isPaletteOpen()).toBe(false);
     expect(paletteIn(root)).toBeNull();
 
     manager.unmount();
   });
 
-  it("matches an explicit ctrl+meta combo (no `mod` token) and closes via the overlay backdrop", async () => {
+  it("dismisses an open pill after the palette is closed", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const manager = mountFilterSurfaces({
+      root,
+      store: createFilterStore({ navLanguages: ["ja"] }),
+      settings: fakeSettings({ surfaces: { pill: true, palette: false } }),
+      hiddenCount: () => 0,
+      inScope: () => true,
+    });
+    await flush();
+
+    (root.querySelector("[data-funnel-pill-root] button") as HTMLElement).click();
+    await flush();
+    expect(root.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(manager.dismiss()).toBe(true);
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(manager.dismiss()).toBe(false);
+    manager.unmount();
+  });
+
+  it("returns the live explicit combo and closes via the overlay backdrop", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     const store = createFilterStore({ navLanguages: ["ja"] });
-    // No `mod` token → matchesHotkey takes the explicit ctrl/meta comparison branch.
     const settings = fakeSettings({
       surfaces: { pill: false, palette: true },
       paletteHotkey: "ctrl+shift+k",
@@ -174,11 +309,8 @@ describe("mountFilterSurfaces", () => {
     });
     await flush();
 
-    // A combo with the same key but the wrong modifiers must NOT open it.
-    dispatchHotkey("shift+k"); // ctrl missing → explicit branch rejects
-    expect(paletteIn(root)).toBeNull();
-
-    dispatchHotkey("ctrl+shift+k");
+    expect(manager.paletteHotkey()).toBe("ctrl+shift+k");
+    expect(manager.togglePalette()).toBe(true);
     const overlay = paletteIn(root);
     expect(overlay).toBeTruthy();
 
@@ -191,7 +323,7 @@ describe("mountFilterSurfaces", () => {
     manager.unmount();
   });
 
-  it("rejects hotkeys with the wrong modifiers/shift/alt and ignores Escape while closed", async () => {
+  it("does not install a document keydown listener", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     const store = createFilterStore({ navLanguages: ["ja"] });
@@ -209,38 +341,19 @@ describe("mountFilterSurfaces", () => {
     });
     await flush();
 
-    // Right key, but no mod held → the `wantMod ? !(ctrl||meta)` branch rejects.
+    // The keyboard coordinator owns keydown. The manager remains closed.
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "f", shiftKey: true, bubbles: true }),
     );
     expect(paletteIn(root)).toBeNull();
 
-    // Mod held but shift missing → the shift comparison rejects.
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true }),
-    );
-    expect(paletteIn(root)).toBeNull();
-
-    // Mod+shift but alt also held → the alt comparison rejects.
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "f",
-        ctrlKey: true,
-        shiftKey: true,
-        altKey: true,
-        bubbles: true,
-      }),
-    );
-    expect(paletteIn(root)).toBeNull();
-
-    // Escape while the palette is closed is a no-op in the manager's listener.
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(paletteIn(root)).toBeNull();
 
     manager.unmount();
   });
 
-  it("matches an explicit alt+shift combo", async () => {
+  it("exposes an explicit alt+shift combo", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     const store = createFilterStore({ navLanguages: ["ja"] });
@@ -258,7 +371,8 @@ describe("mountFilterSurfaces", () => {
     });
     await flush();
 
-    dispatchHotkey("alt+shift+p");
+    expect(manager.paletteHotkey()).toBe("alt+shift+p");
+    manager.togglePalette();
     expect(paletteIn(root)).toBeTruthy();
 
     manager.unmount();
@@ -280,6 +394,7 @@ describe("mountFilterSurfaces", () => {
     await flush();
     manager.unmount();
     expect(() => manager.update()).not.toThrow(); // reconcile returns early when disposed
+    expect(manager.dismiss()).toBe(false);
     expect(pillIn(root)).toBeNull();
   });
 

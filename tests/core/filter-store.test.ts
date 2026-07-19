@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createFilterStore } from "@/core/filter-store";
+import { createFilterStore, normalizeFilterState } from "@/core/filter-store";
 import type { StorageLike } from "@/core/settings";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 
 import { installOnChanged } from "../helpers/chrome-fake";
+
+const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("createFilterStore", () => {
   it("cycles a criterion off → only → hide → off", () => {
@@ -38,6 +40,7 @@ describe("createFilterStore", () => {
     a.setLinkRules([{ host: "lemmy.world", dest: "reddit" }]);
     a.cycle("kind:video"); // only
     a.cycle("kind:video"); // hide
+    await tick(); // same-context storage writes are serialized
 
     const b = createFilterStore({ navLanguages: ["fr"] });
     await b.load();
@@ -95,6 +98,89 @@ describe("createFilterStore", () => {
       // Another context (the popup) writes compactHidden: true.
       bridge.emit(STORAGE_KEYS.filter, { compactHidden: true });
       expect(s.state.value.compactHidden).toBe(true);
+    } finally {
+      bridge.restore();
+    }
+  });
+
+  it.each([
+    ["enabled", { enabled: false }],
+    ["criteria", { criteria: { "kind:video": "hide" } }],
+    ["onlyMyLanguages", { onlyMyLanguages: true }],
+    ["myLanguages", { myLanguages: ["ja"] }],
+    ["linkRules", { linkRules: [{ host: "lemmy.world", dest: "reddit" }] }],
+  ])("ends reveal for an external %s change", (_field, patch) => {
+    const bridge = installOnChanged();
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      s.setRevealed(true);
+      bridge.emit(STORAGE_KEYS.filter, { ...s.state.value, ...patch });
+      expect(s.revealed.value).toBe(false);
+    } finally {
+      bridge.restore();
+    }
+  });
+
+  it("keeps reveal for external compact or preset-only changes", () => {
+    const bridge = installOnChanged();
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      s.setRevealed(true);
+      bridge.emit(STORAGE_KEYS.filter, { ...s.state.value, compactHidden: true });
+      expect(s.revealed.value).toBe(true);
+      bridge.emit(STORAGE_KEYS.filter, {
+        ...s.state.value,
+        presets: [
+          { id: "p1", name: "Quiet", criteria: {}, onlyMyLanguages: false, myLanguages: ["en"] },
+        ],
+      });
+      expect(s.revealed.value).toBe(true);
+    } finally {
+      bridge.restore();
+    }
+  });
+
+  it("ends reveal when an external selection changes without changing its item counts", () => {
+    const bridge = installOnChanged();
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      s.setMode("kind:video", "only");
+      s.setLinkRules([{ host: "example.com", dest: "reddit" }]);
+      s.setRevealed(true);
+
+      bridge.emit(STORAGE_KEYS.filter, {
+        ...s.state.value,
+        criteria: { "kind:photo": "only" },
+        linkRules: [{ host: "example.org", dest: "hn" }],
+      });
+
+      expect(s.revealed.value).toBe(false);
+
+      s.setRevealed(true);
+      const beforeLinkChange = s.state.value;
+      bridge.emit(
+        STORAGE_KEYS.filter,
+        {
+          ...beforeLinkChange,
+          linkRules: [{ host: "example.net", dest: "youtube" }],
+        },
+        "sync",
+        beforeLinkChange,
+      );
+      expect(s.revealed.value).toBe(false);
+
+      s.setRevealed(true);
+      const beforeDestinationChange = s.state.value;
+      bridge.emit(
+        STORAGE_KEYS.filter,
+        {
+          ...beforeDestinationChange,
+          linkRules: [{ host: "example.net", dest: "mastodon" }],
+        },
+        "sync",
+        beforeDestinationChange,
+      );
+      expect(s.revealed.value).toBe(false);
     } finally {
       bridge.restore();
     }
@@ -217,7 +303,7 @@ describe("createFilterStore", () => {
       s.cycle("kind:video");
       expect(s.state.value.criteria["kind:video"]).toBe("only");
       // Another context clears the key (newValue undefined) → reset to defaults.
-      bridge.emit(STORAGE_KEYS.filter, undefined);
+      bridge.emit(STORAGE_KEYS.filter, undefined, "sync", s.state.value);
       expect(s.state.value.criteria).toEqual({});
     } finally {
       bridge.restore();
@@ -230,8 +316,9 @@ describe("createFilterStore", () => {
     const snapshot = a.state.value;
     a.cycle("kind:video"); // hide — moves away from the snapshot
     a.restore(snapshot);
-    expect(a.state.value).toBe(snapshot);
+    expect(a.state.value).toEqual(snapshot);
     // Persisted: a fresh store loads the restored config.
+    await tick();
     const b = createFilterStore({ navLanguages: ["fr"] });
     await b.load();
     expect(b.state.value.criteria["kind:video"]).toBe("only");
@@ -245,7 +332,7 @@ describe("createFilterStore", () => {
     s.setRevealed(true); // transient peek — doesn't change state, doesn't re-arm undo
     s.restore(snapshot); // Z
     expect(s.revealed.value).toBe(false); // …or the timeline would visibly not change
-    expect(s.state.value).toBe(snapshot);
+    expect(s.state.value).toEqual(snapshot);
   });
 
   it("falls back to safe defaults when storage rejects, never throws", async () => {
@@ -257,5 +344,207 @@ describe("createFilterStore", () => {
     s.setEnabled(false); // persist rejects internally — must not throw
     await expect(s.load()).resolves.toBeUndefined();
     expect(s.state.value.myLanguages).toEqual(["ja"]);
+  });
+
+  it("restores the signal after one failed optimistic write", async () => {
+    let rejectWrite!: (reason: Error) => void;
+    const write = new Promise<void>((_, reject) => {
+      rejectWrite = reject;
+    });
+    const storage: StorageLike = {
+      get: async () => ({}),
+      set: () => write,
+    };
+    const s = createFilterStore({ storage, navLanguages: ["en"] });
+    const previous = s.state.value;
+    s.setEnabled(false);
+    rejectWrite(new Error("boom"));
+    await tick();
+    expect(s.state.value).toEqual(previous);
+    expect(s.state.value.enabled).toBe(true);
+  });
+
+  it("keeps a newer successful write when an older write fails", async () => {
+    let rejectFirst!: (reason: Error) => void;
+    let calls = 0;
+    const storage: StorageLike = {
+      get: async () => ({}),
+      set: () => {
+        calls += 1;
+        if (calls === 1)
+          return new Promise<void>((_, reject) => {
+            rejectFirst = reject;
+          });
+        return Promise.resolve();
+      },
+    };
+    const s = createFilterStore({ storage, navLanguages: ["en"] });
+    s.setEnabled(false);
+    s.setOnlyMyLanguages(true);
+    const newer = s.state.value;
+    rejectFirst(new Error("old write failed"));
+    await tick();
+    expect(s.state.value).toBe(newer);
+    expect(s.state.value).toMatchObject({ enabled: false, onlyMyLanguages: true });
+  });
+
+  it("normalizes persisted Filter state and strips invalid nested records", () => {
+    const defaults = {
+      enabled: true,
+      criteria: {},
+      onlyMyLanguages: false,
+      myLanguages: ["en"],
+      linkRules: [],
+      presets: [],
+      compactHidden: false,
+    };
+    expect(
+      normalizeFilterState(
+        {
+          enabled: "false",
+          criteria: { "kind:video": "hide", "kind:photo": "off", unknown: "only" },
+          onlyMyLanguages: 1,
+          myLanguages: ["ja-JP", 4, "EN", ""],
+          linkRules: [
+            { host: "lemmy.world", dest: "reddit", extra: true },
+            { host: "bad.example", dest: "unknown" },
+          ],
+          presets: [
+            {
+              id: "p1",
+              name: "Quiet",
+              criteria: { "kind:video": "only", unknown: "hide" },
+              onlyMyLanguages: true,
+              myLanguages: ["fr-FR", 1],
+              extra: true,
+            },
+            { id: 1, name: "bad", criteria: {}, onlyMyLanguages: false },
+          ],
+          compactHidden: "yes",
+          extra: true,
+        },
+        defaults,
+      ),
+    ).toEqual({
+      enabled: true,
+      criteria: { "kind:video": "hide" },
+      onlyMyLanguages: false,
+      myLanguages: ["ja", "en"],
+      linkRules: [{ host: "lemmy.world", dest: "reddit" }],
+      presets: [
+        {
+          id: "p1",
+          name: "Quiet",
+          criteria: { "kind:video": "only" },
+          onlyMyLanguages: true,
+          myLanguages: ["fr"],
+        },
+      ],
+      compactHidden: false,
+    });
+  });
+
+  it("normalizes a non-record filter blob and non-record criteria", () => {
+    const defaults = {
+      enabled: true,
+      criteria: {},
+      onlyMyLanguages: false,
+      myLanguages: ["en"],
+      linkRules: [],
+      presets: [],
+      compactHidden: false,
+    };
+
+    expect(normalizeFilterState(null, defaults)).toEqual(defaults);
+    expect(normalizeFilterState({ criteria: null }, defaults).criteria).toEqual({});
+  });
+
+  it("normalizes corrupt hydrate and failed-write cache adoption", async () => {
+    const corrupt = {
+      enabled: "no",
+      criteria: { "kind:video": "hide", invalid: "only" },
+      onlyMyLanguages: "yes",
+      myLanguages: ["ja-JP", 1],
+      linkRules: [{ host: "bad.example", dest: "invalid" }],
+      presets: [{ id: "bad", name: "Bad", criteria: [], onlyMyLanguages: false }],
+      compactHidden: 1,
+      extra: true,
+    };
+    const storage: StorageLike = {
+      get: async () => ({ [STORAGE_KEYS.filter]: corrupt }),
+      set: () => Promise.reject(new Error("boom")),
+    };
+    const s = createFilterStore({ storage, navLanguages: ["en"] });
+    await s.load();
+    expect(s.state.value).toEqual({
+      enabled: true,
+      criteria: { "kind:video": "hide" },
+      onlyMyLanguages: false,
+      myLanguages: ["ja"],
+      linkRules: [],
+      presets: [],
+      compactHidden: false,
+    });
+
+    s.setEnabled(false);
+    await tick();
+    expect(s.state.value).toEqual({
+      enabled: true,
+      criteria: { "kind:video": "hide" },
+      onlyMyLanguages: false,
+      myLanguages: ["ja"],
+      linkRules: [],
+      presets: [],
+      compactHidden: false,
+    });
+  });
+
+  it("normalizes corrupt external changes and stops them after dispose", () => {
+    const bridge = installOnChanged();
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      bridge.emit(STORAGE_KEYS.filter, {
+        enabled: false,
+        criteria: { "kind:video": "only", unknown: "hide" },
+        onlyMyLanguages: true,
+        myLanguages: ["fr-FR", false],
+        linkRules: [{ host: "lobste.rs", dest: "hn", ignored: true }],
+        presets: [],
+        compactHidden: true,
+      });
+      expect(s.state.value).toEqual({
+        enabled: false,
+        criteria: { "kind:video": "only" },
+        onlyMyLanguages: true,
+        myLanguages: ["fr"],
+        linkRules: [{ host: "lobste.rs", dest: "hn" }],
+        presets: [],
+        compactHidden: true,
+      });
+
+      s.dispose();
+      s.dispose();
+      bridge.emit(STORAGE_KEYS.filter, { enabled: true });
+      expect(s.state.value.enabled).toBe(false);
+    } finally {
+      bridge.restore();
+    }
+  });
+
+  it("normalizes restore input before persisting it", () => {
+    const s = createFilterStore({ navLanguages: ["en"] });
+    s.restore({
+      enabled: "false",
+      criteria: { unknown: "only" },
+    } as unknown as typeof s.state.value);
+    expect(s.state.value).toEqual({
+      enabled: true,
+      criteria: {},
+      onlyMyLanguages: false,
+      myLanguages: ["en"],
+      linkRules: [],
+      presets: [],
+      compactHidden: false,
+    });
   });
 });

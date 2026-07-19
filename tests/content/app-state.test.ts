@@ -6,6 +6,22 @@ import { createSelectionStore } from "@/core/selection-store";
 const jane = { screenName: "jane" };
 
 describe("createAppState — one deterministic Esc grammar (story beat 6)", () => {
+  it("reports when a true modal owns Lasso commands", () => {
+    const app = createAppState(createSelectionStore());
+    expect(app.modalOpen()).toBe(false);
+
+    app.welcomeOpen.value = true;
+    expect(app.modalOpen()).toBe(true);
+
+    app.welcomeOpen.value = false;
+    app.shortcutsOpen.value = true;
+    expect(app.modalOpen()).toBe(true);
+
+    app.shortcutsOpen.value = false;
+    app.pickerOpen.value = true;
+    expect(app.modalOpen()).toBe(true);
+  });
+
   it("Esc unwinds: dialog → picker → review popover → select mode → clear selection", () => {
     const selection = createSelectionStore();
     const app = createAppState(selection);

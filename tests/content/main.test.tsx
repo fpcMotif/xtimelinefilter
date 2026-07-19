@@ -12,19 +12,43 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type AnyFn = (...args: unknown[]) => unknown;
 type Caps = {
   controllerDeps?: Record<string, AnyFn | Record<string, AnyFn> | unknown>;
-  xlistThunks?: { rest: AnyFn; dom: AnyFn; graphql: AnyFn };
+  xlistRuntime?: {
+    fetch: typeof fetch;
+    credentials: AnyFn;
+    createPageDriver: AnyFn;
+  };
   listCacheLoader?: AnyFn;
-  pickerDeps?: { recentIds: AnyFn; memberships: AnyFn };
-  scannerCb?: (author: unknown, article: Element) => void;
+  pickerDeps?: {
+    currentOwner: AnyFn;
+    membershipStore: unknown;
+    recentIds: AnyFn;
+    memberships: AnyFn;
+  };
+  scannerCb?: (article: Element) => void;
   scannerOpts?: { onScan?: AnyFn; onTweetRemoved?: (article: Element) => void };
   keyboardRun?: AnyFn;
+  keyboardSurfaces?: { togglePalette: () => boolean; modalOpen: () => boolean };
+  keyboardLayers?: Array<{
+    keymap: Array<{ combo: string; command: string }>;
+    run: AnyFn;
+    dispose: ReturnType<typeof vi.fn>;
+  }>;
   routeCb?: AnyFn;
   healthOnBreakage?: AnyFn;
-  filterDeps?: { settings: unknown; highContrast: boolean; inScope: AnyFn };
+  filterDeps?: {
+    settings: unknown;
+    highContrastHosts: unknown;
+    inScope: AnyFn;
+  };
+  highContrastListener?: (settings: { highContrast: boolean }) => void;
+  settingsListeners?: AnyFn[];
   membershipArgs?: [unknown, unknown];
   onMessage?: (msg: unknown, sender: unknown, send: AnyFn) => void;
   shadowHost?: HTMLElement;
-  selection?: { setSelectMode: (on: boolean) => void };
+  selection?: {
+    add: (author: { screenName: string }) => void;
+    setSelectMode: (on: boolean) => void;
+  };
   hoverDeps?: {
     resolve: (el: Element | null) => Element | null;
     onHover: (article: Element | null) => void;
@@ -38,18 +62,20 @@ type Caps = {
 };
 
 const H = vi.hoisted(() => {
-  const fn = () => vi.fn();
+  const fn = vi.fn;
   return {
     config: {
       settings: {} as Record<string, unknown>,
       onboarded: false,
       stubbed: false,
       computedPosition: "static",
+      shadowError: false,
     },
     cap: {} as Caps,
     fake: {
       controller: {
         command: vi.fn(),
+        trySelectMode: vi.fn(),
         wake: vi.fn(),
         toggleSelect: vi.fn(),
         reportBreakage: vi.fn(),
@@ -58,14 +84,26 @@ const H = vi.hoisted(() => {
         classify: vi.fn(),
         isStubbed: vi.fn(),
         sync: vi.fn(),
+        paletteHotkey: vi.fn(() => null),
+        togglePalette: vi.fn(() => false),
+        isPaletteOpen: vi.fn(() => false),
+        dismiss: vi.fn(() => false),
         unmount: vi.fn(),
       },
+      filterStore: { dispose: vi.fn() },
+      installFilter: vi.fn(),
       coach: {
         isOnboarded: vi.fn(),
         tryShowTip: vi.fn(async () => false),
         hintsActive: vi.fn(async () => false),
       },
-      settings: { get: vi.fn() },
+      settings: {
+        get: vi.fn(),
+        subscribe: vi.fn((cb) => {
+          (H.cap.settingsListeners ??= []).push(cb);
+          return () => H.fake.highContrastUnsubscribe();
+        }),
+      },
       auth: { credentials: vi.fn(() => ({ ct0: "tok" })) },
       caret: { notInterested: fn() },
       listCache: {},
@@ -77,9 +115,10 @@ const H = vi.hoisted(() => {
       uiHost: {
         host: null as unknown as HTMLElement,
         render: vi.fn(),
+        destroy: vi.fn(),
         root: null as unknown as HTMLElement,
       },
-      scanner: { start: vi.fn() },
+      scanner: { start: vi.fn(), stop: vi.fn() },
       hover: {
         targetTweet: vi.fn(() => null as Element | null),
         release: vi.fn(),
@@ -95,6 +134,9 @@ const H = vi.hoisted(() => {
         read: vi.fn(),
       },
       selectTapDispose: vi.fn(),
+      keyboardDispose: vi.fn(),
+      routeDispose: vi.fn(),
+      highContrastUnsubscribe: vi.fn(),
     },
     spy: {
       render: vi.fn(),
@@ -109,14 +151,6 @@ const H = vi.hoisted(() => {
       blockUser: vi.fn(async () => {}),
       createDomPageDriver: vi.fn(() => ({})),
       buildConvex: vi.fn(),
-      // RestXListApi calls its credentials thunk so the `() => auth.credentials()`
-      // closure handed to it is actually exercised. A plain function (not an
-      // arrow) so it is constructable with `new`.
-      RestXListApi: vi.fn(function (this: unknown, _fetch: unknown, creds: AnyFn) {
-        creds();
-      }),
-      DomXListApi: vi.fn(),
-      GraphqlXListApi: vi.fn(),
     },
   };
 });
@@ -134,11 +168,18 @@ vi.mock("@/content/controller", () => ({
 vi.mock("@/content/filter-feature", () => ({
   installFilterFeature: (deps: Caps["filterDeps"]) => {
     H.cap.filterDeps = deps;
-    return Promise.resolve(H.fake.filter);
+    return H.fake.installFilter();
   },
 }));
-vi.mock("@/content/get-current-account", () => ({ getCurrentAccount: H.spy.getCurrentAccount }));
-vi.mock("@/content/get-focused-tweet", () => ({ getFocusedTweet: H.spy.getFocusedTweet }));
+vi.mock("@/core/filter-store", () => ({
+  createFilterStore: () => H.fake.filterStore,
+}));
+vi.mock("@/content/get-current-account", () => ({
+  getCurrentAccount: H.spy.getCurrentAccount,
+}));
+vi.mock("@/content/get-focused-tweet", () => ({
+  getFocusedTweet: H.spy.getFocusedTweet,
+}));
 vi.mock("@/content/hover-tracker", () => ({
   installHoverTracker: (deps: Caps["hoverDeps"]) => {
     H.cap.hoverDeps = deps;
@@ -146,9 +187,21 @@ vi.mock("@/content/hover-tracker", () => ({
   },
 }));
 vi.mock("@/content/keyboard", () => ({
-  DEFAULT_KEYMAP: [],
-  installKeyboardLayer: (opts: { run: AnyFn }) => {
+  DEFAULT_KEYMAP: [{ combo: "s", command: "toggle-select-mode" }],
+  installKeyboardLayer: (opts: {
+    keymap: Array<{ combo: string; command: string }>;
+    run: AnyFn;
+    surfaces?: Caps["keyboardSurfaces"];
+  }) => {
+    const dispose = vi.fn(() => H.fake.keyboardDispose());
+    (H.cap.keyboardLayers ??= []).push({
+      keymap: opts.keymap,
+      run: opts.run,
+      dispose,
+    });
     H.cap.keyboardRun = opts.run;
+    H.cap.keyboardSurfaces = opts.surfaces;
+    return dispose;
   },
 }));
 vi.mock("@/content/overlay-lifecycle", () => ({
@@ -158,6 +211,7 @@ vi.mock("@/content/route", () => ({
   isInScope: H.spy.isInScope,
   onRouteChange: (cb: AnyFn) => {
     H.cap.routeCb = cb;
+    return H.fake.routeDispose;
   },
 }));
 vi.mock("@/content/scanner-health", () => ({
@@ -187,7 +241,9 @@ vi.mock("@/core/list-cache", () => ({
     return H.fake.listCache;
   },
 }));
-vi.mock("@/core/list-usage", () => ({ createListUsage: () => H.fake.listUsage }));
+vi.mock("@/core/list-usage", () => ({
+  createListUsage: () => H.fake.listUsage,
+}));
 vi.mock("@/core/membership-store/convex-client", () => ({
   buildConvexMembershipStore: H.spy.buildConvex,
 }));
@@ -208,20 +264,21 @@ vi.mock("@/core/picker-controller", () => ({
 }));
 vi.mock("@/core/settings", () => ({ createSettings: () => H.fake.settings }));
 vi.mock("@/core/tweet-read", () => ({ author: H.spy.extractAuthor }));
-vi.mock("@/core/x-client/auth", () => ({ createDocumentAuth: () => H.fake.auth }));
-vi.mock("@/core/x-client/caret-actions", () => ({ createCaretActions: () => H.fake.caret }));
-vi.mock("@/core/x-client/dom-api", () => ({ DomXListApi: H.spy.DomXListApi }));
+vi.mock("@/core/x-client/auth", () => ({
+  createDocumentAuth: () => H.fake.auth,
+}));
+vi.mock("@/core/x-client/caret-actions", () => ({
+  createCaretActions: () => H.fake.caret,
+}));
 vi.mock("@/core/x-client/dom-page-driver", () => ({
   createDomPageDriver: H.spy.createDomPageDriver,
 }));
 vi.mock("@/core/x-client/factory", () => ({
-  createXListApi: (_backend: unknown, thunks: Caps["xlistThunks"]) => {
-    H.cap.xlistThunks = thunks;
+  createXListApi: (_backend: unknown, runtime: Caps["xlistRuntime"]) => {
+    H.cap.xlistRuntime = runtime;
     return H.fake.backend;
   },
 }));
-vi.mock("@/core/x-client/graphql-api", () => ({ GraphqlXListApi: H.spy.GraphqlXListApi }));
-vi.mock("@/core/x-client/graphql-config", () => ({ DEFAULT_GRAPHQL_CONFIG: {} }));
 vi.mock("@/core/x-client/lists-provider", () => ({
   fetchMembershipListIds: H.spy.fetchMembershipListIds,
   fetchOwnedLists: H.spy.fetchOwnedLists,
@@ -230,7 +287,6 @@ vi.mock("@/core/x-client/rest-api", () => ({
   blockUser: H.spy.blockUser,
   muteUser: H.spy.muteUser,
   unmuteUser: H.spy.unmuteUser,
-  RestXListApi: H.spy.RestXListApi,
 }));
 vi.mock("@/core/selection-store", async () => {
   const actual =
@@ -247,6 +303,7 @@ vi.mock("@/core/selection-store", async () => {
 vi.mock("@/ui/mount", () => ({
   createUiRoot: () => H.fake.uiHost,
   attachShadowRoot: (host: HTMLElement) => {
+    if (H.config.shadowError) throw new Error("shadow unavailable");
     H.cap.shadowHost = host;
     return { mount: document.createElement("div") };
   },
@@ -256,7 +313,11 @@ let sendMessage: ReturnType<typeof vi.fn>;
 let addMessageListener: ReturnType<typeof vi.fn>;
 let openSpy: ReturnType<typeof vi.spyOn>;
 let computedStyleSpy: ReturnType<typeof vi.spyOn>;
+let windowAddEventListenerSpy: ReturnType<typeof vi.spyOn>;
+let documentAddEventListenerSpy: ReturnType<typeof vi.spyOn>;
 let previousChrome: unknown;
+let pageShowListener: ((event: PageTransitionEvent) => void) | undefined;
+let prerenderingChangeListener: (() => void) | undefined;
 
 function setChrome(opts: { sendThrows?: boolean; addThrows?: boolean } = {}) {
   sendMessage = vi.fn(() => {
@@ -273,6 +334,10 @@ function setChrome(opts: { sendThrows?: boolean; addThrows?: boolean } = {}) {
   } as unknown as typeof chrome;
 }
 
+function publishSettings(next: Record<string, unknown>): void {
+  for (const listener of H.cap.settingsListeners ?? []) listener(next);
+}
+
 async function importMain() {
   vi.resetModules();
   await import("@/content/main");
@@ -281,12 +346,21 @@ async function importMain() {
 beforeEach(() => {
   previousChrome = globalThis.chrome;
   H.cap = {};
-  H.config.settings = { backend: "rest", activation: "manual", highContrast: false };
+  H.config.settings = {
+    backend: "rest",
+    activation: "manual",
+    highContrast: false,
+  };
   H.config.onboarded = false;
   H.config.stubbed = false;
   H.config.computedPosition = "static";
+  H.config.shadowError = false;
   for (const m of Object.values(H.fake.controller)) m.mockClear();
   for (const m of Object.values(H.fake.filter)) m.mockClear();
+  H.fake.filterStore.dispose.mockClear();
+  H.fake.installFilter.mockReset();
+  H.fake.installFilter.mockResolvedValue(H.fake.filter);
+  H.fake.membership = {};
   // Uncleared, `waitFor(scanner.start)` resolves off the PREVIOUS test's boot, so a
   // later assertion can read state this boot hasn't written yet.
   for (const m of Object.values(H.fake.scanner)) m.mockClear();
@@ -294,13 +368,20 @@ beforeEach(() => {
   for (const m of Object.values(H.fake.overlays)) m.mockClear();
   for (const m of Object.values(H.fake.mirrorStore)) m.mockClear();
   H.fake.selectTapDispose.mockClear();
+  H.fake.keyboardDispose.mockClear();
+  H.fake.routeDispose.mockClear();
+  H.fake.highContrastUnsubscribe.mockClear();
   H.fake.hover.targetTweet.mockReturnValue(null);
   H.fake.filter.isStubbed.mockImplementation(() => H.config.stubbed);
+  H.fake.filter.isPaletteOpen.mockReturnValue(false);
   H.fake.coach.isOnboarded.mockImplementation(async () => H.config.onboarded);
+  H.fake.settings.get.mockClear();
   H.fake.settings.get.mockImplementation(async () => H.config.settings);
+  H.fake.settings.subscribe.mockClear();
   H.fake.uiHost.host = document.createElement("div");
   H.fake.uiHost.root = document.createElement("div");
   H.fake.uiHost.render.mockClear();
+  H.fake.uiHost.destroy.mockClear();
   H.spy.render.mockClear();
   H.spy.getFocusedTweet.mockReturnValue(null);
   (window as unknown as { fetch: unknown }).fetch = vi.fn();
@@ -310,6 +391,32 @@ beforeEach(() => {
     .mockImplementation(() => ({ position: H.config.computedPosition }) as CSSStyleDeclaration);
   document.body.innerHTML = "";
   window.location.hash = "";
+  pageShowListener = undefined;
+  prerenderingChangeListener = undefined;
+  const nativeWindowAddEventListener = window.addEventListener.bind(window);
+  windowAddEventListenerSpy = vi.spyOn(window, "addEventListener").mockImplementation(((
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ) => {
+    if (type === "pageshow") {
+      pageShowListener = listener as (event: PageTransitionEvent) => void;
+      return;
+    }
+    nativeWindowAddEventListener(type, listener, options);
+  }) as typeof window.addEventListener);
+  const nativeDocumentAddEventListener = document.addEventListener.bind(document);
+  documentAddEventListenerSpy = vi.spyOn(document, "addEventListener").mockImplementation(((
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ) => {
+    if (type === "prerenderingchange") {
+      prerenderingChangeListener = listener as () => void;
+      return;
+    }
+    nativeDocumentAddEventListener(type, listener, options);
+  }) as typeof document.addEventListener);
   setChrome();
 });
 
@@ -317,6 +424,9 @@ afterEach(() => {
   globalThis.chrome = previousChrome as typeof chrome;
   openSpy.mockRestore();
   computedStyleSpy.mockRestore();
+  windowAddEventListenerSpy.mockRestore();
+  documentAddEventListenerSpy.mockRestore();
+  delete (document as Document & { prerendering?: boolean }).prerendering;
   vi.restoreAllMocks();
 });
 
@@ -349,11 +459,47 @@ function lastMount(): () => (() => void) | null {
 }
 
 describe("content boot (main.tsx)", () => {
+  it("reannounces the retained awake count on a persisted pageshow", async () => {
+    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+    H.cap.selection!.add({ screenName: "alice" });
+    sendMessage.mockClear();
+
+    pageShowListener!({ persisted: true } as PageTransitionEvent);
+
+    expect(sendMessage).toHaveBeenCalledWith({ type: "lasso:badge", count: 1 });
+  });
+
+  it("ignores ordinary pageshow but reannounces dormant state from BFCache", async () => {
+    await importMain();
+    sendMessage.mockClear();
+
+    pageShowListener!({ persisted: false } as PageTransitionEvent);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    pageShowListener!({ persisted: true } as PageTransitionEvent);
+    expect(sendMessage).toHaveBeenCalledWith({ type: "lasso:state", state: "asleep" });
+  });
+
+  it("reannounces the retained count when a prerendered document activates", async () => {
+    Object.defineProperty(document, "prerendering", { configurable: true, value: true });
+    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+    H.cap.selection!.add({ screenName: "alice" });
+    sendMessage.mockClear();
+
+    prerenderingChangeListener!();
+
+    expect(sendMessage).toHaveBeenCalledWith({ type: "lasso:badge", count: 1 });
+  });
+
   it("on-demand: stays asleep until the popup wakes the tab, then wires everything", async () => {
     H.config.settings = {
       backend: "rest",
       activation: "manual",
-      highContrast: true,
+      highContrast: false,
       convexUrl: "https://x.convex.cloud",
       convexDeviceKey: "k",
     };
@@ -361,7 +507,10 @@ describe("content boot (main.tsx)", () => {
 
     // main() announced dormancy and registered the status listener; start() did
     // NOT run yet (on-demand).
-    expect(sendMessage).toHaveBeenCalledWith({ type: "lasso:state", state: "asleep" });
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: "lasso:state",
+      state: "asleep",
+    });
     expect(H.cap.onMessage).toBeTypeOf("function");
     expect(H.cap.scannerCb).toBeUndefined();
 
@@ -370,6 +519,12 @@ describe("content boot (main.tsx)", () => {
     H.cap.onMessage!({ type: "lasso:status" }, {}, beforeWake);
     expect(beforeWake).toHaveBeenCalledWith({ awake: false });
 
+    // Options may have changed while this on-demand tab was asleep. start() reads
+    // the shared store again, rather than reusing main()'s dormant snapshot.
+    H.config.settings = {
+      ...H.config.settings,
+      highContrast: true,
+    };
     // popup wakes this tab → start() runs with activatedByUser=true.
     H.cap.onMessage!({ type: "lasso-activate" }, {}, vi.fn());
     await vi.waitFor(() => expect(H.fake.controller.wake).toHaveBeenCalled());
@@ -381,30 +536,37 @@ describe("content boot (main.tsx)", () => {
     H.cap.onMessage!({ type: "lasso:status" }, {}, afterWake);
     expect(afterWake).toHaveBeenCalledWith({ awake: true });
     expect(H.fake.controller.wake).toHaveBeenCalledTimes(1);
-    // an unrelated message is ignored (isLassoMessage narrowing rejects it).
+    // An unrelated and wrong-way content message are ignored.
     H.cap.onMessage!({ type: "noise" }, {}, vi.fn());
-    // a well-formed but non-status/activate LassoMessage is also a no-op here.
-    H.cap.onMessage!({ type: "lasso:badge", count: 3 }, {}, vi.fn());
+    const wrongWay = vi.fn();
+    H.cap.onMessage!({ type: "lasso:badge", count: 3 }, {}, wrongWay);
+    expect(wrongWay).not.toHaveBeenCalled();
 
     // highContrast marked the UI host.
     expect(H.fake.uiHost.host.getAttribute("data-hc")).toBe("");
+    // main(), the fresh activation read, then the host registry refresh.
+    expect(H.fake.settings.get).toHaveBeenCalledTimes(3);
 
-    // ---- backend factory thunks (rest/dom/graphql) all construct ----
-    H.cap.xlistThunks!.rest();
-    H.cap.xlistThunks!.dom();
-    H.cap.xlistThunks!.graphql();
-    expect(H.fake.auth.credentials).toHaveBeenCalled(); // via the rest creds thunk
-    expect(H.spy.RestXListApi).toHaveBeenCalled();
-    expect(H.spy.DomXListApi).toHaveBeenCalled();
-    expect(H.spy.GraphqlXListApi).toHaveBeenCalled();
+    // ---- backend runtime: factory owns concrete backend construction ----
+    expect(H.cap.xlistRuntime!.fetch).toBeTypeOf("function");
+    H.cap.xlistRuntime!.credentials();
+    H.cap.xlistRuntime!.createPageDriver();
+    expect(H.fake.auth.credentials).toHaveBeenCalled();
+    expect(H.spy.createDomPageDriver).toHaveBeenCalledTimes(1);
 
     // ---- list-cache loader + picker memberships/recentIds thunks ----
     await H.cap.listCacheLoader!();
     expect(H.spy.fetchOwnedLists).toHaveBeenCalled();
-    H.cap.pickerDeps!.recentIds(5);
-    expect(H.fake.listUsage.recentIds).toHaveBeenCalledWith(5);
+    H.cap.pickerDeps!.recentIds("1", 5);
+    expect(H.fake.listUsage.recentIds).toHaveBeenCalledWith("1", 5);
     await H.cap.pickerDeps!.memberships("alice");
     expect(H.spy.fetchMembershipListIds).toHaveBeenCalled();
+    expect(H.cap.pickerDeps!.membershipStore).toMatchObject({
+      recordAssign: expect.any(Function),
+      observe: expect.any(Function),
+    });
+    H.cap.pickerDeps!.currentOwner();
+    expect(H.spy.getCurrentAccount).toHaveBeenCalled();
 
     // ---- membership store built from the configured Convex creds ----
     expect(H.cap.membershipArgs![0]).toMatchObject({
@@ -418,7 +580,12 @@ describe("content boot (main.tsx)", () => {
 
     // ---- controller deps: quick actions, target, anchor, openUrl, owner ----
     const deps = H.cap.controllerDeps!;
-    const quick = deps.quick as { mute: AnyFn; unmute: AnyFn; block: AnyFn; notInterested: AnyFn };
+    const quick = deps.quick as {
+      mute: AnyFn;
+      unmute: AnyFn;
+      block: AnyFn;
+      notInterested: AnyFn;
+    };
     await quick.mute("alice");
     await quick.unmute("alice");
     await quick.block("alice");
@@ -450,7 +617,14 @@ describe("content boot (main.tsx)", () => {
     const caret = document.createElement("div");
     caret.setAttribute("data-testid", "caret");
     caret.getBoundingClientRect = () =>
-      ({ right: 100, bottom: 200, width: 10, height: 10, left: 90, top: 190 }) as DOMRect;
+      ({
+        right: 100,
+        bottom: 200,
+        width: 10,
+        height: 10,
+        left: 90,
+        top: 190,
+      }) as DOMRect;
     withCaret.appendChild(caret);
     expect(anchorFor(withCaret)).toMatchObject({
       left: expect.any(Number),
@@ -461,6 +635,25 @@ describe("content boot (main.tsx)", () => {
     // ---- keyboard run, route sync, scanner onScan, health breakage ----
     H.cap.keyboardRun!("toggle-select-mode");
     expect(H.fake.controller.command).toHaveBeenCalledWith("toggle-select-mode");
+    H.fake.controller.command.mockReturnValueOnce(false);
+    H.fake.filter.dismiss.mockReturnValueOnce(true);
+    H.cap.keyboardRun!("escape");
+    expect(H.fake.controller.command).toHaveBeenLastCalledWith("escape");
+    expect(H.fake.filter.dismiss).toHaveBeenCalledTimes(1);
+    const app = deps.app as {
+      welcomeOpen: { value: boolean };
+      pickerOpen: { value: boolean };
+    };
+    app.welcomeOpen.value = true;
+    expect(H.cap.keyboardSurfaces!.modalOpen()).toBe(true);
+    expect(H.cap.keyboardSurfaces!.togglePalette()).toBe(true);
+    expect(H.fake.filter.togglePalette).not.toHaveBeenCalled();
+    app.welcomeOpen.value = false;
+    app.pickerOpen.value = true;
+    expect(H.cap.keyboardSurfaces!.modalOpen()).toBe(true);
+    expect(H.cap.keyboardSurfaces!.togglePalette()).toBe(true);
+    expect(H.fake.filter.togglePalette).not.toHaveBeenCalled();
+    app.pickerOpen.value = false;
     H.cap.routeCb!();
     expect(H.fake.filter.sync).toHaveBeenCalled();
     H.cap.scannerOpts!.onScan!(3, 1);
@@ -473,7 +666,9 @@ describe("content boot (main.tsx)", () => {
     expect(H.spy.isInScope).toHaveBeenCalledWith(location.pathname);
 
     // ---- the App vnode handed to the UI host exposes a working openUrl ----
-    const appVnode = H.fake.uiHost.render.mock.calls[0]![0] as { props: { openUrl: AnyFn } };
+    const appVnode = H.fake.uiHost.render.mock.calls[0]![0] as {
+      props: { openUrl: AnyFn };
+    };
     appVnode.props.openUrl("https://app.example");
     expect(openSpy).toHaveBeenCalledWith("https://app.example", "_blank", "noopener");
 
@@ -495,9 +690,8 @@ describe("content boot (main.tsx)", () => {
 
     // ---- scanner callback drives classify + overlay attach ----
     const a = cellTweet({ avatar: true });
-    H.cap.scannerCb!({ screenName: "a" }, a.article);
+    H.cap.scannerCb!(a.article);
     expect(H.fake.filter.classify).toHaveBeenCalledWith(a.article);
-    expect(H.fake.filter.isStubbed).toHaveBeenCalledWith(a.article);
     expect(H.fake.overlays.attach).toHaveBeenCalledWith(a.article, expect.any(Function));
     let mountFn = lastMount();
     const disposeA = mountFn();
@@ -527,22 +721,51 @@ describe("content boot (main.tsx)", () => {
 
     // non-static avatar position branch.
     H.config.computedPosition = "relative";
-    H.cap.scannerCb!({ screenName: "a" }, cellTweet({ avatar: true }).article);
+    H.cap.scannerCb!(cellTweet({ avatar: true }).article);
     lastMount()();
 
     // avatar-absent: anchor falls back to User-Name, then to the article itself.
-    H.cap.scannerCb!({ screenName: "a" }, cellTweet({ userName: true }).article);
+    H.cap.scannerCb!(cellTweet({ userName: true }).article);
     lastMount()();
-    H.cap.scannerCb!({ screenName: "a" }, cellTweet({}).article);
+    H.cap.scannerCb!(cellTweet({}).article);
     lastMount()();
 
-    // stubbed cell: overlay attach is skipped entirely.
-    H.config.stubbed = true;
+    // A first-seen hidden cell mounts its overlay. Restoration reveals the
+    // same host without a scanner remount, and the binding still works.
+    H.fake.filter.classify.mockImplementationOnce((article: Element) => {
+      article.parentElement?.setAttribute("data-lasso-filtered", "");
+    });
     const stub = cellTweet({ avatar: true });
     const attachCallsBefore = H.fake.overlays.attach.mock.calls.length;
-    H.cap.scannerCb!({ screenName: "a" }, stub.article);
-    expect(H.fake.overlays.attach.mock.calls.length).toBe(attachCallsBefore);
-    H.config.stubbed = false;
+    H.cap.scannerCb!(stub.article);
+    expect(stub.cell.hasAttribute("data-lasso-filtered")).toBe(true);
+    expect(H.fake.filter.classify.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      H.fake.overlays.attach.mock.invocationCallOrder.at(-1)!,
+    );
+    expect(H.fake.overlays.attach.mock.calls.length).toBe(attachCallsBefore + 1);
+    const disposeStub = lastMount()();
+    const hiddenHost = stub.article.querySelector("[data-lasso-overlay]");
+    expect(hiddenHost).not.toBeNull();
+    const hiddenOverlayCall = H.spy.render.mock.calls.at(-1) as [
+      { props: { onToggle: AnyFn } },
+      unknown,
+    ];
+    const hiddenTogglesBefore = H.fake.controller.toggleSelect.mock.calls.length;
+
+    stub.cell.removeAttribute("data-lasso-filtered");
+    expect(stub.article.querySelector("[data-lasso-overlay]")).toBe(hiddenHost);
+    expect(H.fake.overlays.attach.mock.calls.length).toBe(attachCallsBefore + 1);
+    hiddenOverlayCall[0].props.onToggle();
+    expect(H.fake.controller.toggleSelect.mock.calls.length).toBe(hiddenTogglesBefore + 1);
+    disposeStub?.();
+
+    // Author-less Tweets still reach Filter. Only Author-dependent overlay work stops.
+    const authorless = cellTweet({ avatar: true });
+    const overlayCallsBefore = H.fake.overlays.attach.mock.calls.length;
+    H.spy.extractAuthor.mockReturnValueOnce(null);
+    H.cap.scannerCb!(authorless.article);
+    expect(H.fake.filter.classify).toHaveBeenCalledWith(authorless.article);
+    expect(H.fake.overlays.attach).toHaveBeenCalledTimes(overlayCallsBefore);
 
     // ---- select-tap wiring: isActive mirrors selectMode; resolveTarget applies
     // the overlay/lasso-root/no-tweet guards; onToggle extracts the author and
@@ -556,6 +779,16 @@ describe("content boot (main.tsx)", () => {
     expect(selectTap.resolveTarget(sel)).toBe(sel);
     expect(selectTap.resolveTarget(null)).toBeNull();
     expect(selectTap.resolveTarget(document.body)).toBeNull(); // no enclosing tweet
+
+    // A tap inside a quoted (nested) tweet resolves the outermost article — the
+    // one that owns the author — not the quoted inner one.
+    const quotedOuter = cellTweet({ avatar: true }).article;
+    const quotedInner = document.createElement("article");
+    quotedInner.setAttribute("data-testid", "tweet");
+    const quotedChild = document.createElement("span");
+    quotedInner.appendChild(quotedChild);
+    quotedOuter.appendChild(quotedInner);
+    expect(selectTap.resolveTarget(quotedChild)).toBe(quotedOuter);
 
     const overlayHost = document.createElement("span");
     overlayHost.setAttribute("data-lasso-overlay", "");
@@ -580,13 +813,194 @@ describe("content boot (main.tsx)", () => {
     expect(H.fake.controller.toggleSelect.mock.calls.length).toBe(togglesBefore + 1);
   });
 
+  it("answers a deferred failed activation only after rollback", async () => {
+    const error = new Error("onboarding read failed");
+    H.fake.coach.isOnboarded.mockRejectedValueOnce(error);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await importMain();
+
+    const response = vi.fn();
+    expect(H.cap.onMessage!({ type: "lasso-activate" }, {}, response)).toBe(true);
+    expect(response).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(response).toHaveBeenCalledWith({ awake: false }));
+    expect(H.fake.scanner.stop).toHaveBeenCalledTimes(1);
+    expect(H.fake.overlays.disposeAll).toHaveBeenCalledTimes(1);
+    expect(H.fake.routeDispose).toHaveBeenCalledTimes(1);
+    expect(H.fake.keyboardDispose).toHaveBeenCalledTimes(1);
+    expect(H.fake.filter.unmount).toHaveBeenCalledTimes(1);
+    expect(H.fake.filterStore.dispose).toHaveBeenCalledTimes(1);
+    expect(H.fake.selectTapDispose).toHaveBeenCalledTimes(1);
+    expect(H.fake.highContrastUnsubscribe).toHaveBeenCalledTimes(2);
+    expect(H.fake.uiHost.destroy).toHaveBeenCalledTimes(1);
+    expect(H.fake.hover.dispose).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it("contains cleanup failures while rolling a failed boot back", async () => {
+    H.fake.coach.isOnboarded.mockRejectedValueOnce(new Error("onboarding read failed"));
+    H.fake.scanner.stop.mockImplementationOnce(() => {
+      throw new Error("scanner already gone");
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await importMain();
+
+    H.cap.onMessage!({ type: "lasso-activate" }, {}, vi.fn());
+    await vi.waitFor(() =>
+      expect(log).toHaveBeenCalledWith("[Lasso] activation cleanup failed", expect.any(Error)),
+    );
+    expect(H.fake.uiHost.destroy).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it("unwinds an overlay mount when its shadow root cannot be created", async () => {
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+    };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+    const tweet = cellTweet({ avatar: true });
+    H.cap.scannerCb!(tweet.article);
+    H.config.shadowError = true;
+
+    expect(lastMount()).toThrow("shadow unavailable");
+    expect(tweet.article.querySelector("[data-lasso-overlay]")).toBeNull();
+  });
+
+  it("on-demand hotkey enters select mode after a not-onboarded boot", async () => {
+    H.config.onboarded = false;
+    await importMain();
+    const dormant = H.cap.keyboardLayers![0]!;
+    expect(dormant.keymap).toEqual([{ combo: "s", command: "toggle-select-mode" }]);
+
+    dormant.run("toggle-select-mode");
+    expect(H.fake.controller.trySelectMode).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(H.fake.controller.trySelectMode).toHaveBeenCalledTimes(1));
+    expect(H.fake.controller.wake).not.toHaveBeenCalled();
+    expect(H.cap.keyboardLayers).toHaveLength(2);
+    expect(dormant.dispose).toHaveBeenCalledTimes(1);
+    expect(H.cap.keyboardLayers![1]!.dispose).not.toHaveBeenCalled();
+  });
+
+  it("dormant hotkey survives failed activation and retries", async () => {
+    H.fake.coach.isOnboarded.mockRejectedValueOnce(new Error("first boot fails"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await importMain();
+    const dormant = H.cap.keyboardLayers![0]!;
+
+    dormant.run("toggle-select-mode");
+    await vi.waitFor(() => expect(H.fake.scanner.stop).toHaveBeenCalledTimes(1));
+    expect(dormant.dispose).not.toHaveBeenCalled();
+    expect(H.fake.controller.trySelectMode).not.toHaveBeenCalled();
+
+    dormant.run("toggle-select-mode");
+    await vi.waitFor(() => expect(H.fake.controller.trySelectMode).toHaveBeenCalledTimes(1));
+    expect(dormant.dispose).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it("coalesces hotkey and toolbar activation without losing either intent", async () => {
+    let resolveFeature!: () => void;
+    H.fake.installFilter.mockImplementationOnce(
+      () =>
+        new Promise<typeof H.fake.filter>((resolve) => {
+          resolveFeature = () => resolve(H.fake.filter);
+        }),
+    );
+    await importMain();
+
+    H.cap.keyboardLayers![0]!.run("toggle-select-mode");
+    const toolbar = vi.fn();
+    expect(H.cap.onMessage!({ type: "lasso-activate" }, {}, toolbar)).toBe(true);
+    await vi.waitFor(() => expect(H.fake.installFilter).toHaveBeenCalledTimes(1));
+    expect(toolbar).not.toHaveBeenCalled();
+
+    resolveFeature();
+    await vi.waitFor(() => expect(toolbar).toHaveBeenCalledWith({ awake: true }));
+    expect(H.fake.controller.wake).toHaveBeenCalledTimes(1);
+    expect(H.fake.controller.trySelectMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a committed boot awake when queued intents throw", async () => {
+    H.fake.controller.wake.mockImplementationOnce(() => {
+      throw new Error("wake rejected");
+    });
+    H.fake.controller.trySelectMode.mockImplementationOnce(() => {
+      throw new Error("select mode rejected");
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await importMain();
+
+    H.cap.keyboardLayers![0]!.run("toggle-select-mode");
+    H.cap.onMessage!({ type: "lasso-activate" }, {}, vi.fn());
+    await vi.waitFor(() =>
+      expect(log).toHaveBeenCalledWith("[Lasso] wake intent failed", expect.any(Error)),
+    );
+    expect(log).toHaveBeenCalledWith("[Lasso] select-mode intent failed", expect.any(Error));
+    const status = vi.fn();
+    H.cap.onMessage!({ type: "lasso:status" }, {}, status);
+    expect(status).toHaveBeenCalledWith({ awake: true });
+    log.mockRestore();
+  });
+
+  it("rolls back a failed boot and retries from idle", async () => {
+    H.fake.coach.isOnboarded.mockRejectedValueOnce(new Error("first boot fails"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await importMain();
+
+    const failed = vi.fn();
+    H.cap.onMessage!({ type: "lasso-activate" }, {}, failed);
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledWith({ awake: false }));
+
+    H.fake.coach.isOnboarded.mockResolvedValueOnce(false);
+    const retried = vi.fn();
+    H.cap.onMessage!({ type: "lasso-activate" }, {}, retried);
+    await vi.waitFor(() => expect(retried).toHaveBeenCalledWith({ awake: true }));
+    expect(H.fake.scanner.start).toHaveBeenCalledTimes(2);
+    expect(H.fake.controller.wake).toHaveBeenCalledTimes(1);
+    expect(H.fake.filterStore.dispose).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it("does not announce asleep after a concurrent activation already committed", async () => {
+    let rejectInitial!: (reason: unknown) => void;
+    const initial = new Promise<unknown>((_resolve, reject) => {
+      rejectInitial = reject;
+    });
+    H.fake.settings.get.mockClear();
+    H.fake.settings.get.mockImplementationOnce(() => initial);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.settings.get).toHaveBeenCalledTimes(1));
+
+    const response = vi.fn();
+    H.cap.onMessage!({ type: "lasso-activate" }, {}, response);
+    await vi.waitFor(() => expect(response).toHaveBeenCalledWith({ awake: true }));
+    const messagesBeforeFailure = sendMessage.mock.calls.length;
+
+    rejectInitial(new Error("stale initial read"));
+    await vi.waitFor(() =>
+      expect(log).toHaveBeenCalledWith("[Lasso] init failed", expect.any(Error)),
+    );
+    expect(sendMessage.mock.calls.slice(messagesBeforeFailure)).not.toContainEqual([
+      { type: "lasso:state", state: "asleep" },
+    ]);
+    log.mockRestore();
+  });
+
   it("wires onTweetRemoved to release the overlay + hover seams, clearing visualHover only on a match", async () => {
-    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+    };
     await importMain();
     await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
 
     const a = cellTweet({ avatar: true });
-    H.cap.scannerCb!({ screenName: "a" }, a.article);
+    H.cap.scannerCb!(a.article);
     lastMount()();
     const overlayCall = H.spy.render.mock.calls.at(-1) as [
       { props: { hovered: { value: unknown } } },
@@ -616,40 +1030,145 @@ describe("content boot (main.tsx)", () => {
       highContrast: false,
       convexUrl: "https://x.convex.cloud",
       convexDeviceKey: "k",
+      mirrorConfigId: "mirror-1",
     };
     await importMain();
     await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
     const onMirrorResult = H.cap.controllerDeps!.onMirrorResult as (r: unknown) => void;
     expect(onMirrorResult).toBeTypeOf("function");
 
-    onMirrorResult({ ok: true, at: 1 });
-    expect(H.fake.mirrorStore.publish).toHaveBeenCalledWith({ ok: true, at: 1 });
+    expect(H.cap.controllerDeps!.mirrorConfigurationId).toBeTypeOf("function");
+    expect((H.cap.controllerDeps!.mirrorConfigurationId as () => string | null)()).toBe("mirror-1");
+    onMirrorResult({ ok: true, at: 1, configId: "mirror-1" });
+    expect(H.fake.mirrorStore.publish).toHaveBeenCalledWith({
+      ok: true,
+      at: 1,
+      configId: "mirror-1",
+    });
   });
 
-  it("stays unwired without Convex creds (the Null store's success must not paint a synced row)", async () => {
-    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+  it("exposes no Mirror status identity while Mirror settings are absent", async () => {
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+    };
     await importMain();
     await vi.waitFor(() => expect(H.cap.controllerDeps).toBeTypeOf("object"));
-    expect(H.cap.controllerDeps!.onMirrorResult).toBeUndefined();
+    const mirrorConfigurationId = H.cap.controllerDeps!.mirrorConfigurationId as () =>
+      | string
+      | null;
+    expect(mirrorConfigurationId()).toBeNull();
+    expect(H.fake.mirrorStore.publish).not.toHaveBeenCalled();
+  });
+
+  it("disables the retained Mirror adapter when live settings clear its key", async () => {
+    const retained = {
+      recordAssign: vi.fn(async () => {}),
+      reconcileAuthor: vi.fn(async () => {}),
+      replaceCatalog: vi.fn(async () => {}),
+      observe: vi.fn(() => () => {}),
+    };
+    H.fake.membership = retained;
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+      convexUrl: "https://x.convex.cloud",
+      convexDeviceKey: "k",
+    };
+    await importMain();
+    await vi.waitFor(() => expect(H.cap.membershipArgs).toBeDefined());
+    const store = H.cap.controllerDeps!.membershipStore as {
+      recordAssign: (owner: unknown, list: unknown, changes: unknown[]) => Promise<void>;
+    };
+
+    await store.recordAssign({ userId: "1", screenName: "operator" }, { id: "L1", name: "A" }, []);
+    expect(retained.recordAssign).toHaveBeenCalledOnce();
+
+    publishSettings({ ...H.config.settings, convexUrl: undefined, convexDeviceKey: undefined });
+    await store.recordAssign({ userId: "1", screenName: "operator" }, { id: "L1", name: "A" }, []);
+    expect(retained.recordAssign).toHaveBeenCalledOnce();
   });
 
   it("auto activation boots immediately without a user wake", async () => {
-    H.config.settings = { backend: "graphql", activation: "auto", highContrast: false };
+    H.config.settings = {
+      backend: "graphql",
+      activation: "auto",
+      highContrast: false,
+    };
     await importMain();
     await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
     expect(H.fake.controller.wake).not.toHaveBeenCalled(); // activatedByUser=false
-    expect(sendMessage).toHaveBeenCalledWith({ type: "lasso:state", state: "awake" });
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: "lasso:state",
+      state: "awake",
+    });
     // highContrast=false: the UI host is not marked.
     expect(H.fake.uiHost.host.hasAttribute("data-hc")).toBe(false);
     // overlay attach with highContrast off + non-avatar fallback path.
     H.config.computedPosition = "relative";
-    H.cap.scannerCb!({ screenName: "a" }, cellTweet({ userName: true }).article);
+    H.cap.scannerCb!(cellTweet({ userName: true }).article);
     lastMount()();
+  });
+
+  it("gives an open Filter palette exclusive keyboard ownership", async () => {
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+    };
+    H.fake.filter.isPaletteOpen.mockReturnValue(true);
+    H.fake.filter.dismiss.mockReturnValue(true);
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+
+    expect(H.cap.keyboardRun!("toggle-select-mode")).toBe(true);
+    expect(H.fake.controller.command).not.toHaveBeenCalled();
+    expect(H.fake.filter.dismiss).not.toHaveBeenCalled();
+
+    expect(H.cap.keyboardRun!("escape")).toBe(true);
+    expect(H.fake.filter.dismiss).toHaveBeenCalledOnce();
+    expect(H.fake.controller.command).not.toHaveBeenCalled();
+    expect(H.cap.keyboardSurfaces!.modalOpen()).toBe(true);
+  });
+
+  it("keeps root and late overlay hosts live across high-contrast changes", async () => {
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+    };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+    const root = H.fake.uiHost.host;
+    expect(root.hasAttribute("data-hc")).toBe(false);
+
+    const tweet = cellTweet({ avatar: true });
+    H.cap.scannerCb!(tweet.article);
+    const dispose = lastMount()()!;
+    const overlay = H.cap.shadowHost!;
+    expect(overlay.hasAttribute("data-hc")).toBe(false);
+
+    publishSettings({ highContrast: true });
+    expect(root.hasAttribute("data-hc")).toBe(true);
+    expect(overlay.hasAttribute("data-hc")).toBe(true);
+    publishSettings({ highContrast: false });
+    expect(root.hasAttribute("data-hc")).toBe(false);
+    expect(overlay.hasAttribute("data-hc")).toBe(false);
+
+    dispose();
+    publishSettings({ highContrast: true });
+    expect(overlay.hasAttribute("data-hc")).toBe(false);
   });
 
   it("forces the welcome card when the install hash is present", async () => {
     window.location.hash = "#lasso-welcome";
-    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+    };
     H.config.onboarded = true; // irrelevant: the hash wins
     const replace = vi.spyOn(window.history, "replaceState");
     await importMain();
@@ -659,14 +1178,22 @@ describe("content boot (main.tsx)", () => {
   });
 
   it("shows the welcome card once for a not-yet-onboarded user", async () => {
-    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+    };
     H.config.onboarded = false;
     await importMain();
     await vi.waitFor(() => expect(H.fake.coach.isOnboarded).toHaveBeenCalled());
   });
 
   it("skips the welcome card for an onboarded user (no hash)", async () => {
-    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    H.config.settings = {
+      backend: "rest",
+      activation: "auto",
+      highContrast: false,
+    };
     H.config.onboarded = true;
     await importMain();
     await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
@@ -674,18 +1201,43 @@ describe("content boot (main.tsx)", () => {
 
   it("survives a missing service worker (sendMessage + addListener throwing)", async () => {
     setChrome({ sendThrows: true, addThrows: true });
-    H.config.settings = { backend: "rest", activation: "manual", highContrast: false };
+    H.config.settings = {
+      backend: "rest",
+      activation: "manual",
+      highContrast: false,
+    };
     // Importing must not throw even though every chrome call blows up.
     await expect(importMain()).resolves.toBeUndefined();
   });
 
-  it("logs and recovers when settings fail to load", async () => {
+  it("returns asleep if the activation reply channel closes", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await importMain();
+    const reply = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("reply channel closed");
+      })
+      .mockImplementationOnce(() => {});
+
+    expect(H.cap.onMessage!({ type: "lasso-activate" }, {}, reply)).toBe(true);
+    await vi.waitFor(() => expect(reply).toHaveBeenLastCalledWith({ awake: false }));
+    expect(log).toHaveBeenCalledWith("[Lasso] activation response failed", expect.any(Error));
+    log.mockRestore();
+  });
+
+  it("keeps dormant hotkey retryable when the initial settings read fails", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     H.fake.settings.get.mockRejectedValueOnce(new Error("storage dead"));
     await importMain();
     await vi.waitFor(() =>
       expect(err).toHaveBeenCalledWith("[Lasso] init failed", expect.any(Error)),
     );
+    const dormant = H.cap.keyboardLayers![0]!;
+    expect(dormant.dispose).not.toHaveBeenCalled();
+    dormant.run("toggle-select-mode");
+    await vi.waitFor(() => expect(H.fake.controller.trySelectMode).toHaveBeenCalledTimes(1));
+    expect(dormant.dispose).toHaveBeenCalledTimes(1);
     err.mockRestore();
   });
 });

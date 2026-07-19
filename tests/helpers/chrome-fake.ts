@@ -22,7 +22,7 @@ export function createMemoryArea(
 }
 
 type StorageChangeListener = (
-  changes: Record<string, { newValue?: unknown }>,
+  changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
   area: string,
 ) => void;
 
@@ -40,19 +40,19 @@ function chromeStorage(): { onChanged: unknown } {
  * test can `emit` a cross-context change and `restore` the previous mock.
  */
 export function installOnChanged(): {
-  emit: (key: string, newValue: unknown, area?: "sync" | "local") => void;
+  emit: (key: string, newValue: unknown, area?: "sync" | "local", oldValue?: unknown) => void;
   restore: () => void;
 } {
   const storage = chromeStorage();
   const prev = storage.onChanged;
-  const listeners: StorageChangeListener[] = [];
+  const listeners = new Set<StorageChangeListener>();
   storage.onChanged = {
-    addListener: (l: StorageChangeListener) => listeners.push(l),
-    removeListener: () => {},
+    addListener: (l: StorageChangeListener) => listeners.add(l),
+    removeListener: (l: StorageChangeListener) => listeners.delete(l),
   } satisfies OnChangedFake;
   return {
-    emit: (key, newValue, area = "sync") => {
-      for (const l of listeners) l({ [key]: { newValue } }, area);
+    emit: (key, newValue, area = "sync", oldValue) => {
+      for (const l of listeners) l({ [key]: { oldValue, newValue } }, area);
     },
     restore: () => {
       storage.onChanged = prev;

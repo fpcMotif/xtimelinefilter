@@ -1,58 +1,74 @@
-import { blobStore, localArea, type StorageLike } from "@/core/storage-areas";
+import { localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
-import type { XList } from "@/core/x-client/types";
 
-const KEY = STORAGE_KEYS.listUsage;
+export const LIST_USAGE_PREFIX = `${STORAGE_KEYS.listUsage}:`;
 
-/** Stored per List: pick count + last-picked timestamp. Legacy entries were bare counts. */
 interface UsageEntry {
-  n: number;
-  t: number;
+  lastPickedAt: number;
 }
+
+const ownerKey = (ownerUserId: string): string =>
+  `${LIST_USAGE_PREFIX}${encodeURIComponent(ownerUserId)}`;
+
+const listKey = (ownerUserId: string, listId: string): string =>
+  `${ownerKey(ownerUserId)}:${encodeURIComponent(listId)}`;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const isTimestamp = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+const decodeListId = (value: string): string | null => {
+  try {
+    const listId = decodeURIComponent(value);
+    return encodeURIComponent(listId) === value ? listId : null;
+  } catch {
+    return null;
+  }
+};
 
 export interface ListUsage {
-  /** Bump the pick count for a list (call when the user assigns to it). */
-  record(listId: string): Promise<void>;
-  /** Most-picked lists first; never-picked lists keep the API order. */
-  rank(lists: XList[]): Promise<XList[]>;
-  /** Most recently used list ids, newest first — the picker's Recent group. */
-  recentIds(limit: number): Promise<string[]>;
+  record(ownerUserId: string, listId: string): Promise<void>;
+  recentIds(ownerUserId: string, limit: number): Promise<string[]>;
 }
 
-/** Tracks how often/recently each List is picked so the picker surfaces frequent ones first. */
+/** One key per Owner/List keeps concurrent extension contexts independent. */
 export function createListUsage(
   area: StorageLike = localArea(),
   now: () => number = Date.now,
 ): ListUsage {
-  const store = blobStore<Record<string, number | UsageEntry>>(area, KEY, {});
-
-  async function entries(): Promise<Record<string, UsageEntry>> {
-    const raw = await store.get();
-    return Object.fromEntries(
-      Object.entries(raw).map(([id, v]) => [id, typeof v === "number" ? { n: v, t: 0 } : v]),
-    );
-  }
-
   return {
-    async record(listId) {
-      const all = await entries();
-      const prev = all[listId];
-      await store.set({ ...all, [listId]: { n: (prev?.n ?? 0) + 1, t: now() } });
+    async record(ownerUserId, listId) {
+      try {
+        const timestamp = now();
+        if (!isTimestamp(timestamp)) return;
+        await area.set({ [listKey(ownerUserId, listId)]: timestamp });
+      } catch {
+        // Usage is a picker hint, never a user-visible failure.
+      }
     },
-    async rank(lists) {
-      const all = await entries();
-      return lists
-        .map((list, i) => ({ list, i, uses: all[list.id]?.n ?? 0 }))
-        .toSorted((a, b) => b.uses - a.uses || a.i - b.i)
-        .map((x) => x.list);
-    },
-    async recentIds(limit) {
-      const all = await entries();
-      return Object.entries(all)
-        .filter(([, e]) => e.n > 0)
-        .toSorted((a, b) => b[1].t - a[1].t)
-        .slice(0, limit)
-        .map(([id]) => id);
+    async recentIds(ownerUserId, limit) {
+      try {
+        const prefix = `${ownerKey(ownerUserId)}:`;
+        const values = await area.get(null);
+        if (!isRecord(values)) return [];
+        return Object.entries(values)
+          .filter(([key, timestamp]) => key.startsWith(prefix) && isTimestamp(timestamp))
+          .map(([key, lastPickedAt]) => ({
+            listId: decodeListId(key.slice(prefix.length)),
+            lastPickedAt,
+          }))
+          .filter(
+            (entry): entry is { listId: string; lastPickedAt: UsageEntry["lastPickedAt"] } =>
+              entry.listId !== null,
+          )
+          .sort((a, b) => b.lastPickedAt - a.lastPickedAt)
+          .slice(0, limit)
+          .map(({ listId }) => listId);
+      } catch {
+        return [];
+      }
     },
   };
 }

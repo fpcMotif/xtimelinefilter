@@ -1,3 +1,5 @@
+import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
+
 /**
  * Select mode: clicking anywhere on a post's body toggles it — sweeping a
  * thread is one click per post, no aiming at 22px circles (story beat 7).
@@ -19,6 +21,11 @@ export function installSelectTap(deps: SelectTapDeps): () => void {
   const doc = deps.doc ?? document;
 
   const handler = (e: MouseEvent): void => {
+    // Only UA-dispatched primary clicks are user intent. Page scripts and
+    // Lasso's own drivers must not toggle selection or be suppressed here.
+    if (!e.isTrusted) return;
+    if ((e as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]) return;
+    if (e.button !== 0) return;
     if (!deps.isActive()) return;
     const origin = e.composedPath?.()[0] ?? e.target;
     const article = deps.resolveTarget(origin);

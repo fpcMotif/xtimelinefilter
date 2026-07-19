@@ -1,8 +1,9 @@
 import { type Credentials, XApiError } from "./types";
 
 /**
- * Seed value only — the public web bearer rotates. The GraphQL backend may
- * refresh it by sniffing the live bundle (MAIN world). See ADR-0004 / blueprint §8.
+ * Seed value only — the public web bearer may rotate. GraphQL is explicit opt-in;
+ * update this static value only after a deliberate live verification. Do not
+ * bridge MAIN-world observations into this client without a reviewed threat model.
  */
 export const PUBLIC_WEB_BEARER =
   "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";

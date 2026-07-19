@@ -28,32 +28,47 @@ export interface ActivateRequest {
   type: "lasso-activate";
 }
 
-export type LassoMessage = BadgeMessage | StateMessage | StatusRequest | ActivateRequest;
+/** Messages accepted by the background service worker. */
+export type ContentToBackground = BadgeMessage | StateMessage;
+
+/** Messages accepted by a tab's content script. */
+export type PopupToContent = StatusRequest | ActivateRequest;
 
 /** content's sendResponse payload for a StatusRequest. */
 export interface LassoStatusResponse {
   awake: boolean;
 }
 
-/** Narrows an onMessage payload of unknown shape to a known LassoMessage. */
-export function isLassoMessage(msg: unknown): msg is LassoMessage {
+function hasType(msg: unknown): msg is { type: unknown } {
   if (typeof msg !== "object" || msg === null || !("type" in msg)) return false;
-  const { type } = msg as { type: unknown };
-  switch (type) {
+  return true;
+}
+
+/** Narrows untrusted service-worker input to content's two wire messages. */
+export function isContentToBackgroundMessage(msg: unknown): msg is ContentToBackground {
+  if (!hasType(msg)) return false;
+  switch (msg.type) {
     case "lasso:badge":
-      return typeof (msg as BadgeMessage).count === "number";
+      return (
+        "count" in msg &&
+        typeof msg.count === "number" &&
+        Number.isSafeInteger(msg.count) &&
+        msg.count >= 0
+      );
     case "lasso:state":
-      return (msg as StateMessage).state === "awake" || (msg as StateMessage).state === "asleep";
-    case "lasso:status":
-    case "lasso-activate":
-      return true;
+      return "state" in msg && (msg.state === "awake" || msg.state === "asleep");
     default:
       return false;
   }
 }
 
+/** Narrows untrusted tab input to the popup's two wire messages. */
+export function isPopupToContentMessage(msg: unknown): msg is PopupToContent {
+  return hasType(msg) && (msg.type === "lasso:status" || msg.type === "lasso-activate");
+}
+
 /** Best-effort runtime messaging — never lets a dead SW break the page UI. */
-export function sendToBackground(msg: LassoMessage): void {
+export function sendToBackground(msg: ContentToBackground): void {
   try {
     void chrome.runtime?.sendMessage?.(msg)?.catch?.(() => {});
   } catch {
@@ -62,7 +77,7 @@ export function sendToBackground(msg: LassoMessage): void {
 }
 
 /** Sends a message to a specific tab's content script (e.g. from the popup). */
-export function sendToTab(tabId: number, msg: LassoMessage): Promise<unknown> {
+export function sendToTab(tabId: number, msg: PopupToContent): Promise<unknown> {
   return chrome.tabs.sendMessage(tabId, msg);
 }
 

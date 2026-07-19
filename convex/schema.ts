@@ -10,6 +10,14 @@ export default defineSchema({
     label: v.optional(v.string()),
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
+    /** Accepted complete-catalog generation. Missing legacy value means 0. */
+    catalogGeneration: v.optional(v.number()),
+    /** Fetch-start time of the newest accepted complete catalog. */
+    catalogObservedAt: v.optional(v.number()),
+    /** Newest direct action proving that some List still exists. */
+    catalogFactObservedAt: v.optional(v.number()),
+    /** Newest observation allowed to update this Owner's display profile. */
+    profileObservedAt: v.optional(v.number()),
   }).index("by_userId", ["userId"]),
 
   // Cross-account catalog of Lists.
@@ -20,23 +28,32 @@ export default defineSchema({
     isPrivate: v.optional(v.boolean()),
     memberCount: v.optional(v.number()),
     lastReconciledAt: v.optional(v.number()),
+    /** Owner generation in which this List was last proven current. */
+    catalogGeneration: v.optional(v.number()),
   })
     .index("by_listId", ["listId"])
-    .index("by_owner", ["ownerUserId"]),
+    .index("by_owner", ["ownerUserId"])
+    .index("by_owner_generation", ["ownerUserId", "catalogGeneration"]),
 
-  // Membership snapshot — lazily-filled (List, screenName) presence map.
+  // Membership snapshot. Handle-keyed legacy rows remain valid during migration
+  // but are unread: all new reads use memberIdentity.
   members: defineTable({
     listId: v.string(),
     memberScreenName: v.string(),
     memberUserId: v.optional(v.string()),
+    memberIdentity: v.optional(v.string()),
     present: v.boolean(),
     source: v.union(v.literal("x-seed"), v.literal("extension")),
+    /** Source observation time. Missing legacy value means 0. */
+    observedAt: v.optional(v.number()),
     addedAt: v.number(),
     lastSeenAt: v.number(),
   })
     .index("by_list", ["listId"])
     .index("by_list_member", ["listId", "memberScreenName"])
-    .index("by_member", ["memberScreenName"]),
+    .index("by_member", ["memberScreenName"])
+    .index("by_list_member_identity", ["listId", "memberIdentity"])
+    .index("by_member_identity", ["memberIdentity"]),
 
   // Audit log — append-only, one row per attempt, every outcome.
   events: defineTable({
@@ -44,9 +61,12 @@ export default defineSchema({
     ownerUserId: v.string(),
     memberScreenName: v.string(),
     memberUserId: v.optional(v.string()),
+    memberIdentity: v.optional(v.string()),
     action: v.union(v.literal("add"), v.literal("remove")),
     outcome: v.string(),
     message: v.optional(v.string()),
+    /** Source observation time; `at` remains Mirror receipt time. */
+    observedAt: v.optional(v.number()),
     at: v.number(),
   })
     .index("by_list", ["listId"])

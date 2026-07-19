@@ -1,364 +1,318 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ListCache } from "@/core/list-cache";
+import type { MembershipStore, Owner } from "@/core/membership-store/types";
 import { createPickerController } from "@/core/picker-controller";
 import { XApiError, type XList } from "@/core/x-client/types";
 
+const OWNER: Owner = { userId: "100", screenName: "me" };
 const LISTS: XList[] = [
   { id: "1", name: "Design Folks", memberCount: 1204 },
   { id: "2", name: "Founders" },
   { id: "3", name: "Friends", isPrivate: true },
 ];
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
-/** Fake ListCache: `cached` is returned for non-forced reads; `fresh` for forced. */
-function fakeCache(opts: {
+function fakeCache(options: {
   cached?: XList[] | null;
   fresh?: () => Promise<XList[]>;
-}): ListCache & { forcedCalls: number } {
-  const fresh = opts.fresh ?? (async () => opts.cached ?? []);
-  const api = {
-    forcedCalls: 0,
-    async lists({ force = false }: { force?: boolean } = {}) {
-      if (force) {
-        api.forcedCalls++;
-        return fresh();
-      }
-      if (opts.cached?.length) return opts.cached;
-      return fresh();
-    },
-    async search() {
-      return [];
-    },
+}): ListCache {
+  return {
+    cached: async () => options.cached ?? null,
+    refresh: options.fresh ?? (async () => options.cached ?? []),
   };
-  return api;
 }
 
-describe("createPickerController — cache-first open (story beat 4)", () => {
-  it("opens ready from cache instantly, then refreshes in the background", async () => {
-    const fresh = vi.fn(async () => [...LISTS, { id: "4", name: "New" }]);
-    const cache = fakeCache({ cached: LISTS, fresh });
-    const picker = createPickerController({ cache });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.status.value).toBe("ready");
-    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
-    await flush(); // background force-refresh lands silently
-    expect(cache.forcedCalls).toBe(1);
-    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3", "4"]);
+function picker(cache: ListCache, overrides = {}) {
+  return createPickerController({
+    cache,
+    currentOwner: () => OWNER,
+    ...overrides,
   });
+}
 
-  it("true empty (no Lists anywhere) → empty state", async () => {
-    const picker = createPickerController({ cache: fakeCache({ cached: null }) });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.status.value).toBe("empty");
-  });
-
-  it("auth failure → error state naming the cause", async () => {
-    const cache = fakeCache({
-      cached: null,
-      fresh: async () => {
-        throw new XApiError("auth", "401");
-      },
+describe("PickerController cache and errors", () => {
+  it("keeps X usable when Owner discovery is unavailable", async () => {
+    const cache = fakeCache({ cached: LISTS });
+    const controller = createPickerController({
+      cache,
+      currentOwner: () => null,
     });
-    const picker = createPickerController({ cache });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.status.value).toBe("error");
-    expect(picker.errorKind.value).toBe("auth");
-  });
-
-  it("rate-limited fetch → error state with the rate-limit reason", async () => {
-    const cache = fakeCache({
-      cached: null,
-      fresh: async () => {
-        throw new XApiError("rate-limited", "429");
-      },
+    await controller.open([{ screenName: "jane" }]);
+    expect(controller.view.value).toMatchObject({ status: "ready" });
+    expect(controller.view.value.flat.map((row) => row.key)).toEqual([
+      "1:current:1",
+      "1:current:2",
+      "1:current:3",
+    ]);
+    expect(controller.act({ type: "choose", rowKey: "1:current:1" })).toMatchObject({
+      type: "chosen",
+      owner: null,
+      list: LISTS[0],
     });
-    const picker = createPickerController({ cache });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.errorKind.value).toBe("rate-limited");
   });
 
-  it("retry() recovers from error to ready", async () => {
+  it("captures authors in the view and chosen effect", async () => {
+    const authors = [{ screenName: "jane" }];
+    const controller = picker(fakeCache({ cached: LISTS }));
+    await controller.open(authors);
+    authors[0]!.screenName = "changed";
+
+    expect(controller.view.value.authors).toEqual([{ screenName: "jane" }]);
+    expect(Object.isFrozen(controller.view.value.authors[0])).toBe(true);
+    expect(() => {
+      (controller.view.value.authors[0] as { screenName: string }).screenName = "tampered";
+    }).toThrow(TypeError);
+    expect(controller.act({ type: "choose", rowKey: "1:100:1" })).toMatchObject({
+      type: "chosen",
+      authors: [{ screenName: "jane" }],
+    });
+  });
+
+  it("publishes cache before the X refresh resolves", async () => {
+    let release!: (lists: XList[]) => void;
+    const fresh = new Promise<XList[]>((resolve) => {
+      release = resolve;
+    });
+    const controller = picker(fakeCache({ cached: LISTS, fresh: () => fresh }));
+
+    const opening = controller.open([{ screenName: "jane" }]);
+    await flush();
+    expect(controller.view.value.status).toBe("ready");
+    expect(controller.view.value.flat.map((row) => row.list.id)).toEqual(["1", "2", "3"]);
+    release([...LISTS, { id: "4", name: "New" }]);
+    await opening;
+    expect(controller.view.value.flat.map((row) => row.list.id)).toEqual(["1", "2", "3", "4"]);
+  });
+
+  it("publishes fresh X results without waiting for a hung cache", async () => {
+    let release!: (lists: XList[]) => void;
+    const fresh = new Promise<XList[]>((resolve) => {
+      release = resolve;
+    });
+    const controller = picker({
+      cached: () => new Promise<XList[] | null>(() => {}),
+      refresh: () => fresh,
+    });
+
+    const opening = controller.open([{ screenName: "jane" }]);
+    release(LISTS);
+    const outcome = await Promise.race([
+      opening.then(() => "opened"),
+      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
+    ]);
+
+    expect(outcome).toBe("opened");
+    expect(controller.view.value.flat.map((row) => row.list.id)).toEqual(["1", "2", "3"]);
+    expect(controller.view.value.flat[0]?.access).toEqual({
+      kind: "writable",
+      freshness: "live",
+    });
+  });
+
+  it("does not let a late cache read replace the live catalog", async () => {
+    let resolveCached!: (lists: XList[] | null) => void;
+    const cached = new Promise<XList[] | null>((resolve) => {
+      resolveCached = resolve;
+    });
+    const controller = picker({
+      cached: () => cached,
+      refresh: async () => [{ id: "fresh", name: "Fresh" }],
+    });
+
+    await controller.open([{ screenName: "jane" }]);
+    resolveCached(LISTS);
+    await flush();
+
+    expect(controller.view.value.flat.map((row) => row.list.id)).toEqual(["fresh"]);
+  });
+
+  it("treats a successful empty X answer as authoritative", async () => {
+    const controller = picker(fakeCache({ cached: LISTS, fresh: async () => [] }));
+    await controller.open([{ screenName: "jane" }]);
+    expect(controller.view.value.status).toBe("empty");
+    expect(controller.view.value.flat).toEqual([]);
+  });
+
+  it.each([
+    ["auth", "auth"],
+    ["rate-limited", "rate-limited"],
+    ["not-found", "unknown"],
+  ] as const)("maps %s X failures to %s", async (kind, expected) => {
+    const controller = picker(
+      fakeCache({
+        fresh: async () => {
+          throw new XApiError(kind, "failed");
+        },
+      }),
+    );
+    await controller.open([{ screenName: "jane" }]);
+    expect(controller.view.value.status).toBe("error");
+    expect(controller.view.value.errorKind).toBe(expected);
+  });
+
+  it("keeps usable cache when X refresh fails", async () => {
+    const controller = picker(
+      fakeCache({
+        cached: LISTS,
+        fresh: async () => {
+          throw new Error("offline");
+        },
+      }),
+    );
+    await controller.open([{ screenName: "jane" }]);
+    expect(controller.view.value.status).toBe("ready");
+    expect(controller.view.value.flat).toHaveLength(3);
+  });
+
+  it("retry starts a new generation and recovers", async () => {
     let fail = true;
-    const cache = fakeCache({
-      cached: null,
-      fresh: async () => {
-        if (fail) throw new XApiError("auth", "401");
-        return LISTS;
-      },
-    });
-    const picker = createPickerController({ cache });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.status.value).toBe("error");
+    const controller = picker(
+      fakeCache({
+        fresh: async () => {
+          if (fail) throw new Error("offline");
+          return LISTS;
+        },
+      }),
+    );
+    await controller.open([{ screenName: "jane" }]);
     fail = false;
-    await picker.retry();
-    expect(picker.status.value).toBe("ready");
+    controller.act({ type: "retry" });
+    await flush();
+    expect(controller.view.value.status).toBe("ready");
   });
 });
 
-describe("groups, fuzzy and navigation", () => {
-  it("groups recently used Lists under Recent, the rest under All Lists", async () => {
-    const picker = createPickerController({
-      cache: fakeCache({ cached: LISTS }),
+describe("PickerController projection", () => {
+  it("groups recent Lists and navigates the rendered order", async () => {
+    const controller = picker(fakeCache({ cached: LISTS }), {
       recentIds: async () => ["3"],
     });
-    await picker.open([{ screenName: "jane" }]);
-    const groups = picker.groups.value;
-    expect(groups.map((g) => g.label)).toEqual(["Recent", "All Lists"]);
-    expect(groups[0]?.rows.map((l) => l.id)).toEqual(["3"]);
-    expect(groups[1]?.rows.map((l) => l.id)).toEqual(["1", "2"]);
-    // navigation order follows the visual order
-    expect(picker.flat.value.map((l) => l.id)).toEqual(["3", "1", "2"]);
+    await controller.open([{ screenName: "jane" }]);
+    expect(controller.view.value.groups.map((group) => group.label)).toEqual([
+      "Recent",
+      "All Lists",
+    ]);
+    expect(controller.view.value.flat.map((row) => row.list.id)).toEqual(["3", "1", "2"]);
+    controller.act({ type: "move", direction: "down" });
+    expect(controller.view.value.active?.list.id).toBe("1");
+    controller.act({ type: "move", direction: "up" });
+    expect(controller.view.value.active?.list.id).toBe("3");
   });
 
-  it("typing filters fuzzily across every list and resets the cursor", async () => {
-    const picker = createPickerController({
-      cache: fakeCache({ cached: LISTS }),
-      recentIds: async () => ["2"],
-    });
-    await picker.open([{ screenName: "jane" }]);
-    picker.moveDown();
-    picker.setQuery("fr");
-    expect(picker.flat.value.map((l) => l.name)).toEqual(["Friends", "Founders"]);
-    expect(picker.activeIndex.value).toBe(0);
-    picker.moveDown();
-    expect(picker.active.value?.name).toBe("Founders");
+  it("filters fuzzily, resets the cursor, and exposes no-match", async () => {
+    const controller = picker(fakeCache({ cached: LISTS }));
+    await controller.open([{ screenName: "jane" }]);
+    controller.act({ type: "move", direction: "down" });
+    controller.act({ type: "query", value: "fr" });
+    expect(controller.view.value.flat.map((row) => row.list.name)).toEqual(["Friends", "Founders"]);
+    expect(controller.view.value.activeIndex).toBe(0);
+    controller.act({ type: "query", value: "zzz" });
+    expect(controller.view.value.noMatch).toBe(true);
+    expect(controller.view.value.status).toBe("ready");
   });
 
-  it("moveUp/moveDown walk the flat order and clamp at the ends", async () => {
-    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }) });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.active.value?.id).toBe("1");
-    picker.moveUp(); // already at the top — clamps
-    expect(picker.activeIndex.value).toBe(0);
-    picker.moveDown();
-    picker.moveDown();
-    expect(picker.active.value?.id).toBe("3");
-    picker.moveDown(); // already at the bottom — clamps
-    expect(picker.active.value?.id).toBe("3");
-    picker.moveUp();
-    expect(picker.active.value?.id).toBe("2");
-  });
-
-  it("no-match is its own state, distinct from empty", async () => {
-    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }) });
-    await picker.open([{ screenName: "jane" }]);
-    picker.setQuery("zzz");
-    expect(picker.noMatch.value).toBe(true);
-    expect(picker.status.value).toBe("ready");
-    picker.setQuery("");
-    expect(picker.noMatch.value).toBe(false);
-  });
-});
-
-describe("already-in membership checks", () => {
-  it("loads membership ids for a single selected person", async () => {
-    const memberships = vi.fn(async () => ["1"]);
-    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }), memberships });
-    await picker.open([{ screenName: "jane" }]);
-    await flush();
-    expect(memberships).toHaveBeenCalledWith("jane");
-    expect(picker.alreadyIn.value.has("1")).toBe(true);
-  });
-
-  it("skips the membership lookup for bulk selections", async () => {
-    const memberships = vi.fn(async () => ["1"]);
-    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }), memberships });
-    await picker.open([{ screenName: "a" }, { screenName: "b" }]);
-    await flush();
-    expect(memberships).not.toHaveBeenCalled();
-    expect(picker.alreadyIn.value.size).toBe(0);
-  });
-
-  it("a membership/recents helper that throws synchronously never breaks open()", async () => {
-    // auth.credentials() throws synchronously when logged out — the throw must
-    // not escape open() (which callers invoke as `void picker.open(...)`).
-    const picker = createPickerController({
-      cache: fakeCache({ cached: LISTS }),
-      recentIds: () => {
-        throw new Error("logged out");
-      },
-      memberships: () => {
-        throw new Error("logged out");
-      },
-    });
-    await expect(picker.open([{ screenName: "jane" }])).resolves.toBeUndefined();
-    expect(picker.status.value).toBe("ready");
-    expect(picker.alreadyIn.value.size).toBe(0);
-  });
-});
-
-describe("edge cases — empty navigation, errors, background + superseded opens", () => {
-  it("navigating an empty picker stays put and has no active row", async () => {
-    const picker = createPickerController({ cache: fakeCache({ cached: null }) });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.status.value).toBe("empty");
-    expect(picker.flat.value).toEqual([]);
-    expect(picker.active.value).toBeNull();
-    picker.moveDown();
-    picker.moveUp();
-    expect(picker.activeIndex.value).toBe(0);
-    expect(picker.active.value).toBeNull();
-  });
-
-  it("a non-typed failure → unknown error kind", async () => {
-    const cache = fakeCache({
-      cached: null,
-      fresh: async () => {
-        throw new Error("network down");
-      },
-    });
-    const picker = createPickerController({ cache });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.status.value).toBe("error");
-    expect(picker.errorKind.value).toBe("unknown");
-  });
-
-  it("an XApiError of an unmapped kind → unknown error kind", async () => {
-    const cache = fakeCache({
-      cached: null,
-      fresh: async () => {
-        throw new XApiError("not-found", "404");
-      },
-    });
-    const picker = createPickerController({ cache });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.errorKind.value).toBe("unknown");
-  });
-
-  it("a second open with lists already loaded shows ready immediately (no loading flash)", async () => {
-    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }) });
-    await picker.open([{ screenName: "jane" }]);
-    await flush();
-    const second = picker.open([{ screenName: "bob" }]);
-    expect(picker.status.value).toBe("ready"); // synchronous — lists already present
-    await second;
-  });
-
-  it("a background refresh that returns nothing leaves the cached lists intact", async () => {
-    const fresh = vi.fn(async () => [] as XList[]);
-    const cache = fakeCache({ cached: LISTS, fresh });
-    const picker = createPickerController({ cache });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
-    await flush();
-    expect(cache.forcedCalls).toBe(1);
-    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
-  });
-
-  it("a background refresh that rejects never disturbs the visible picker", async () => {
-    const fresh = vi.fn(async () => {
-      throw new Error("flaky");
-    });
-    const cache = fakeCache({ cached: LISTS, fresh });
-    const picker = createPickerController({ cache });
-    await picker.open([{ screenName: "jane" }]);
-    expect(picker.status.value).toBe("ready");
-    await flush();
-    expect(picker.status.value).toBe("ready");
-    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
-  });
-
-  it("a superseded open's stale cache result is ignored (generation guard)", async () => {
-    let release!: (lists: XList[]) => void;
-    const gate = new Promise<XList[]>((r) => {
-      release = r;
-    });
-    let firstCall = true;
-    const cache = fakeCache({
-      cached: null,
-      fresh: async () => {
-        if (firstCall) {
-          firstCall = false;
-          return gate; // first open hangs until released
-        }
-        return LISTS;
-      },
-    });
-    const picker = createPickerController({ cache });
-    const first = picker.open([{ screenName: "jane" }]); // awaits the hung gate
-    await picker.open([{ screenName: "bob" }]); // bumps generation, lands LISTS
-    expect(picker.status.value).toBe("ready");
-    release([{ id: "9", name: "Stale" }]); // first open resolves under a newer gen
-    await first;
-    await flush();
-    // The stale single-row result must NOT have replaced the fresh LISTS.
-    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
-  });
-
-  it("a superseded open's failure never flips the visible picker to error", async () => {
-    let reject!: (e: unknown) => void;
-    const gate = new Promise<XList[]>((_r, rej) => {
-      reject = rej;
-    });
-    let firstCall = true;
-    const cache = fakeCache({
-      cached: null,
-      fresh: async () => {
-        if (firstCall) {
-          firstCall = false;
-          return gate; // first open hangs, then rejects
-        }
-        return LISTS;
-      },
-    });
-    const picker = createPickerController({ cache });
-    const first = picker.open([{ screenName: "jane" }]); // awaits the hung gate
-    await picker.open([{ screenName: "bob" }]); // bumps generation, lands LISTS
-    expect(picker.status.value).toBe("ready");
-    reject(new XApiError("auth", "401")); // first open fails under a newer generation
-    await first;
-    await flush();
-    // The stale failure must NOT overwrite the ready state with an error.
-    expect(picker.status.value).toBe("ready");
-    expect(picker.flat.value.map((l) => l.id)).toEqual(["1", "2", "3"]);
-  });
-
-  it("a superseded open's recents result is ignored (no stale Recent group)", async () => {
-    let release!: (ids: string[]) => void;
-    const gate = new Promise<string[]>((r) => {
-      release = r;
-    });
-    let first = true;
-    const picker = createPickerController({
-      cache: fakeCache({ cached: LISTS }),
+  it("ignores failed recency data", async () => {
+    const controller = picker(fakeCache({ cached: LISTS }), {
       recentIds: async () => {
-        if (first) {
-          first = false;
-          return gate; // first open hangs on recents
-        }
-        return [];
+        throw new Error("storage failed");
       },
     });
-    const firstOpen = picker.open([{ screenName: "jane" }]);
-    await picker.open([{ screenName: "bob" }]); // bumps generation past the parked open
-    release(["3"]); // first open resumes under a stale generation
-    await firstOpen;
-    await flush();
-    expect(picker.groups.value.map((g) => g.label)).toEqual([null]); // no Recent group
+    await controller.open([{ screenName: "jane" }]);
+    expect(controller.view.value.groups.map((group) => group.label)).toEqual([null]);
   });
 
-  it("a superseded open's membership result never marks rows already-in", async () => {
+  it("skips the X membership read for bulk selection", async () => {
+    const memberships = vi.fn(async () => ["1"]);
+    const controller = picker(fakeCache({ cached: LISTS }), {
+      memberships,
+      membershipStore: {
+        recordAssign: async () => {},
+        reconcileAuthor: async () => {},
+        replaceCatalog: async () => {},
+        observe: () => () => {},
+      },
+    });
+    await controller.open([{ screenName: "a" }, { screenName: "b" }]);
+    expect(memberships).not.toHaveBeenCalled();
+  });
+
+  it("keeps empty navigation inert", async () => {
+    const controller = picker(fakeCache({ cached: [] }));
+    await controller.open([{ screenName: "jane" }]);
+    controller.act({ type: "move", direction: "down" });
+    expect(controller.view.value.active).toBeNull();
+  });
+});
+
+describe("PickerController generations", () => {
+  it("rejects a row key from an earlier open", async () => {
+    const controller = picker(fakeCache({ cached: LISTS }));
+    await controller.open([{ screenName: "jane" }]);
+    const staleKey = controller.view.value.flat[0]!.key;
+
+    await controller.open([{ screenName: "jane" }]);
+    const freshKey = controller.view.value.flat[0]!.key;
+
+    expect(freshKey).not.toBe(staleKey);
+    expect(controller.act({ type: "choose", rowKey: staleKey })).toBeNull();
+  });
+
+  it("does not Reconcile stale membership work after it is superseded", async () => {
     let release!: (ids: string[]) => void;
-    const gate = new Promise<string[]>((r) => {
-      release = r;
-    });
     let first = true;
-    const memberships = vi.fn(async () => {
-      if (first) {
-        first = false;
-        return gate; // first open's membership hangs
-      }
-      return [] as string[];
+    const memberships = async () => {
+      if (!first) return [];
+      first = false;
+      return new Promise<string[]>((resolve) => {
+        release = resolve;
+      });
+    };
+    const replaceCatalog = vi.fn(async () => {});
+    const reconcileAuthor = vi.fn(
+      async (..._args: Parameters<MembershipStore["reconcileAuthor"]>) => {},
+    );
+    const controller = picker(fakeCache({ cached: LISTS }), {
+      memberships,
+      membershipStore: {
+        recordAssign: async () => {},
+        reconcileAuthor,
+        replaceCatalog,
+        observe: () => () => {},
+      },
     });
-    const picker = createPickerController({ cache: fakeCache({ cached: LISTS }), memberships });
-    const firstOpen = picker.open([{ screenName: "jane" }]);
-    await firstOpen; // load resolves (cache is immediate); membership still pending
-    await picker.open([{ screenName: "bob" }]); // bumps generation
-    await flush();
-    release(["1"]); // jane's membership resolves under a stale generation
-    await flush();
-    expect(picker.alreadyIn.value.size).toBe(0);
+    const stale = controller.open([{ screenName: "jane", tweetId: "tweet-jane" }]);
+    await vi.waitFor(() => expect(replaceCatalog).toHaveBeenCalledOnce());
+    await controller.open([{ screenName: "bob", tweetId: "tweet-bob" }]);
+    release([]);
+    await stale;
+    expect(replaceCatalog).toHaveBeenCalledTimes(2);
+    expect(reconcileAuthor).toHaveBeenCalledOnce();
+    expect(reconcileAuthor.mock.calls[0]?.[1]).toMatchObject({ screenName: "bob" });
+  });
+
+  it("ignores stale catalog and membership results from a superseded open", async () => {
+    let owner = OWNER;
+    let release!: (lists: XList[]) => void;
+    const first = new Promise<XList[]>((resolve) => {
+      release = resolve;
+    });
+    let refreshes = 0;
+    const cache: ListCache = {
+      cached: async () => null,
+      refresh: async () => (++refreshes === 1 ? first : [{ id: "B", name: "Bob" }]),
+    };
+    const controller = createPickerController({
+      cache,
+      currentOwner: () => owner,
+    });
+    const stale = controller.open([{ screenName: "jane" }]);
+    owner = { userId: "200", screenName: "bob" };
+    await controller.open([{ screenName: "bob" }]);
+    release([{ id: "A", name: "Stale" }]);
+    await stale;
+
+    expect(controller.view.value.flat.map((row) => row.key)).toEqual(["2:200:B"]);
+    expect(controller.view.value.flat[0]?.access.kind).toBe("writable");
   });
 });

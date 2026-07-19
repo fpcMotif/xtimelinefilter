@@ -27,7 +27,13 @@ export function getCurrentAccount(deps: CurrentAccountDeps = {}): Owner | null {
 function parseTwid(cookie: string): string | null {
   const m = cookie.match(/(?:^|;\s*)twid=([^;]+)/);
   if (!m) return null;
-  const idMatch = decodeURIComponent(m[1] as string).match(/u=(\d+)/);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(m[1] as string);
+  } catch {
+    return null;
+  }
+  const idMatch = decoded.match(/u=(\d+)/);
   return idMatch ? (idMatch[1] as string) : null;
 }
 

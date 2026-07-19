@@ -27,6 +27,26 @@ describe("blobStore", () => {
     expect(await store.get()).toEqual({ a: 0 });
   });
 
+  it("treats a persisted null as missing, without treating valid falsey values as missing", async () => {
+    const area = createMemoryArea();
+    const objectStore = blobStore<{ a: number }>(area, KEY, { a: 0 });
+
+    await area.set({ [KEY]: null });
+    expect(await objectStore.get()).toEqual({ a: 0 });
+
+    const falseStore = blobStore<boolean>(area, KEY, true);
+    await falseStore.set(false);
+    expect(await falseStore.get()).toBe(false);
+
+    const zeroStore = blobStore<number>(area, KEY, 1);
+    await zeroStore.set(0);
+    expect(await zeroStore.get()).toBe(0);
+
+    const emptyStore = blobStore<string>(area, KEY, "fallback");
+    await emptyStore.set("");
+    expect(await emptyStore.get()).toBe("");
+  });
+
   it("get() returns the stored value verbatim once set", async () => {
     const area = createMemoryArea();
     const store = blobStore<{ a: number }>(area, KEY, { a: 0 });

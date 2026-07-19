@@ -1,4 +1,5 @@
 import type { ActiveToast, ToastStore } from "@/core/toast-store";
+import { UI_LAYER } from "@/ui/layers";
 
 import { useSignalValue } from "./use-signal-value";
 
@@ -11,7 +12,10 @@ export function ToastHost({ store }: { store: ToastStore }) {
   const toasts = useSignalValue(store.toasts);
   if (toasts.length === 0) return null;
   return (
-    <div class="fixed bottom-20 left-1/2 z-[2147483646] flex -translate-x-1/2 flex-col items-center gap-2">
+    <div
+      class="fixed bottom-20 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2"
+      style={{ zIndex: UI_LAYER.app }}
+    >
       {toasts.map((t) => (
         <ToastView
           key={t.id}

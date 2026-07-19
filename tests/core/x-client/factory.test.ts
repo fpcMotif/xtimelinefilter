@@ -8,51 +8,56 @@ import { RestXListApi } from "@/core/x-client/rest-api";
 
 const fakeDriver: PageDriver = {
   openListsDialog: async () => {},
-  listNames: async () => [],
   isChecked: async () => false,
   toggleList: async () => {},
   commit: async () => {},
   close: async () => {},
 };
-const restApi = new RestXListApi(
-  (async () => new Response("{}")) as unknown as typeof fetch,
-  () => ({
-    csrf: "c",
-    bearer: "b",
-  }),
-);
-const domApi = new DomXListApi(fakeDriver);
-const gqlApi = new GraphqlXListApi(
-  { csrf: "c", bearer: "b" },
-  {
-    fetch: (async () => new Response("{}")) as unknown as typeof fetch,
-    config: {
-      baseUrl: "https://x.com/i/api/graphql",
-      ops: { ListAddMember: "a", ListRemoveMember: "r", UserByScreenName: "u" },
-      features: {},
-    },
-  },
-);
-
-const builders = { rest: () => restApi, dom: () => domApi, graphql: () => gqlApi };
+function runtime() {
+  const credentials = vi.fn(() => ({ csrf: "c", bearer: "b" }));
+  const createPageDriver = vi.fn(() => fakeDriver);
+  const fetch = vi.fn(
+    async () => new Response("", { status: 200 }),
+  ) as unknown as typeof globalThis.fetch;
+  return { fetch, credentials, createPageDriver };
+}
 
 describe("createXListApi", () => {
-  it("returns the REST backend by default", () => {
-    expect(createXListApi("rest", builders)).toBe(restApi);
+  it("builds REST by default and keeps credentials lazy", async () => {
+    const deps = runtime();
+    const api = createXListApi("rest", deps);
+
+    expect(api).toBeInstanceOf(RestXListApi);
+    expect(deps.credentials).not.toHaveBeenCalled();
+    expect(deps.createPageDriver).not.toHaveBeenCalled();
+
+    await api.addMember({ id: "1", name: "Research" }, { screenName: "jack" });
+    expect(deps.credentials).toHaveBeenCalledTimes(1);
   });
 
-  it("returns the DOM and GraphQL backends when selected", () => {
-    expect(createXListApi("dom", builders)).toBe(domApi);
-    expect(createXListApi("graphql", builders)).toBe(gqlApi);
+  it("creates a PageDriver only for DOM", () => {
+    const deps = runtime();
+    const api = createXListApi("dom", deps);
+
+    expect(api).toBeInstanceOf(DomXListApi);
+    expect(deps.createPageDriver).toHaveBeenCalledTimes(1);
+    expect(deps.credentials).not.toHaveBeenCalled();
   });
 
-  it("builds only the chosen backend", () => {
-    const rest = vi.fn(() => restApi);
-    const dom = vi.fn(() => domApi);
-    const graphql = vi.fn(() => gqlApi);
-    createXListApi("rest", { rest, dom, graphql });
-    expect(rest).toHaveBeenCalledTimes(1);
-    expect(dom).not.toHaveBeenCalled();
-    expect(graphql).not.toHaveBeenCalled();
+  it("keeps credentials lazy for GraphQL", async () => {
+    const deps = runtime();
+    const api = createXListApi("graphql", deps);
+
+    expect(api).toBeInstanceOf(GraphqlXListApi);
+    expect(deps.credentials).not.toHaveBeenCalled();
+    expect(deps.createPageDriver).not.toHaveBeenCalled();
+
+    await api.addMember({ id: "1", name: "Research" }, { screenName: "jack", userId: "2" });
+    expect(deps.credentials).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to REST for an unknown strategy", () => {
+    const deps = runtime();
+    expect(createXListApi("other" as never, deps)).toBeInstanceOf(RestXListApi);
   });
 });

@@ -1,5 +1,6 @@
 import { localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
+import { watchStorageKey } from "@/core/storage-sync";
 
 /**
  * The Mirror's observable heartbeat (ADR-0009 stays intact: never load-bearing).
@@ -12,14 +13,24 @@ export interface MirrorStatus {
   ok: boolean;
   /** epoch ms when the write settled. */
   at: number;
+  /** Opaque identity of the exact Mirror configuration used by this write. */
+  configId: string;
 }
 
 /** Parse a storage.local value into a MirrorStatus; anything malformed ⇒ null. */
 export function parseMirrorStatus(raw: unknown): MirrorStatus | null {
   if (typeof raw !== "object" || raw === null) return null;
-  const { ok, at } = raw as Record<string, unknown>;
-  if (typeof ok !== "boolean" || typeof at !== "number") return null;
-  return { ok, at };
+  const { ok, at, configId } = raw as Record<string, unknown>;
+  if (
+    typeof ok !== "boolean" ||
+    typeof at !== "number" ||
+    !Number.isFinite(at) ||
+    at < 0 ||
+    typeof configId !== "string" ||
+    configId.trim().length === 0
+  )
+    return null;
+  return { ok, at, configId };
 }
 
 /** "just now" / "3m ago" / "2h ago" — the popup's as-of cue. */
@@ -35,10 +46,14 @@ export interface MirrorStatusStore {
   publish(status: MirrorStatus): Promise<void>;
   /** The last published status, or null when unset/unavailable/malformed. */
   read(): Promise<MirrorStatus | null>;
+  /** Watch accepted local-storage status changes. */
+  subscribe(cb: (status: MirrorStatus | null) => void): () => void;
 }
 
 export function createMirrorStatusStore(area: StorageLike = localArea()): MirrorStatusStore {
   const key = STORAGE_KEYS.mirrorStatus;
+  const subscribers = new Set<(status: MirrorStatus | null) => void>();
+  let stopWatching: (() => void) | undefined;
   return {
     async publish(status) {
       try {
@@ -54,6 +69,29 @@ export function createMirrorStatusStore(area: StorageLike = localArea()): Mirror
       } catch {
         return null; // storage unavailable — no Mirror row
       }
+    },
+    subscribe(cb) {
+      let active = true;
+      subscribers.add(cb);
+      stopWatching ??= watchStorageKey("local", key, ({ newValue }) => {
+        const status = parseMirrorStatus(newValue);
+        for (const subscriber of subscribers) {
+          try {
+            subscriber(status);
+          } catch {
+            // One cosmetic surface cannot break status delivery to another.
+          }
+        }
+      });
+      return () => {
+        if (!active) return;
+        active = false;
+        subscribers.delete(cb);
+        if (subscribers.size === 0) {
+          stopWatching?.();
+          stopWatching = undefined;
+        }
+      };
     },
   };
 }

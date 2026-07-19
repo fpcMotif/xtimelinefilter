@@ -6,6 +6,7 @@ import { createCoach } from "@/core/coach";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
 import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
+import type { MirrorStatus } from "@/core/mirror-status";
 import { createPickerController } from "@/core/picker-controller";
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { createSettings } from "@/core/settings";
@@ -17,17 +18,12 @@ const LISTS: XList[] = [
   { id: "L1", name: "Design Folks" },
   { id: "L2", name: "Founders" },
 ];
+const OWNER: Owner = { userId: "100", screenName: "me" };
 
 class FakeApi implements XListApi {
   added: string[] = [];
   removed: string[] = [];
   addImpl: (author: TweetAuthor) => Promise<void> = async () => {};
-  async getLists(): Promise<XList[]> {
-    return LISTS;
-  }
-  async resolveUserId(): Promise<string | null> {
-    return null;
-  }
   async addMember(_list: XList, author: TweetAuthor): Promise<void> {
     this.added.push(author.screenName);
     return this.addImpl(author);
@@ -39,10 +35,10 @@ class FakeApi implements XListApi {
 
 function fakeCache(lists: XList[]): ListCache {
   return {
-    async lists() {
+    async cached() {
       return lists;
     },
-    async search() {
+    async refresh() {
       return lists;
     },
   };
@@ -50,37 +46,59 @@ function fakeCache(lists: XList[]): ListCache {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function harness(
   opts: {
     targetAuthor?: TweetAuthor | null;
     targetTweet?: Element | null;
     lists?: XList[];
     membershipStore?: MembershipStore;
+    pickerMembershipStore?: MembershipStore;
     currentOwner?: () => Owner | null;
     block?: (s: string) => Promise<void>;
     withBlock?: boolean;
     anchorFor?: (tweetEl: Element) => { left: number; top: number } | null;
     omitNow?: boolean;
-    usage?: { record: (listId: string) => Promise<void> };
+    omitCurrentOwner?: boolean;
+    settings?: import("@/core/settings").SettingsStore;
+    usage?: { record: (ownerUserId: string, listId: string) => Promise<void> };
     filter?: FilterStore;
-    onMirrorResult?: (result: { ok: boolean; at: number }) => void;
+    mirrorConfigurationId?: () => string | null;
+    onMirrorResult?: (result: MirrorStatus) => void;
+    now?: () => number;
   } = {},
 ) {
   const selection = createSelectionStore();
   const app = createAppState(selection);
   const backend = new FakeApi();
   const cache = fakeCache(opts.lists ?? LISTS);
-  const picker = createPickerController({ cache });
+  const currentOwner = opts.currentOwner ?? (() => OWNER);
+  const picker = createPickerController({
+    cache,
+    currentOwner,
+    membershipStore: opts.pickerMembershipStore,
+  });
   const toasts = createToastStore({ setTimer: () => 1, clearTimer: () => {} });
   const undo = createUndoRegistry({ setTimer: () => 1, clearTimer: () => {} });
   const coach = createCoach(memoryArea());
-  const settings = createSettings(memoryArea());
+  const settings = opts.settings ?? createSettings(memoryArea());
   const quick = {
     mute: vi.fn(async (_s: string) => {}),
     unmute: vi.fn(async (_s: string) => {}),
     notInterested: vi.fn(async (_el: Element): Promise<"hidden" | "unavailable"> => "hidden"),
     ...(opts.withBlock || opts.block
-      ? { block: opts.block ? vi.fn(opts.block) : vi.fn(async (_s: string) => {}) }
+      ? {
+          block: opts.block ? vi.fn(opts.block) : vi.fn(async (_s: string) => {}),
+        }
       : {}),
   };
   const openUrl = vi.fn();
@@ -103,14 +121,23 @@ function harness(
     target,
     openUrl,
     membershipStore: opts.membershipStore,
-    currentOwner: opts.currentOwner,
+    ...(opts.omitCurrentOwner ? {} : { currentOwner }),
+    mirrorConfigurationId: opts.mirrorConfigurationId,
     onMirrorResult: opts.onMirrorResult,
     anchorFor: opts.anchorFor,
     usage: opts.usage as Parameters<typeof createLassoController>[0]["usage"],
     filter: opts.filter,
     assignOpts: { sleep: async () => {}, delayMs: 0 },
-    ...(opts.omitNow ? {} : { now: () => Date.UTC(2026, 5, 10) }),
+    ...(opts.omitNow ? {} : { now: opts.now ?? (() => Date.UTC(2026, 5, 10)) }),
   });
+  const assign = (list: XList, owner: Owner | null = currentOwner()) => {
+    return controller.pickerEffect({
+      type: "chosen",
+      owner,
+      list,
+      authors: selection.list(),
+    });
+  };
   return {
     selection,
     app,
@@ -125,6 +152,7 @@ function harness(
     openUrl,
     defaultTweet,
     controller,
+    assign,
   };
 }
 
@@ -150,7 +178,7 @@ describe("Alt+L — file the author under the cursor", () => {
     await flush();
     expect(h.selection.isSelected("jane")).toBe(true);
     expect(h.app.pickerOpen.value).toBe(true);
-    expect(h.picker.status.value).toBe("ready");
+    expect(h.picker.view.value.status).toBe("ready");
   });
 
   it("with no target shows the nudge toast instead of console noise", () => {
@@ -161,11 +189,82 @@ describe("Alt+L — file the author under the cursor", () => {
 });
 
 describe("the assign run (story beats 4 & 7)", () => {
+  it("uses the null-Owner default when the wire omits Owner discovery", async () => {
+    const h = harness({ omitCurrentOwner: true });
+    h.selection.add({ screenName: "a" });
+
+    await h.assign(LISTS[0]!, null);
+
+    expect(h.backend.added).toEqual(["a"]);
+  });
+
+  it("allows an unknown-owner target only while no Owner is logged in", async () => {
+    const h = harness({ currentOwner: () => null });
+    h.selection.add({ screenName: "a" });
+    await h.assign(LISTS[0]!, null);
+    expect(h.backend.added).toEqual(["a"]);
+  });
+
+  it("requires a current matching Owner for an Owner-bound assign", async () => {
+    const h = harness({ currentOwner: () => null });
+    h.selection.add({ screenName: "a" });
+
+    await h.assign(LISTS[0]!, OWNER);
+
+    expect(h.backend.added).toEqual([]);
+  });
+
+  it("blocks an unknown-owner target after an Owner appears", async () => {
+    const h = harness();
+    h.selection.add({ screenName: "a" });
+
+    await h.assign(LISTS[0]!, null);
+
+    expect(h.backend.added).toEqual([]);
+  });
+
+  it("blocks an account switch between choose and assign", async () => {
+    let owner = OWNER;
+    const h = harness({ currentOwner: () => owner });
+    h.selection.add({ screenName: "a" });
+    owner = { userId: "200", screenName: "other" };
+
+    await h.controller.pickerEffect({
+      type: "chosen",
+      owner: OWNER,
+      list: LISTS[0]!,
+      authors: [{ screenName: "a" }],
+    });
+
+    expect(h.backend.added).toEqual([]);
+    expect(h.selection.isSelected("a")).toBe(true);
+  });
+
+  it("blocks X, usage, and Mirror after an Owner switch", async () => {
+    let owner = OWNER;
+    const { store, calls } = recordingStore();
+    const usage = { record: vi.fn(async () => {}) };
+    const h = harness({
+      currentOwner: () => owner,
+      membershipStore: store,
+      usage,
+    });
+    h.selection.add({ screenName: "a" });
+    owner = { userId: "200", screenName: "other" };
+
+    await h.assign(LISTS[0]!, OWNER);
+    await flush();
+
+    expect(h.backend.added).toEqual([]);
+    expect(usage.record).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
   it("happy path: progress, success toast with View List + Undo, selection cleared", async () => {
     const h = harness();
     h.selection.add({ screenName: "a" });
     h.selection.add({ screenName: "b" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     expect(h.backend.added).toEqual(["a", "b"]);
     expect(h.selection.count.value).toBe(0);
     expect(h.app.running.value).toBeNull();
@@ -177,7 +276,7 @@ describe("the assign run (story beats 4 & 7)", () => {
   it("View List opens the List on X", async () => {
     const h = harness();
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     const id = h.toasts.toasts.value[0]?.id as number;
     h.toasts.act(id, 0);
     expect(h.openUrl).toHaveBeenCalledWith("https://x.com/i/lists/L1");
@@ -187,11 +286,54 @@ describe("the assign run (story beats 4 & 7)", () => {
     const h = harness();
     h.selection.add({ screenName: "a" });
     h.selection.add({ screenName: "b" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
+    expect(h.toasts.toasts.value[0]?.durationMs).toBe(UNDO_WINDOW_MS);
     expect(h.controller.command("undo")).toBe(true);
     await flush();
     expect(h.backend.removed).toEqual(["a", "b"]);
     expect(titles(h)).toContain("Removed 2 from Design Folks");
+  });
+
+  it("blocks Undo after an account switch", async () => {
+    let owner = OWNER;
+    const h = harness({ currentOwner: () => owner });
+    h.selection.add({ screenName: "a" });
+    await h.assign(LISTS[0]!);
+    owner = { userId: "200", screenName: "other" };
+    h.controller.command("undo");
+    await flush();
+    expect(h.backend.removed).toEqual([]);
+  });
+
+  it("blocks Undo when the Owner is no longer known", async () => {
+    let owner: Owner | null = OWNER;
+    const h = harness({ currentOwner: () => owner });
+    h.selection.add({ screenName: "a" });
+    await h.assign(LISTS[0]!);
+    owner = null;
+
+    h.controller.command("undo");
+    await flush();
+
+    expect(h.backend.removed).toEqual([]);
+  });
+
+  it("stops Undo after the Owner changes during its first removal", async () => {
+    let owner: Owner | null = OWNER;
+    const h = harness({ currentOwner: () => owner });
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    await h.assign(LISTS[0]!);
+    h.backend.removeMember = async (_list, author) => {
+      h.backend.removed.push(author.screenName);
+      owner = { userId: "200", screenName: "other" };
+    };
+
+    h.controller.command("undo");
+    await flush();
+
+    expect(h.backend.removed).toEqual(["a"]);
+    expect(titles(h)).toContain("Removed 1 from Design Folks");
   });
 
   it("z with nothing armed is left for X", () => {
@@ -203,11 +345,13 @@ describe("the assign run (story beats 4 & 7)", () => {
     const h = harness();
     h.backend.addImpl = async (au) => {
       if (au.screenName === "c") {
-        throw new XApiError("rate-limited", "429", { resetAt: Date.UTC(2026, 5, 10) / 1000 + 720 });
+        throw new XApiError("rate-limited", "429", {
+          resetAt: Date.UTC(2026, 5, 10) / 1000 + 720,
+        });
       }
     };
     for (const s of ["a", "b", "c", "d", "e"]) h.selection.add({ screenName: s });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     const toast = h.toasts.toasts.value[0];
     expect(toast?.title).toBe("X rate limit reached");
     expect(toast?.line).toBe("Added 2 · 3 still selected — try again in 12 min");
@@ -221,9 +365,210 @@ describe("the assign run (story beats 4 & 7)", () => {
       if (au.screenName === "b") h.controller.stopRun(); // user clicks Stop mid-flight
     };
     for (const s of ["a", "b", "c", "d", "e", "f", "g"]) h.selection.add({ screenName: s });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     expect(titles(h)).toContain("2 added · 5 still selected");
     expect(h.selection.count.value).toBe(5);
+  });
+
+  it("consumes Escape during an assignment without stopping or changing its state", async () => {
+    const firstAdd = deferred<void>();
+    const firstStarted = deferred<void>();
+    const h = harness();
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    h.backend.addImpl = async (author) => {
+      if (author.screenName === "a") {
+        firstStarted.resolve();
+        await firstAdd.promise;
+      }
+    };
+
+    const run = h.assign(LISTS[0]!);
+    await firstStarted.promise;
+    const progress = h.app.running.value;
+
+    const consumed = h.controller.command("escape");
+    const selectionAfterEscape = h.selection.list();
+    const progressAfterEscape = h.app.running.value;
+
+    h.controller.stopRun();
+    firstAdd.resolve();
+    await run;
+
+    expect(consumed).toBe(true);
+    expect(selectionAfterEscape).toEqual([{ screenName: "a" }, { screenName: "b" }]);
+    expect(progressAfterEscape).toBe(progress);
+    expect(h.backend.added).toEqual(["a"]);
+    expect(h.selection.list()).toEqual([{ screenName: "b" }]);
+    expect(h.app.running.value).toBeNull();
+  });
+
+  it("locks public selection toggles until the assignment releases", async () => {
+    const firstAdd = deferred<void>();
+    const firstStarted = deferred<void>();
+    const h = harness();
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    h.backend.addImpl = async (author) => {
+      if (author.screenName === "a") {
+        firstStarted.resolve();
+        await firstAdd.promise;
+      }
+    };
+
+    const run = h.assign(LISTS[0]!);
+    await firstStarted.promise;
+
+    h.controller.toggleSelect({ screenName: "a" });
+    h.controller.toggleSelect({ screenName: "c" });
+    const selectionWhileRunning = h.selection.list();
+
+    h.controller.stopRun();
+    firstAdd.resolve();
+    await run;
+
+    h.controller.toggleSelect({ screenName: "b" });
+    h.controller.toggleSelect({ screenName: "c" });
+
+    expect(selectionWhileRunning).toEqual([{ screenName: "a" }, { screenName: "b" }]);
+    expect(h.selection.list()).toEqual([{ screenName: "c" }]);
+  });
+
+  it("toast Undo cannot start while another assignment is active", async () => {
+    const h = harness();
+    h.selection.add({ screenName: "a" });
+    await h.assign(LISTS[0]!);
+    const staleToast = h.toasts.toasts.value[0];
+    expect(staleToast?.actions?.some((action) => action.label === "Undo")).toBe(true);
+
+    const pendingAdd = deferred<void>();
+    const addStarted = deferred<void>();
+    h.selection.add({ screenName: "b" });
+    h.backend.addImpl = async (author) => {
+      if (author.screenName === "b") {
+        addStarted.resolve();
+        await pendingAdd.promise;
+      }
+    };
+    const run = h.assign(LISTS[0]!);
+    await addStarted.promise;
+
+    staleToast?.actions?.find((action) => action.label === "Undo")?.run();
+    await flush();
+    expect(h.backend.removed).toEqual([]);
+
+    h.controller.stopRun();
+    pendingAdd.resolve();
+    await run;
+    expect(h.backend.removed).toEqual([]);
+  });
+
+  it("serializes a picker run against a concurrent default-list command", async () => {
+    const firstAdd = deferred<void>();
+    const firstStarted = deferred<void>();
+    const h = harness();
+    await h.settings.set({
+      defaultList: { ownerUserId: OWNER.userId, listId: "L1" },
+    });
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    h.backend.addImpl = async (author) => {
+      if (author.screenName === "a") {
+        firstStarted.resolve();
+        await firstAdd.promise;
+      }
+    };
+
+    const pickerRun = h.assign(LISTS[0]!);
+    await firstStarted.promise;
+    const progress = h.app.running.value;
+    expect(progress).toEqual({ current: 1, total: 2, listName: "Design Folks" });
+
+    const oldUndo = vi.fn();
+    h.undo.arm(oldUndo, UNDO_WINDOW_MS);
+    expect(h.controller.command("help")).toBe(true); // existing modal grammar remains live
+    expect(h.app.shortcutsOpen.value).toBe(true);
+    expect(h.controller.command("escape")).toBe(true);
+    expect(h.app.shortcutsOpen.value).toBe(false);
+    expect(h.controller.command("add-to-list")).toBe(true);
+    expect(h.controller.command("add-to-default-list")).toBe(true);
+    await h.controller.pickerEffect({
+      type: "chosen",
+      owner: OWNER,
+      list: LISTS[1]!,
+      authors: [{ screenName: "second" }],
+    });
+    expect(h.controller.command("undo")).toBe(true);
+    await flush();
+
+    expect(h.backend.added).toEqual(["a"]);
+    expect(h.app.running.value).toBe(progress);
+    expect(h.app.pickerOpen.value).toBe(false);
+    expect(oldUndo).not.toHaveBeenCalled();
+
+    h.controller.stopRun(); // the visible Stop button still owns cancellation
+    firstAdd.resolve();
+    await pickerRun;
+
+    expect(h.backend.added).toEqual(["a"]);
+    expect(h.app.running.value).toBeNull();
+    expect(h.selection.list()).toEqual([{ screenName: "b" }]);
+    expect(titles(h)).toContain("1 added · 1 still selected");
+  });
+
+  it("Owner loss mid-run stops cleanly without a Mirror write", async () => {
+    let owner = OWNER;
+    const { store, calls } = recordingStore();
+    const h = harness({ currentOwner: () => owner, membershipStore: store });
+    h.backend.addImpl = async (author) => {
+      if (author.screenName === "a") owner = { userId: "200", screenName: "other" };
+    };
+    for (const screenName of ["a", "b", "c"]) h.selection.add({ screenName });
+
+    await h.assign(LISTS[0]!);
+    await flush();
+
+    expect(h.backend.added).toEqual(["a"]);
+    expect(h.selection.isSelected("a")).toBe(false);
+    expect(h.selection.count.value).toBe(2);
+    expect(h.toasts.toasts.value[0]).toMatchObject({
+      kind: "info",
+      title: "1 added · 2 still selected",
+      actions: [],
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("latches a brief Owner switch for the whole run", async () => {
+    let firstMismatch = true;
+    let firstAdded = false;
+    const { store, calls } = recordingStore();
+    const h = harness({
+      currentOwner: () => {
+        if (!firstAdded) return OWNER;
+        if (firstMismatch) {
+          firstMismatch = false;
+          return { userId: "200", screenName: "other" };
+        }
+        return OWNER;
+      },
+      membershipStore: store,
+    });
+    h.backend.addImpl = async () => {
+      firstAdded = true;
+    };
+    for (const screenName of ["a", "b"]) h.selection.add({ screenName });
+
+    await h.assign(LISTS[0]!);
+    await flush();
+
+    expect(h.backend.added).toEqual(["a"]);
+    expect(h.toasts.toasts.value[0]).toMatchObject({
+      kind: "info",
+      title: "1 added · 1 still selected",
+      actions: [],
+    });
+    expect(calls).toEqual([]);
   });
 
   it("Retry re-runs with the people who stayed selected", async () => {
@@ -235,7 +580,7 @@ describe("the assign run (story beats 4 & 7)", () => {
     };
     h.selection.add({ screenName: "ok" });
     h.selection.add({ screenName: "bad" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     expect(h.selection.isSelected("bad")).toBe(true);
     const danger = h.toasts.toasts.value.find((t) => t.kind === "danger");
     const retry = danger?.actions?.find((a) => a.label === "Retry");
@@ -244,12 +589,49 @@ describe("the assign run (story beats 4 & 7)", () => {
     await flush();
     expect(h.backend.added).toEqual(["ok", "bad", "bad"]);
   });
+
+  it("blocks Retry when its Owner is no longer known", async () => {
+    let owner: Owner | null = OWNER;
+    const h = harness({ currentOwner: () => owner });
+    h.backend.addImpl = async () => {
+      throw new XApiError("unknown", "HTTP 500");
+    };
+    h.selection.add({ screenName: "a" });
+    await h.assign(LISTS[0]!);
+    owner = null;
+
+    const retry = h.toasts.toasts.value.find((toast) => toast.kind === "danger")?.actions?.[0];
+    retry?.run();
+    await flush();
+
+    expect(h.backend.added).toEqual(["a"]);
+  });
+
+  it("keeps X successful when usage recording throws or rejects", async () => {
+    for (const record of [
+      (() => {
+        throw new Error("sync usage failure");
+      }) as unknown as (ownerUserId: string, listId: string) => Promise<void>,
+      async () => Promise.reject(new Error("async usage failure")),
+    ]) {
+      const h = harness({ usage: { record } });
+      h.selection.add({ screenName: "a" });
+
+      await h.assign(LISTS[0]!);
+      await flush();
+
+      expect(h.backend.added).toEqual(["a"]);
+      expect(titles(h)).toContain("Added 1 to Design Folks");
+    }
+  });
 });
 
 describe("Alt+Shift+L — the graduation chord (story beat 6)", () => {
   it("adds the hovered author straight to the default List, no picker", async () => {
     const h = harness();
-    await h.settings.set({ defaultListId: "L1" });
+    await h.settings.set({
+      defaultList: { ownerUserId: OWNER.userId, listId: "L1" },
+    });
     h.controller.command("add-to-default-list");
     await flush();
     expect(h.backend.added).toEqual(["jane"]);
@@ -263,6 +645,21 @@ describe("Alt+Shift+L — the graduation chord (story beat 6)", () => {
     await flush();
     expect(h.backend.added).toEqual([]);
     expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("falls back to the keyboard Picker when the default-list settings read rejects", async () => {
+    const base = createSettings(memoryArea());
+    const get = vi.fn(async () => Promise.reject(new Error("storage offline")));
+    const h = harness({ settings: { ...base, get } });
+
+    expect(h.controller.command("add-to-default-list")).toBe(true);
+    await flush();
+
+    expect(get).toHaveBeenCalledOnce();
+    expect(h.backend.added).toEqual([]);
+    expect(h.selection.list()).toEqual([{ screenName: "jane" }]);
+    expect(h.app.pickerOpen.value).toBe(true);
+    expect(h.picker.view.value.status).toBe("ready");
   });
 });
 
@@ -314,12 +711,120 @@ describe("escape / help / selection coaching", () => {
     expect(h.app.pickerOpen.value).toBe(false);
   });
 
+  it("global Escape closes the Picker model before its UI", async () => {
+    const dispose = vi.fn();
+    const pickerMembershipStore: MembershipStore = {
+      recordAssign: async () => {},
+      reconcileAuthor: async () => {},
+      replaceCatalog: async () => {},
+      observe: () => dispose,
+    };
+    const h = harness({ pickerMembershipStore });
+    h.controller.openPicker();
+    await flush();
+
+    expect(h.controller.command("escape")).toBe(true);
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(h.app.pickerOpen.value).toBe(false);
+  });
+
+  it("assigns the Picker's captured authors after live selection drifts", async () => {
+    const h = harness();
+    h.selection.add({ screenName: "opened" });
+    const effect = {
+      type: "chosen" as const,
+      owner: OWNER,
+      list: LISTS[0]!,
+      authors: [{ screenName: "opened" }],
+    };
+    h.selection.clear();
+    h.selection.add({ screenName: "later" });
+
+    await h.controller.pickerEffect(effect);
+
+    expect(h.backend.added).toEqual(["opened"]);
+    expect(h.selection.isSelected("later")).toBe(true);
+  });
+
   it("? toggles the shortcuts sheet", () => {
     const h = harness();
     expect(h.controller.command("help")).toBe(true);
     expect(h.app.shortcutsOpen.value).toBe(true);
     h.controller.command("help");
     expect(h.app.shortcutsOpen.value).toBe(false);
+  });
+
+  it("? never opens Shortcuts over Welcome, but closes an open sheet", () => {
+    const h = harness();
+    h.app.welcomeOpen.value = true;
+
+    expect(h.controller.command("help")).toBe(true);
+    expect(h.app.shortcutsOpen.value).toBe(false);
+
+    h.app.shortcutsOpen.value = true;
+    expect(h.controller.command("help")).toBe(true);
+    expect(h.app.shortcutsOpen.value).toBe(false);
+  });
+
+  it.each(["welcomeOpen", "shortcutsOpen"] as const)(
+    "%s consumes Lasso commands without changing the page behind it",
+    (modal) => {
+      const filter = createFilterStore({ navLanguages: ["en"] });
+      const h = harness({ filter });
+      h.app[modal].value = true;
+
+      expect(h.controller.command("toggle-select-mode")).toBe(true);
+      expect(h.controller.command("add-to-list")).toBe(true);
+      expect(h.controller.command("toggle-filter")).toBe(true);
+      expect(h.controller.command("not-interested")).toBe(true);
+      expect(h.controller.command("undo")).toBe(true);
+
+      expect(h.selection.selectMode.value).toBe(false);
+      expect(h.selection.count.value).toBe(0);
+      expect(h.app.pickerOpen.value).toBe(false);
+      expect(filter.state.value.enabled).toBe(true);
+      expect(h.quick.notInterested).not.toHaveBeenCalled();
+    },
+  );
+
+  it("Picker consumes commands while focus is on its non-input controls", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    const h = harness({ filter });
+    h.selection.add({ screenName: "kept" });
+    h.app.pickerOpen.value = true;
+
+    expect(h.controller.command("help")).toBe(true);
+    expect(h.controller.command("toggle-select-mode")).toBe(true);
+    expect(h.controller.command("add-to-list")).toBe(true);
+    expect(h.controller.command("add-to-default-list")).toBe(true);
+    expect(h.controller.command("toggle-filter")).toBe(true);
+    expect(h.controller.command("undo")).toBe(true);
+
+    expect(h.app.shortcutsOpen.value).toBe(false);
+    expect(h.app.pickerOpen.value).toBe(true);
+    expect(h.selection.selectMode.value).toBe(false);
+    expect(h.selection.list()).toEqual([{ screenName: "kept" }]);
+    expect(filter.state.value.enabled).toBe(true);
+  });
+
+  it("Escape closes the current modal before the Picker", async () => {
+    const dispose = vi.fn();
+    const h = harness({
+      pickerMembershipStore: {
+        recordAssign: async () => {},
+        reconcileAuthor: async () => {},
+        replaceCatalog: async () => {},
+        observe: () => dispose,
+      },
+    });
+    h.controller.openPicker();
+    await flush();
+    h.app.shortcutsOpen.value = true;
+
+    expect(h.controller.command("escape")).toBe(true);
+    expect(h.app.shortcutsOpen.value).toBe(false);
+    expect(h.app.pickerOpen.value).toBe(true);
+    expect(dispose).not.toHaveBeenCalled();
   });
 
   it("after 3 individual selections, nudges toward select mode — once", async () => {
@@ -365,15 +870,24 @@ describe("escape / help / selection coaching", () => {
 });
 
 function recordingStore() {
-  const calls: Array<{ owner: Owner; list: XList; changes: MembershipChange[] }> = [];
+  const calls: Array<{
+    owner: Owner;
+    ownerObservedAt: number;
+    list: XList;
+    changes: MembershipChange[];
+  }> = [];
   const store: MembershipStore = {
-    recordAssign: async (o, l, c) => {
-      calls.push({ owner: o, list: l, changes: c });
+    recordAssign: async (o, l, observation) => {
+      calls.push({
+        owner: o,
+        ownerObservedAt: observation.ownerObservedAt,
+        list: l,
+        changes: [...observation.changes],
+      });
     },
     reconcileAuthor: async () => {},
-    reconcileCatalog: async () => {},
-    listsContaining: async () => [],
-    catalog: async () => [],
+    replaceCatalog: async () => {},
+    observe: () => () => {},
   };
   return { store, calls };
 }
@@ -386,22 +900,54 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     const h = harness({ membershipStore: store, currentOwner: () => owner });
     h.selection.add({ screenName: "a", userId: "7" });
     h.selection.add({ screenName: "b" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     await flush();
     expect(calls).toHaveLength(1);
     expect(calls[0]?.owner).toEqual(owner);
     expect(calls[0]?.list.id).toBe("L1");
     expect(calls[0]?.changes).toEqual([
-      { screenName: "a", userId: "7", action: "add", outcome: "added" },
-      { screenName: "b", action: "add", outcome: "added" },
+      {
+        screenName: "a",
+        userId: "7",
+        identity: "user:7",
+        action: "add",
+        outcome: "added",
+        observedAt: Date.UTC(2026, 5, 10),
+      },
+      {
+        screenName: "b",
+        identity: null,
+        action: "add",
+        outcome: "added",
+        observedAt: Date.UTC(2026, 5, 10),
+      },
     ]);
+  });
+
+  it("timestamps the Owner profile when it is re-read after a long assign", async () => {
+    let handle = "old-handle";
+    const { store, calls } = recordingStore();
+    const h = harness({
+      membershipStore: store,
+      currentOwner: () => ({ userId: owner.userId, screenName: handle }),
+    });
+    h.backend.addImpl = async () => {
+      handle = "new-handle";
+    };
+    h.selection.add({ screenName: "a" });
+
+    await h.assign(LISTS[0] as XList);
+    await flush();
+
+    expect(calls[0]?.owner).toEqual({ userId: owner.userId, screenName: "new-handle" });
+    expect(calls[0]?.ownerObservedAt).toBe(Date.UTC(2026, 5, 10));
   });
 
   it("skips the Mirror when no Owner is logged in (still assigns on X)", async () => {
     const { store, calls } = recordingStore();
     const h = harness({ membershipStore: store, currentOwner: () => null });
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     await flush();
     expect(calls).toEqual([]);
     expect(h.backend.added).toEqual(["a"]);
@@ -413,14 +959,13 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         throw new Error("convex down");
       },
       reconcileAuthor: async () => {},
-      reconcileCatalog: async () => {},
-      listsContaining: async () => [],
-      catalog: async () => [],
+      replaceCatalog: async () => {},
+      observe: () => () => {},
     };
     const h = harness({ membershipStore: store, currentOwner: () => owner });
     h.selection.add({ screenName: "a" });
     h.selection.add({ screenName: "b" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     await flush();
     expect(h.backend.added).toEqual(["a", "b"]);
     expect(h.selection.count.value).toBe(0);
@@ -440,13 +985,12 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         throw new Error("sync boom");
       },
       reconcileAuthor: async () => {},
-      reconcileCatalog: async () => {},
-      listsContaining: async () => [],
-      catalog: async () => [],
+      replaceCatalog: async () => {},
+      observe: () => () => {},
     };
     const h = harness({ membershipStore: store, currentOwner: () => owner });
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList); // recordToMirror #1 (sync throw)
+    await h.assign(LISTS[0] as XList); // recordToMirror #1 (sync throw)
     await flush();
     expect(h.backend.added).toEqual(["a"]); // X flow unaffected by the sync throw
     expect(h.controller.command("undo")).toBe(true);
@@ -460,18 +1004,44 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     const { store, calls } = recordingStore();
     const h = harness({ membershipStore: store, currentOwner: () => owner });
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     h.controller.command("undo");
     await flush();
     const removal = calls.find((c) => c.changes[0]?.action === "remove");
-    expect(removal?.changes).toEqual([{ screenName: "a", action: "remove", outcome: "removed" }]);
+    expect(removal?.changes).toEqual([
+      {
+        screenName: "a",
+        identity: null,
+        action: "remove",
+        outcome: "removed",
+        observedAt: Date.UTC(2026, 5, 10),
+      },
+    ]);
+  });
+
+  it("times each assign and undo fact when its own X attempt settles", async () => {
+    let clock = 10;
+    const { store, calls } = recordingStore();
+    const h = harness({ membershipStore: store, currentOwner: () => owner, now: () => clock++ });
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+    await h.assign(LISTS[0] as XList);
+    h.controller.command("undo");
+    await flush();
+
+    const assign = calls.find((call) => call.changes[0]?.action === "add");
+    const removal = calls.find((call) => call.changes[0]?.action === "remove");
+    expect(assign?.changes.map((change) => change.observedAt)).toEqual([10, 11]);
+    expect(assign?.ownerObservedAt).toBe(12);
+    expect(removal?.changes.map((change) => change.observedAt)).toEqual([14, 15]);
+    expect(removal?.ownerObservedAt).toBe(16);
   });
 
   it("a partial undo reports the real count and mirrors the failed remove", async () => {
     const { store, calls } = recordingStore();
     const h = harness({ membershipStore: store, currentOwner: () => owner });
     h.selection.add({ screenName: "a", userId: "9" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     h.backend.removeMember = async () => {
       throw new Error("remove failed");
     };
@@ -480,18 +1050,161 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     expect(titles(h)).toContain("Removed 0 from Design Folks");
     const removal = calls.find((c) => c.changes[0]?.action === "remove");
     expect(removal?.changes).toEqual([
-      { screenName: "a", userId: "9", action: "remove", outcome: "failed" },
+      {
+        screenName: "a",
+        userId: "9",
+        identity: "user:9",
+        action: "remove",
+        outcome: "failed",
+        observedAt: Date.UTC(2026, 5, 10),
+      },
+    ]);
+  });
+
+  it("a rate-limited mid-undo stops and keeps un-attempted authors out of the Mirror", async () => {
+    const { store, calls } = recordingStore();
+    const h = harness({ membershipStore: store, currentOwner: () => owner });
+    for (const s of ["a", "b", "c"]) h.selection.add({ screenName: s });
+    await h.assign(LISTS[0] as XList);
+    h.backend.removeMember = async (_list, author) => {
+      h.backend.removed.push(author.screenName);
+      if (author.screenName === "b") throw new XApiError("rate-limited", "429");
+    };
+
+    h.controller.command("undo");
+    await flush();
+
+    expect(h.backend.removed).toEqual(["a", "b"]); // c never attempted
+    expect(titles(h)).toContain("Removed 1 from Design Folks");
+    const removal = calls.find((c) => c.changes[0]?.action === "remove");
+    expect(removal?.changes.map((c) => [c.screenName, c.outcome])).toEqual([
+      ["a", "removed"],
+      ["b", "rate-limited"],
     ]);
   });
 
   it("reports a settled Mirror write via onMirrorResult (popup's instant status row)", async () => {
     const { store } = recordingStore();
     const onMirrorResult = vi.fn();
-    const h = harness({ membershipStore: store, currentOwner: () => owner, onMirrorResult });
+    const h = harness({
+      membershipStore: store,
+      currentOwner: () => owner,
+      mirrorConfigurationId: () => "mirror-1",
+      onMirrorResult,
+    });
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     await flush();
-    expect(onMirrorResult).toHaveBeenCalledWith({ ok: true, at: Date.UTC(2026, 5, 10) });
+    expect(onMirrorResult).toHaveBeenCalledWith({
+      ok: true,
+      at: Date.UTC(2026, 5, 10),
+      configId: "mirror-1",
+    });
+  });
+
+  it("attributes an in-flight A result to A after settings switch to B", async () => {
+    const pending = deferred<void>();
+    let configId = "mirror-a";
+    const store: MembershipStore = {
+      recordAssign: () => pending.promise,
+      reconcileAuthor: async () => {},
+      replaceCatalog: async () => {},
+      observe: () => () => {},
+    };
+    const onMirrorResult = vi.fn();
+    const h = harness({
+      membershipStore: store,
+      currentOwner: () => owner,
+      mirrorConfigurationId: () => configId,
+      onMirrorResult,
+    });
+    h.selection.add({ screenName: "a" });
+    await h.assign(LISTS[0] as XList);
+
+    configId = "mirror-b";
+    pending.resolve();
+    await flush();
+
+    expect(onMirrorResult).toHaveBeenCalledWith({
+      ok: true,
+      at: Date.UTC(2026, 5, 10),
+      configId: "mirror-a",
+    });
+  });
+
+  it("still writes when reading the optional Mirror status identity throws", async () => {
+    const { store, calls } = recordingStore();
+    const onMirrorResult = vi.fn();
+    const h = harness({
+      membershipStore: store,
+      currentOwner: () => owner,
+      mirrorConfigurationId: () => {
+        throw new Error("status identity unavailable");
+      },
+      onMirrorResult,
+    });
+    h.selection.add({ screenName: "a" });
+
+    await h.assign(LISTS[0] as XList);
+    await flush();
+
+    expect(h.backend.added).toEqual(["a"]);
+    expect(calls).toHaveLength(1);
+    expect(onMirrorResult).not.toHaveBeenCalled();
+  });
+
+  it("a rejecting Mirror status sink cannot become a Mirror failure", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { store, calls } = recordingStore();
+    const onMirrorResult = vi.fn(async () => {
+      throw new Error("status storage gone");
+    });
+    const h = harness({
+      membershipStore: store,
+      currentOwner: () => owner,
+      mirrorConfigurationId: () => "mirror-1",
+      onMirrorResult,
+    });
+    h.selection.add({ screenName: "a" });
+
+    await h.assign(LISTS[0] as XList);
+    await flush();
+
+    expect(h.backend.added).toEqual(["a"]);
+    expect(calls).toHaveLength(1);
+    expect(onMirrorResult).toHaveBeenCalledOnce();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("contains a throwing status sink after a real Mirror failure", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store: MembershipStore = {
+      recordAssign: async () => {
+        throw new Error("Mirror unavailable");
+      },
+      reconcileAuthor: async () => {},
+      replaceCatalog: async () => {},
+      observe: () => () => {},
+    };
+    const onMirrorResult = vi.fn(() => {
+      throw new Error("status storage gone");
+    });
+    const h = harness({
+      membershipStore: store,
+      currentOwner: () => owner,
+      mirrorConfigurationId: () => "mirror-1",
+      onMirrorResult,
+    });
+    h.selection.add({ screenName: "a" });
+
+    await h.assign(LISTS[0] as XList);
+    await flush();
+
+    expect(h.backend.added).toEqual(["a"]);
+    expect(onMirrorResult).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 
   it("reports async and sync Mirror failures via onMirrorResult", async () => {
@@ -502,15 +1215,23 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         throw new Error("convex down");
       },
       reconcileAuthor: async () => {},
-      reconcileCatalog: async () => {},
-      listsContaining: async () => [],
-      catalog: async () => [],
+      replaceCatalog: async () => {},
+      observe: () => () => {},
     };
-    const h = harness({ membershipStore: asyncFail, currentOwner: () => owner, onMirrorResult });
+    const h = harness({
+      membershipStore: asyncFail,
+      currentOwner: () => owner,
+      mirrorConfigurationId: () => "mirror-1",
+      onMirrorResult,
+    });
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     await flush();
-    expect(onMirrorResult).toHaveBeenCalledWith({ ok: false, at: Date.UTC(2026, 5, 10) });
+    expect(onMirrorResult).toHaveBeenCalledWith({
+      ok: false,
+      at: Date.UTC(2026, 5, 10),
+      configId: "mirror-1",
+    });
 
     const syncFail: MembershipStore = {
       ...asyncFail,
@@ -518,12 +1239,21 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         throw new Error("sync boom");
       },
     };
-    const h2 = harness({ membershipStore: syncFail, currentOwner: () => owner, onMirrorResult });
+    const h2 = harness({
+      membershipStore: syncFail,
+      currentOwner: () => owner,
+      mirrorConfigurationId: () => "mirror-1",
+      onMirrorResult,
+    });
     h2.selection.add({ screenName: "b" });
-    await h2.controller.assignSelectedTo(LISTS[0] as XList);
+    await h2.assign(LISTS[0] as XList);
     await flush();
     expect(onMirrorResult).toHaveBeenCalledTimes(2);
-    expect(onMirrorResult).toHaveBeenLastCalledWith({ ok: false, at: Date.UTC(2026, 5, 10) });
+    expect(onMirrorResult).toHaveBeenLastCalledWith({
+      ok: false,
+      at: Date.UTC(2026, 5, 10),
+      configId: "mirror-1",
+    });
     warn.mockRestore();
   });
 
@@ -537,7 +1267,7 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
       usage: { record: async () => h.controller.stopRun() },
     });
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     await flush();
     expect(h.backend.added).toEqual([]);
     expect(calls).toEqual([]); // recordToMirror short-circuits on the empty change set
@@ -557,7 +1287,7 @@ describe("Filter conductor is never load-bearing (ADR-0010)", () => {
     ).not.toThrow();
     h.selection.add({ screenName: "a" });
     h.selection.add({ screenName: "b" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     await flush();
     expect(h.backend.added).toEqual(["a", "b"]);
     expect(h.selection.count.value).toBe(0);
@@ -617,7 +1347,10 @@ describe("Filter conductor is never load-bearing (ADR-0010)", () => {
     filter.setMode("kind:link", "off");
     const h = harness({ filter });
     h.controller.filterCommand((s) => s.applyPreset(id));
-    expect(filter.state.value.criteria).toEqual({ "kind:video": "hide", "kind:link": "only" });
+    expect(filter.state.value.criteria).toEqual({
+      "kind:video": "hide",
+      "kind:link": "only",
+    });
     expect(h.controller.command("undo")).toBe(true); // one Z
     expect(filter.state.value.criteria).toEqual({}); // the whole batch reverted in one entry
   });
@@ -627,7 +1360,7 @@ describe("Filter conductor is never load-bearing (ADR-0010)", () => {
     const h = harness({ filter });
     h.controller.filterCommand((s) => s.cycle("kind:video")); // arms a filter undo
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList); // arms the assign undo (replaces)
+    await h.assign(LISTS[0] as XList); // arms the assign undo (replaces)
     await flush();
     expect(h.controller.command("undo")).toBe(true);
     await flush();
@@ -695,7 +1428,9 @@ describe("keyboard command surface (story beat 6)", () => {
 
   it("add-to-default-list is dispatched from the keyboard chord", async () => {
     const h = harness();
-    await h.settings.set({ defaultListId: "L1" });
+    await h.settings.set({
+      defaultList: { ownerUserId: OWNER.userId, listId: "L1" },
+    });
     expect(h.controller.command("add-to-default-list")).toBe(true);
     await flush();
     expect(h.backend.added).toEqual(["jane"]);
@@ -814,7 +1549,7 @@ describe("assign toast Undo action + default-list cache fallback", () => {
   it("the success toast's Undo action removes what was added", async () => {
     const h = harness();
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     const toast = h.toasts.toasts.value[0];
     const undoAction = toast?.actions?.find((a) => a.label === "Undo");
     undoAction?.run();
@@ -824,7 +1559,7 @@ describe("assign toast Undo action + default-list cache fallback", () => {
 
   it("an empty selection is a no-op assign", async () => {
     const h = harness();
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     expect(h.backend.added).toEqual([]);
     expect(h.app.running.value).toBeNull();
     expect(titles(h)).toEqual([]);
@@ -832,8 +1567,10 @@ describe("assign toast Undo action + default-list cache fallback", () => {
 
   it("default list set but cache throws: falls back to the picker", async () => {
     const h = harness();
-    await h.settings.set({ defaultListId: "L1" });
-    h.cache.lists = async () => {
+    await h.settings.set({
+      defaultList: { ownerUserId: OWNER.userId, listId: "L1" },
+    });
+    h.cache.cached = async () => {
       throw new Error("offline");
     };
     h.controller.command("add-to-default-list");
@@ -845,12 +1582,131 @@ describe("assign toast Undo action + default-list cache fallback", () => {
 
   it("default list set but the id is missing from the cache: falls back to the picker", async () => {
     const h = harness();
-    await h.settings.set({ defaultListId: "does-not-exist" });
+    await h.settings.set({
+      defaultList: { ownerUserId: OWNER.userId, listId: "does-not-exist" },
+    });
     h.controller.command("add-to-default-list");
     await flush();
     expect(h.backend.added).toEqual([]);
     expect(h.app.pickerOpen.value).toBe(true);
     expect(h.selection.isSelected("jane")).toBe(true);
+  });
+
+  it("does not assign a cached default after its Owner changes during the lookup", async () => {
+    let owner = OWNER;
+    const cached = deferred<XList[]>();
+    const cachedStarted = deferred<void>();
+    const h = harness({ currentOwner: () => owner });
+    await h.settings.set({ defaultList: { ownerUserId: OWNER.userId, listId: "L1" } });
+    h.cache.cached = async () => {
+      cachedStarted.resolve();
+      return cached.promise;
+    };
+
+    h.controller.command("add-to-default-list");
+    await cachedStarted.promise;
+    owner = { userId: "200", screenName: "other" };
+    cached.resolve(LISTS);
+    await flush();
+
+    expect(h.backend.added).toEqual([]);
+    expect(h.selection.list()).toEqual([{ screenName: "jane" }]);
+    expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("a default List owned by another account falls back to the picker", async () => {
+    const h = harness();
+    await h.settings.set({ defaultList: { ownerUserId: "200", listId: "L1" } });
+    h.controller.command("add-to-default-list");
+    await flush();
+    expect(h.backend.added).toEqual([]);
+    expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("migrates a legacy default only after fresh active-Owner X proof", async () => {
+    const h = harness();
+    await h.settings.set({ defaultListId: "L1" });
+    h.controller.command("add-to-default-list");
+    await flush();
+    expect(h.backend.added).toEqual(["jane"]);
+    expect((await h.settings.get()).defaultList).toEqual({
+      ownerUserId: OWNER.userId,
+      listId: "L1",
+    });
+  });
+
+  it("does not assign or migrate a legacy default after its Owner changes during refresh", async () => {
+    let owner = OWNER;
+    const refresh = deferred<XList[]>();
+    const refreshStarted = deferred<void>();
+    const h = harness({ currentOwner: () => owner });
+    await h.settings.set({ defaultListId: "L1" });
+    h.cache.refresh = async () => {
+      refreshStarted.resolve();
+      return refresh.promise;
+    };
+
+    h.controller.command("add-to-default-list");
+    await refreshStarted.promise;
+    owner = { userId: "200", screenName: "other" };
+    refresh.resolve(LISTS);
+    await flush();
+
+    expect(h.backend.added).toEqual([]);
+    expect((await h.settings.get()).defaultList).toBeUndefined();
+    expect(h.selection.list()).toEqual([{ screenName: "jane" }]);
+    expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("does not migrate a legacy default absent from fresh X truth", async () => {
+    const h = harness({ lists: [] });
+    await h.settings.set({ defaultListId: "deleted" });
+    h.controller.command("add-to-default-list");
+    await flush();
+    expect((await h.settings.get()).defaultList).toBeUndefined();
+    expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("falls back to the picker when legacy-default proof fails", async () => {
+    const h = harness();
+    await h.settings.set({ defaultListId: "L1" });
+    h.cache.refresh = async () => {
+      throw new Error("offline");
+    };
+    h.controller.command("add-to-default-list");
+    await flush();
+    expect((await h.settings.get()).defaultList).toBeUndefined();
+    expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("does not remigrate a legacy default after it is cleared", async () => {
+    const h = harness();
+    await h.settings.set({ defaultListId: "L1" });
+    await h.settings.set({ defaultList: undefined, defaultListId: undefined });
+
+    h.controller.command("add-to-default-list");
+    await flush();
+
+    expect(h.backend.added).toEqual([]);
+    expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("keeps X successful when legacy migration settings writes throw or reject", async () => {
+    for (const set of [
+      (() => {
+        throw new Error("sync settings failure");
+      }) as unknown as import("@/core/settings").SettingsStore["set"],
+      async () => Promise.reject(new Error("async settings failure")),
+    ]) {
+      const base = createSettings(memoryArea());
+      await base.set({ defaultListId: "L1" });
+      const h = harness({ settings: { ...base, set } });
+
+      h.controller.command("add-to-default-list");
+      await flush();
+
+      expect(h.backend.added).toEqual(["jane"]);
+    }
   });
 
   it("add-to-default-list nudges when there is no focused author", async () => {
@@ -875,7 +1731,10 @@ describe("keyboard-anchored picker (story beat 6)", () => {
   });
 
   it("keyboard open with no resolvable tweet leaves the anchor null", () => {
-    const h = harness({ targetTweet: null, anchorFor: () => ({ left: 1, top: 1 }) });
+    const h = harness({
+      targetTweet: null,
+      anchorFor: () => ({ left: 1, top: 1 }),
+    });
     h.controller.openPicker("keyboard");
     expect(h.app.pickerAnchor.value).toBeNull();
   });
@@ -929,7 +1788,7 @@ describe("default clock fallback", () => {
   it("uses Date.now when no clock is injected", async () => {
     const h = harness({ omitNow: true });
     h.selection.add({ screenName: "a" });
-    await h.controller.assignSelectedTo(LISTS[0] as XList);
+    await h.assign(LISTS[0] as XList);
     expect(h.backend.added).toEqual(["a"]);
     expect(h.toasts.toasts.value[0]?.title).toBe("Added 1 to Design Folks");
   });

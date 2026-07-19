@@ -8,9 +8,10 @@ import type { Coach } from "@/core/coach";
 import { keycaps, type Platform } from "@/core/keycaps";
 import type { PickerController } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
-import { CREATE_LIST_URL, FIRST_HOVER_TIP, pickerHeader, UNIT_TOOLTIP } from "@/core/strings";
+import { CREATE_LIST_URL, FIRST_HOVER_TIP, UNIT_TOOLTIP } from "@/core/strings";
 import type { ToastStore } from "@/core/toast-store";
 import { ActionBar } from "@/ui/ActionBar";
+import { UI_LAYER } from "@/ui/layers";
 import { ListPicker } from "@/ui/ListPicker";
 import { ShortcutsSheet } from "@/ui/ShortcutsSheet";
 import { ToastHost } from "@/ui/Toast";
@@ -42,10 +43,11 @@ export function OverlayBinding({
   useSignalValue(selection.count);
   const isHovered = useSignalValue(hovered);
   const selectMode = useSignalValue(selection.selectMode);
+  const [focused, setFocused] = useState(false);
   const [tip, setTip] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isHovered || !coach) {
+    if ((!isHovered && !focused) || !coach) {
       setTip(null);
       return undefined;
     }
@@ -56,13 +58,15 @@ export function OverlayBinding({
     return () => {
       live = false;
     };
-  }, [isHovered, coach]);
+  }, [isHovered, focused, coach]);
 
   return (
     <TweetOverlay
+      screenName={author.screenName}
       selected={selection.isSelected(author.screenName)}
-      visible={isHovered || selectMode}
+      visible={isHovered || selectMode || focused}
       onToggle={onToggle}
+      onFocusChange={setFocused}
       tooltip={tip}
     />
   );
@@ -116,6 +120,12 @@ export function App({
   const authors = selection.list();
   void count; // count subscription re-renders the authors list above
 
+  // A review dialog without rows cannot restore useful state later. Clear it
+  // as soon as the final selected author leaves, whatever caused the removal.
+  useEffect(() => {
+    if (count === 0) appState.reviewOpen.value = false;
+  }, [appState, count]);
+
   return (
     <>
       <ActionBar
@@ -135,25 +145,39 @@ export function App({
         onCountHover={async () => ((await coach.tryShowTip("unit", 3)) ? UNIT_TOOLTIP : null)}
       />
       {pickerOpen && (
-        <div
-          class="fixed z-[2147483646]"
-          style={
-            pickerAnchor
-              ? { left: `${pickerAnchor.left}px`, top: `${pickerAnchor.top}px` }
-              : { bottom: "88px", left: "50%", transform: "translateX(-50%)" }
-          }
-        >
-          <ListPicker
-            picker={picker}
-            header={pickerHeader(authors)}
-            selectedCount={authors.length}
-            onPick={(list) => void controller.assignSelectedTo(list)}
-            onCancel={() => {
+        <>
+          <div
+            aria-hidden="true"
+            data-list-picker-backdrop
+            class="fixed inset-0 bg-transparent"
+            style={{ zIndex: UI_LAYER.modal }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              picker.act({ type: "close" });
               appState.pickerOpen.value = false;
             }}
-            onCreateList={() => openUrl(CREATE_LIST_URL)}
           />
-        </div>
+          <div
+            data-list-picker-panel
+            class="fixed"
+            style={{
+              zIndex: UI_LAYER.modal,
+              ...(pickerAnchor
+                ? { left: `${pickerAnchor.left}px`, top: `${pickerAnchor.top}px` }
+                : { bottom: "88px", left: "50%", transform: "translateX(-50%)" }),
+            }}
+          >
+            <ListPicker
+              picker={picker}
+              onEffect={(effect) => void controller.pickerEffect(effect)}
+              onCancel={() => {
+                appState.pickerOpen.value = false;
+              }}
+              onCreateList={() => openUrl(CREATE_LIST_URL)}
+            />
+          </div>
+        </>
       )}
       {welcomeOpen && (
         <WelcomeCard

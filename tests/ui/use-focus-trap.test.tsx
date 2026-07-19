@@ -2,7 +2,7 @@ import { render } from "@testing-library/preact";
 import { useRef } from "preact/hooks";
 import { describe, expect, it } from "vitest";
 
-import { useFocusTrap } from "@/ui/use-focus-trap";
+import { focusWithoutScroll, scrollIntoViewWithin, useFocusTrap } from "@/ui/use-focus-trap";
 
 function Dialog({ empty = false }: { empty?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -38,6 +38,26 @@ function tab(target: Element, shiftKey = false): KeyboardEvent {
 }
 
 describe("useFocusTrap", () => {
+  it("falls back to plain focus when FocusOptions are unsupported", () => {
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    const nativeFocus = button.focus.bind(button);
+    let calls = 0;
+    Object.defineProperty(button, "focus", {
+      configurable: true,
+      value: (options?: FocusOptions) => {
+        calls += 1;
+        if (options) throw new TypeError("FocusOptions unsupported");
+        nativeFocus();
+      },
+    });
+
+    focusWithoutScroll(button);
+    expect(calls).toBe(2);
+    expect(document.activeElement).toBe(button);
+    button.remove();
+  });
+
   it("moves focus to the first focusable element on mount", () => {
     const { getByText } = render(<Dialog />);
     expect(document.activeElement).toBe(getByText("First"));
@@ -93,16 +113,21 @@ describe("useFocusTrap", () => {
   it("ignores non-Tab keys", () => {
     const { getByText } = render(<Dialog />);
     const first = getByText("First");
-    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    const event = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
     first.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
   });
 
-  it("is a no-op on Tab when there are no focusable elements", () => {
+  it("traps Tab on the container when there are no focusable elements", () => {
     const { getByRole } = render(<Dialog empty />);
     const container = getByRole("dialog");
     const event = tab(container, false);
-    expect(event.defaultPrevented).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(container);
   });
 
   it("restores focus to the previously focused element on unmount", () => {
@@ -138,6 +163,39 @@ describe("useFocusTrap", () => {
     host.remove();
   });
 
+  it("restores document focus when focus was outside the shadow host", () => {
+    const outside = document.createElement("button");
+    const host = document.createElement("div");
+    document.body.append(outside, host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const mount = document.createElement("div");
+    shadow.appendChild(mount);
+    outside.focus();
+
+    const { unmount } = render(<Dialog />, { container: mount });
+    unmount();
+
+    expect(document.activeElement).toBe(outside);
+    host.remove();
+    outside.remove();
+  });
+
+  it("restores the inner element when the shadow host was active", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const mount = document.createElement("div");
+    const prior = document.createElement("button");
+    shadow.append(prior, mount);
+    prior.focus();
+
+    const { unmount } = render(<Dialog />, { container: mount });
+    unmount();
+
+    expect(shadow.activeElement).toBe(prior);
+    host.remove();
+  });
+
   it("skips restoring focus when the previously focused element was disconnected", () => {
     const outside = document.createElement("button");
     document.body.appendChild(outside);
@@ -148,5 +206,29 @@ describe("useFocusTrap", () => {
 
     expect(() => unmount()).not.toThrow();
     expect(document.activeElement).not.toBe(outside);
+  });
+
+  it("moves only the supplied option scroller, never the page", () => {
+    const scroller = document.createElement("div");
+    const option = document.createElement("div");
+    scroller.appendChild(option);
+    document.body.appendChild(scroller);
+    Object.defineProperty(scroller, "scrollTop", { value: 20, writable: true });
+    Object.defineProperty(document.documentElement, "scrollTop", {
+      value: 40,
+      writable: true,
+    });
+    Object.defineProperty(scroller, "getBoundingClientRect", {
+      value: () => new DOMRect(0, 0, 100, 100),
+    });
+    Object.defineProperty(option, "getBoundingClientRect", {
+      value: () => new DOMRect(0, 130, 100, 20),
+    });
+
+    scrollIntoViewWithin(scroller, option);
+
+    expect(scroller.scrollTop).toBe(70);
+    expect(document.documentElement.scrollTop).toBe(40);
+    scroller.remove();
   });
 });

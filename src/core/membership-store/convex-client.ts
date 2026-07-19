@@ -1,10 +1,16 @@
-import { ConvexHttpClient } from "convex/browser";
+import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import type { FunctionReference, FunctionReturnType } from "convex/server";
 
 // convex/_generated lives outside src/ (own tsconfig); the api refs stay opaque
 // to ConvexMembershipStore, so this glue file is the only src/ → convex/ import.
 import { api } from "../../../convex/_generated/api";
-import { type CatalogGroup, type ConvexCalls, ConvexMembershipStore } from "./convex";
+import {
+  catalogGroups,
+  type CatalogGroup,
+  type ConvexCalls,
+  ConvexMembershipStore,
+  type MirrorObserver,
+} from "./convex";
 import type { MembershipStore } from "./types";
 import type { MembershipHit } from "./types";
 
@@ -43,5 +49,48 @@ export function buildConvexMembershipStore(cfg: {
     mutation: (ref, args) => http.mutation(ref as FunctionReference<"mutation">, args),
     query: (ref, args) => http.query(ref as FunctionReference<"query">, args),
   };
-  return new ConvexMembershipStore(calls, api.membership, cfg.deviceKey);
+  const observe: MirrorObserver = (subject, emit) => {
+    const client = new ConvexClient(cfg.url);
+    let catalog: ReturnType<typeof catalogGroups> = [];
+    let memberships: MembershipHit[] = [];
+    let active = true;
+    const publish = (): void => {
+      if (active) emit({ catalog, memberships });
+    };
+    const stopCatalog = client.onUpdate(
+      api.membership.catalog,
+      { deviceKey: cfg.deviceKey },
+      (groups) => {
+        catalog = catalogGroups(groups);
+        publish();
+      },
+      () => {},
+    );
+    const stopMemberships =
+      subject.kind === "single"
+        ? client.onUpdate(
+            api.membership.listsContaining,
+            { deviceKey: cfg.deviceKey, memberIdentity: subject.identity },
+            (hits) => {
+              memberships = hits;
+              publish();
+            },
+            () => {},
+          )
+        : () => {};
+    return () => {
+      if (!active) return;
+      active = false;
+      stopCatalog();
+      stopMemberships();
+      void client.close();
+    };
+  };
+  return new ConvexMembershipStore(calls, api.membership, cfg.deviceKey, observe);
+}
+
+/** Verifies URL, transport, deployment, and device key with one read-only query. */
+export async function testConvexConnection(cfg: { url: string; deviceKey: string }): Promise<void> {
+  const client = new ConvexHttpClient(cfg.url);
+  await client.query(api.membership.catalog, { deviceKey: cfg.deviceKey });
 }

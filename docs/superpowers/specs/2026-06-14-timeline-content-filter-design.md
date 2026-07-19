@@ -1,7 +1,9 @@
 # Timeline Content Filter — Design
 
+> Historical planning record. It predates the shipped `tweet-read` boundary and pill/palette surfaces. Use `../../CONTEXT.md`, ADR-0010, and the current modules as implementation truth.
+
 - **Date:** 2026-06-14
-- **Status:** Grilled 2026-06-14; reconciled in a 2nd brainstorming session 2026-06-14 — **deltas:** Language is now a single "only my languages" switch (was per-language chips); user-editable **Link rules** in v1; filter bar is a **sticky bar under the tab strip**. Hide stays deferred (ADR-0010) and v1 scope stays Home + Lists. Pending user review, then writing-plans.
+- **Status:** Superseded planning record
 - **Author:** f + Claude
 - **Related:** ADR-0003 (UI in Shadow DOM), ADR-0004 (centralized selectors), ADR-0006 (UI activation), ADR-0009 (Mirror posture), ADR-0010 (reversible-stub hide), CONTEXT.md (domain language), MISSION.md (verify-by-effect)
 

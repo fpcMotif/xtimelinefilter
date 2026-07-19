@@ -1,5 +1,7 @@
 # Lasso Product Story
 
+> Historical redesign record. It is not implementation truth; use `../product-documentation.md`, `../CONTEXT.md`, and ADRs.
+
 **Direction:** Native Chameleon — "Shipped by X". The voice is X's own register: sentence case, terse, present tense, `·` separators, tabular numbers, X vocabulary — `List` capitalized, `people` not authors, `posts` not tweets, past-tense confirmations (`Muted @jane`). Every surface counts **people** (`3 people selected`, `Add 3 people to a List`) — the author-vs-post ambiguity is killed structurally. The name "Lasso" appears exactly twice on x.com (the shortcuts-sheet corner and a settings link): a native feature doesn't sign its work.
 
 ---
@@ -100,7 +102,7 @@ The bar grows: facepile (3 avatars + `+4`) · **7 people selected** · **Add to 
 **What the user sees:** A real options page (X settings anatomy, same tokens, OS-theme fallback off-x.com):
 
 - **Activation:** `On every visit (default)` / `Only when I click the toolbar icon`. Dormant tabs show a `zz` toolbar badge; clicking to wake fires *Lasso is awake on this tab* and clears it — ADR-0006's missing feedback loop, closed.
-- **How Lasso talks to X** (the promised disclosure, verbatim): `Drive X's own menus — slow, but uses only what you could click yourself` / `X's public REST endpoints — fast, same calls X's site makes` / `GraphQL — fastest; uses X's private endpoints and may break or be frowned upon. Opt in deliberately.` **Prerequisite:** code ships `backend:'rest'` while PRD/CONTEXT say DOM-default — the team picks one and realigns docs *before* this copy ships, or the trust copy lies in the exact place trust is built.
+- **How Lasso talks to X** (the planned disclosure): `Drive X's own menus — slow, but uses only what you could click yourself` / `X's web REST endpoints — fast, same calls X's site makes; not the developer API` / `GraphQL — fastest; uses X's private endpoints and may break or be frowned upon. Opt in deliberately.`
 - **Default List:** `None — always ask` default; when set, *Alt+Shift+L adds straight to this List.*
 - **Keyboard shortcuts:** read-only live keymap (the `?` sheet's rows) + *Press ? on x.com anytime.*
 - **Accessibility:** `Higher-contrast buttons` toggle (AA-safe darker-blue fills).

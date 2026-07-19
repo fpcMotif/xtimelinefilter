@@ -11,7 +11,7 @@ import type { XList } from "@/core/x-client/types";
 const refs: MembershipApiRefs = {
   recordAssign: "ref.recordAssign",
   reconcileAuthor: "ref.reconcileAuthor",
-  reconcileCatalog: "ref.reconcileCatalog",
+  replaceCatalog: "ref.replaceCatalog",
   listsContaining: "ref.listsContaining",
   catalog: "ref.catalog",
 };
@@ -38,12 +38,63 @@ function make() {
 }
 
 describe("ConvexMembershipStore", () => {
+  it("falls back to one-shot catalog observation for bulk subjects", async () => {
+    const { fake, store } = make();
+    fake.queryResults.set(refs.catalog, []);
+    const snapshots: unknown[] = [];
+    const stop = store.observe({ kind: "bulk" }, (snapshot) => snapshots.push(snapshot));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(snapshots).toEqual([{ catalog: [], memberships: [] }]);
+    stop();
+  });
+
+  it("suppresses disposed and failed one-shot observations", async () => {
+    const { fake, store } = make();
+    let release!: (value: unknown[]) => void;
+    fake.queryResults.set(
+      refs.catalog,
+      new Promise<unknown[]>((resolve) => {
+        release = resolve;
+      }),
+    );
+    fake.queryResults.set(refs.listsContaining, []);
+    const snapshots: unknown[] = [];
+    const stop = store.observe({ kind: "single", identity: "user:alice" }, (snapshot) =>
+      snapshots.push(snapshot),
+    );
+    stop();
+    release([]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(snapshots).toEqual([]);
+
+    fake.queryResults.set(refs.catalog, Promise.reject(new Error("offline")));
+    store.observe({ kind: "bulk" }, (snapshot) => snapshots.push(snapshot));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(snapshots).toEqual([]);
+  });
+
   it("recordAssign maps changes to results (action+outcome), list.id->listId, with deviceKey", async () => {
     const { fake, store } = make();
-    await store.recordAssign(owner, list, [
-      { screenName: "alice", userId: "9", action: "add", outcome: "added" },
-      { screenName: "bob", action: "remove", outcome: "removed" },
-    ]);
+    await store.recordAssign(owner, list, {
+      ownerObservedAt: 122,
+      changes: [
+        {
+          screenName: "alice",
+          userId: "9",
+          identity: "user:9",
+          action: "add",
+          outcome: "added",
+          observedAt: 123,
+        },
+        {
+          screenName: "bob",
+          identity: null,
+          action: "remove",
+          outcome: "removed",
+          observedAt: 124,
+        },
+      ],
+    });
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0]).toEqual({
       kind: "mutation",
@@ -51,27 +102,45 @@ describe("ConvexMembershipStore", () => {
       args: {
         deviceKey: KEY,
         owner,
+        ownerObservedAt: 122,
         list: { listId: "L1", name: "Builders", isPrivate: true, memberCount: 5 },
         results: [
-          { memberScreenName: "alice", memberUserId: "9", action: "add", outcome: "added" },
-          { memberScreenName: "bob", action: "remove", outcome: "removed" },
+          {
+            memberScreenName: "alice",
+            memberUserId: "9",
+            memberIdentity: "user:9",
+            action: "add",
+            outcome: "added",
+            observedAt: 123,
+          },
+          {
+            memberScreenName: "bob",
+            action: "remove",
+            outcome: "removed",
+            observedAt: 124,
+          },
         ],
       },
     });
   });
 
-  it("listsContaining passes deviceKey+screenName and returns the hits", async () => {
+  it("fallback observation reads memberships with deviceKey+screenName", async () => {
     const { fake, store } = make();
     const hits = [{ listId: "L1", ownerUserId: "100", present: true, lastSeenAt: 7 }];
+    fake.queryResults.set(refs.catalog, []);
     fake.queryResults.set(refs.listsContaining, hits);
-    expect(await store.listsContaining("alice")).toEqual(hits);
-    expect(fake.calls[0]).toMatchObject({
+    const snapshots: unknown[] = [];
+    store.observe({ kind: "single", identity: "user:9" }, (snapshot) => snapshots.push(snapshot));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(snapshots).toEqual([{ catalog: [], memberships: hits }]);
+    expect(fake.calls).toContainEqual({
+      kind: "query",
       ref: refs.listsContaining,
-      args: { deviceKey: KEY, screenName: "alice" },
+      args: { deviceKey: KEY, memberIdentity: "user:9" },
     });
   });
 
-  it("catalog maps listId->id and derives per-Owner lastReconciledAt (max)", async () => {
+  it("fallback observation maps listId->id and derives per-Owner lastReconciledAt (max)", async () => {
     const { fake, store } = make();
     fake.queryResults.set(refs.catalog, [
       {
@@ -82,35 +151,68 @@ describe("ConvexMembershipStore", () => {
         ],
       },
     ]);
-    expect(await store.catalog()).toEqual([
+    const snapshots: unknown[] = [];
+    store.observe({ kind: "bulk" }, (snapshot) => snapshots.push(snapshot));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(snapshots).toEqual([
       {
-        owner,
-        lists: [
-          { id: "L1", name: "A", isPrivate: false },
-          { id: "L2", name: "B", memberCount: 3 },
+        catalog: [
+          {
+            owner,
+            lists: [
+              { id: "L1", name: "A", isPrivate: false },
+              { id: "L2", name: "B", memberCount: 3 },
+            ],
+            lastReconciledAt: 25,
+          },
         ],
-        lastReconciledAt: 25,
+        memberships: [],
       },
     ]);
   });
 
-  it("omits lastReconciledAt for an Owner whose Lists were never reconciled", async () => {
+  it("omits lastReconciledAt when fallback catalog rows lack it", async () => {
     const { fake, store } = make();
     fake.queryResults.set(refs.catalog, [
       { owner, lists: [{ listId: "L1", name: "A" }] }, // no lastReconciledAt anywhere
     ]);
-    expect(await store.catalog()).toEqual([{ owner, lists: [{ id: "L1", name: "A" }] }]);
+    const snapshots: unknown[] = [];
+    store.observe({ kind: "bulk" }, (snapshot) => snapshots.push(snapshot));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(snapshots).toEqual([
+      { catalog: [{ owner, lists: [{ id: "L1", name: "A" }] }], memberships: [] },
+    ]);
   });
 
-  it("reconcileCatalog maps each XList.id->listId, omitting absent optionals", async () => {
+  it("keeps Owner freshness when a complete catalog is empty", async () => {
     const { fake, store } = make();
-    await store.reconcileCatalog(owner, [list, { id: "L2", name: "Friends" }]);
+    fake.queryResults.set(refs.catalog, [{ owner, lists: [], lastReconciledAt: 123 }]);
+    const snapshots: unknown[] = [];
+    store.observe({ kind: "bulk" }, (snapshot) => snapshots.push(snapshot));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(snapshots).toEqual([
+      {
+        catalog: [{ owner, lists: [], lastReconciledAt: 123 }],
+        memberships: [],
+      },
+    ]);
+  });
+
+  it("replaceCatalog maps each XList.id->listId, observedAt, and omits absent optionals", async () => {
+    const { fake, store } = make();
+    await store.replaceCatalog(owner, {
+      lists: [list, { id: "L2", name: "Friends" }],
+      observedAt: 123,
+      ownerObservedAt: 122,
+    });
     expect(fake.calls[0]).toEqual({
       kind: "mutation",
-      ref: refs.reconcileCatalog,
+      ref: refs.replaceCatalog,
       args: {
         deviceKey: KEY,
         owner,
+        observedAt: 123,
+        ownerObservedAt: 122,
         lists: [
           { listId: "L1", name: "Builders", isPrivate: true, memberCount: 5 },
           { listId: "L2", name: "Friends" },
@@ -121,11 +223,23 @@ describe("ConvexMembershipStore", () => {
 
   it("reconcileAuthor passes owner, screenName, listIds with deviceKey", async () => {
     const { fake, store } = make();
-    await store.reconcileAuthor(owner, "alice", ["L1", "L2"]);
+    await store.reconcileAuthor(
+      owner,
+      { screenName: "alice", identity: "user:9" },
+      { listIds: ["L1", "L2"], observedAt: 123, ownerObservedAt: 122 },
+    );
     expect(fake.calls[0]).toEqual({
       kind: "mutation",
       ref: refs.reconcileAuthor,
-      args: { deviceKey: KEY, owner, screenName: "alice", listIds: ["L1", "L2"] },
+      args: {
+        deviceKey: KEY,
+        owner,
+        screenName: "alice",
+        memberIdentity: "user:9",
+        listIds: ["L1", "L2"],
+        observedAt: 123,
+        ownerObservedAt: 122,
+      },
     });
   });
 });

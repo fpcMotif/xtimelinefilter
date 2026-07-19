@@ -25,8 +25,8 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function makeApi(fetchImpl: typeof fetch) {
-  return new GraphqlXListApi(creds, { fetch: fetchImpl, config });
+function makeApi(fetchImpl: typeof fetch, getCredentials = () => creds) {
+  return new GraphqlXListApi(getCredentials, { fetch: fetchImpl, config });
 }
 
 describe("GraphqlXListApi.addMember", () => {
@@ -48,6 +48,31 @@ describe("GraphqlXListApi.addMember", () => {
     const body = JSON.parse(init.body as string);
     expect(body.variables).toEqual({ listId: "L1", userId: "U9" });
     expect(typeof body.variables.listId).toBe("string");
+  });
+
+  it("reads rotated credentials for each request", async () => {
+    let current: Credentials = { csrf: "first-csrf", bearer: "FIRST" };
+    const getCredentials = vi.fn(() => current);
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ data: { list: {} } }),
+    );
+    const api = makeApi(fetchMock as unknown as typeof fetch, getCredentials);
+
+    await api.addMember(list, author);
+    current = { csrf: "second-csrf", bearer: "SECOND" };
+    await api.removeMember(list, author);
+
+    expect(getCredentials).toHaveBeenCalledTimes(2);
+    const firstInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit | undefined;
+    expect(firstInit?.headers).toMatchObject({
+      authorization: "Bearer FIRST",
+      "x-csrf-token": "first-csrf",
+    });
+    expect(secondInit?.headers).toMatchObject({
+      authorization: "Bearer SECOND",
+      "x-csrf-token": "second-csrf",
+    });
   });
 
   it("classifies an 'already a member' error as already-member", async () => {
@@ -106,6 +131,16 @@ describe("GraphqlXListApi.addMember", () => {
     ).rejects.toMatchObject({ kind: "unknown", message: "HTTP 500" });
   });
 
+  it("reports a rotated static query ID as a typed visible failure", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}, 404));
+    await expect(
+      makeApi(fetchMock as unknown as typeof fetch).addMember(list, author),
+    ).rejects.toMatchObject({
+      kind: "not-found",
+      message: "GraphQL ListAddMember endpoint was not found; its query ID may have rotated.",
+    });
+  });
+
   it("classifies GraphQL error codes", async () => {
     const cases = [
       [{ code: 88, message: "slow down" }, "rate-limited"],
@@ -131,17 +166,33 @@ describe("GraphqlXListApi.addMember", () => {
       return jsonResponse({ data: { list: {} } });
     });
     await makeApi(fetchMock as unknown as typeof fetch).addMember(list, { screenName: "jack" });
+    const [lookupUrl, lookupInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(lookupInit.method).toBe("GET");
+    const lookup = new URL(lookupUrl);
+    expect(lookup.pathname).toBe("/i/api/graphql/userQID/UserByScreenName");
+    expect(JSON.parse(lookup.searchParams.get("variables") ?? "{}")).toMatchObject({
+      screen_name: "jack",
+    });
     const post = fetchMock.mock.calls.find((c) => (c[0] as string).includes("ListAddMember"));
     const body = JSON.parse((post?.[1]?.body as string) ?? "{}");
     expect(body.variables).toEqual({ listId: "L1", userId: "777" });
   });
 
-  it("throws not-found when a userId cannot be resolved", async () => {
+  it("throws not-found when lookup has no rest_id", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ data: { user: {} } }));
     await expect(
       makeApi(fetchMock as unknown as typeof fetch).addMember(list, { screenName: "ghost" }),
     ).rejects.toMatchObject({ kind: "not-found" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws not-found when lookup returns a non-string rest_id", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ data: { user: { result: { rest_id: 777 } } } }),
+    );
+    await expect(
+      makeApi(fetchMock as unknown as typeof fetch).addMember(list, { screenName: "ghost" }),
+    ).rejects.toMatchObject({ kind: "not-found" });
   });
 });
 
@@ -152,45 +203,5 @@ describe("GraphqlXListApi.removeMember", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://x.com/i/api/graphql/removeQID/ListRemoveMember");
     expect(JSON.parse(init.body as string).variables).toEqual({ listId: "L1", userId: "U9" });
-  });
-});
-
-describe("GraphqlXListApi.resolveUserId", () => {
-  it("GETs UserByScreenName and returns the rest_id", async () => {
-    const fetchMock = vi.fn(async () =>
-      jsonResponse({ data: { user: { result: { rest_id: "777" } } } }),
-    );
-    const id = await makeApi(fetchMock as unknown as typeof fetch).resolveUserId("jack");
-
-    expect(id).toBe("777");
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url.startsWith("https://x.com/i/api/graphql/userQID/UserByScreenName?")).toBe(true);
-    expect(init.method).toBe("GET");
-    const decoded = decodeURIComponent(url);
-    expect(decoded).toContain('"screen_name":"jack"');
-  });
-
-  it("returns null when the user cannot be found", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ data: { user: {} } }));
-    const id = await makeApi(fetchMock as unknown as typeof fetch).resolveUserId("ghost");
-    expect(id).toBeNull();
-  });
-
-  it("returns null when rest_id is not a string", async () => {
-    const fetchMock = vi.fn(async () =>
-      jsonResponse({ data: { user: { result: { rest_id: 777 } } } }),
-    );
-    await expect(
-      makeApi(fetchMock as unknown as typeof fetch).resolveUserId("ghost"),
-    ).resolves.toBeNull();
-  });
-});
-
-describe("GraphqlXListApi.getLists", () => {
-  it("throws the explicit not-implemented error", async () => {
-    await expect(makeApi(vi.fn() as unknown as typeof fetch).getLists()).rejects.toMatchObject({
-      kind: "unknown",
-      message: "GraphqlXListApi.getLists not implemented yet",
-    });
   });
 });

@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { createCoach, DECAY_ASSIGNS, DECAY_MS } from "@/core/coach";
 import type { StorageLike } from "@/core/settings";
 
-function memoryArea(): StorageLike {
-  const store: Record<string, unknown> = {};
+function memoryArea(seed: Record<string, unknown> = {}): StorageLike {
+  const store: Record<string, unknown> = { ...seed };
   return {
     async get() {
       return { ...store };
@@ -22,9 +22,24 @@ function coachAt(now: { t: number }, area = memoryArea()) {
 }
 
 describe("createCoach", () => {
+  it("uses its default storage and clock dependencies", async () => {
+    const c = createCoach();
+    await expect(c.isOnboarded()).resolves.toBe(false);
+  });
+
   it("starts not onboarded; markOnboarded persists", async () => {
     const c = coachAt({ t: T0 });
     expect(await c.isOnboarded()).toBe(false);
+    await c.markOnboarded();
+    expect(await c.isOnboarded()).toBe(true);
+  });
+
+  it("recovers from a persisted null state", async () => {
+    const area = memoryArea({ "lasso:coach": null });
+    const c = coachAt({ t: T0 }, area);
+
+    expect(await c.isOnboarded()).toBe(false);
+    expect(await c.hintsActive()).toBe(true);
     await c.markOnboarded();
     expect(await c.isOnboarded()).toBe(true);
   });
@@ -80,6 +95,52 @@ describe("createCoach", () => {
     };
     const c = createCoach(readonlyArea, () => T0);
     expect(await c.hintsActive()).toBe(true); // now() - now() === 0 <= DECAY_MS
+  });
+
+  it("fails closed when coach storage reads reject", async () => {
+    const rejectingArea: StorageLike = {
+      async get() {
+        throw new Error("storage unavailable");
+      },
+      async set() {
+        throw new Error("storage unavailable");
+      },
+    };
+    const c = createCoach(rejectingArea, () => T0);
+
+    await expect(c.isOnboarded()).resolves.toBe(true);
+    await expect(c.hintsActive()).resolves.toBe(false);
+    await expect(c.tryShowTip("first-hover")).resolves.toBe(false);
+    await expect(c.markOnboarded()).resolves.toBeUndefined();
+    await expect(c.recordAssign()).resolves.toBeUndefined();
+    await expect(c.replayIntro()).resolves.toBeUndefined();
+  });
+
+  it("does not show a tip when its storage write rejects", async () => {
+    const rejectingWriteArea: StorageLike = {
+      async get() {
+        return {};
+      },
+      async set() {
+        throw new Error("storage unavailable");
+      },
+    };
+    const c = createCoach(rejectingWriteArea, () => T0);
+
+    await expect(c.tryShowTip("first-hover")).resolves.toBe(false);
+    await expect(c.markOnboarded()).resolves.toBeUndefined();
+    await expect(c.recordAssign()).resolves.toBeUndefined();
+    await expect(c.replayIntro()).resolves.toBeUndefined();
+  });
+
+  it("serializes same-instance coach mutations", async () => {
+    const c = coachAt({ t: T0 });
+
+    const shown = await Promise.all([c.tryShowTip("first-hover"), c.tryShowTip("first-hover")]);
+    expect(shown).toEqual([true, false]);
+
+    await Promise.all(Array.from({ length: DECAY_ASSIGNS }, () => c.recordAssign()));
+    expect(await c.hintsActive()).toBe(false);
   });
 
   it("replayIntro restores the welcome card and every hint for a second pass", async () => {

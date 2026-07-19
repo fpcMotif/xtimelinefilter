@@ -1,6 +1,8 @@
 # Filter Surfaces — Design
 
-- **Status:** Draft (pending user review)
+> Historical planning record. It predates the shipped pill/palette implementation and profile scope. Use `../../CONTEXT.md`, ADR-0010, and the current modules as implementation truth.
+
+- **Status:** Superseded planning record
 - **Date:** 2026-06-14
 - **Builds on:** [`2026-06-14-timeline-content-filter-design.md`](./2026-06-14-timeline-content-filter-design.md) (the filter engine + semantics)
 - **Supersedes:** the "sticky chip bar is the only UI" assumption of that spec (task-013). The bar is retained but demoted to the lowest-priority surface.

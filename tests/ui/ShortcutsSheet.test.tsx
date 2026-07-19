@@ -2,6 +2,7 @@ import { render } from "@testing-library/preact";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_KEYMAP } from "@/content/keyboard";
+import { UI_LAYER } from "@/ui/layers";
 import { ShortcutsSheet } from "@/ui/ShortcutsSheet";
 
 describe("ShortcutsSheet — renders from the LIVE keymap (story beat 5)", () => {
@@ -23,6 +24,14 @@ describe("ShortcutsSheet — renders from the LIVE keymap (story beat 5)", () =>
     const caps = [...container.querySelectorAll("kbd")].map((k) => k.textContent);
     expect(caps).toContain("⌥");
     expect(caps).not.toContain("Alt");
+  });
+
+  it("owns the modal layer", () => {
+    const { getByRole } = render(
+      <ShortcutsSheet keymap={DEFAULT_KEYMAP} platform="other" onClose={() => {}} />,
+    );
+    const backdrop = getByRole("dialog").parentElement as HTMLElement;
+    expect(Number(backdrop.style.zIndex)).toBe(UI_LAYER.modal);
   });
 
   it("closes with the trust footer", () => {

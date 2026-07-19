@@ -119,7 +119,9 @@ test.describe("content UI (real bundle, chrome stubbed)", () => {
     // Beat 3 — the welcome card, three gestures, one trust fact.
     await expect(page.getByText("Lasso is ready")).toBeVisible();
     await expect(
-      page.getByText("Lasso runs entirely in your browser. Nothing leaves x.com."),
+      page.getByText(
+        "Lasso never sends your X session credentials to the Mirror. Mirror sync is off until you configure it.",
+      ),
     ).toBeVisible();
     await page.getByText("Skip", { exact: true }).click();
     await expect(page.getByText("Lasso is ready")).toBeHidden();

@@ -15,6 +15,11 @@ describe("fuzzyScore", () => {
 });
 
 describe("fuzzyRank", () => {
+  it("keeps order for an empty query", () => {
+    const items = [{ name: "beta" }, { name: "alpha" }];
+    expect(fuzzyRank("  ", items, (item) => item.name)).toEqual(items);
+  });
+
   it("filters out items that do not match", () => {
     const items = [{ name: "alpha" }, { name: "beta" }];
     expect(fuzzyRank("zz", items, (item) => item.name)).toEqual([]);

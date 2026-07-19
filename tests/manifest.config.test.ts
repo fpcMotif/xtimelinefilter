@@ -10,21 +10,29 @@ const manifest = manifestExport as chrome.runtime.ManifestV3;
 // time; this locks the contract the rest of the extension is wired against —
 // a silent rename here breaks content-script injection or the Mirror's CORS.
 describe("manifest.config", () => {
-  it("declares an MV3 extension with the storage permission and the Convex host", () => {
+  it("declares its MV3 permissions, Chrome floor, and Convex host", () => {
     expect(manifest.manifest_version).toBe(3);
-    expect(manifest.permissions).toEqual(["storage"]);
+    expect(manifest.description).toBe(
+      "Select posts as you scroll and file their authors into your X Lists — without leaving the feed. Keyboard-first.",
+    );
+    expect(manifest.permissions).toEqual(["storage", "webNavigation"]);
+    expect(manifest.minimum_chrome_version).toBe("106");
     // ADR-0009: the sole host permission is the optional cross-origin Convex Mirror.
     expect(manifest.host_permissions).toEqual(["https://*.convex.cloud/*"]);
+    expect(manifest.content_security_policy).toEqual({
+      extension_pages:
+        "script-src 'self'; object-src 'self'; connect-src https://*.convex.cloud wss://*.convex.cloud",
+    });
   });
 
   it("injects the MAIN-world activator at document_start and the content script at idle", () => {
     const scripts = manifest.content_scripts ?? [];
     const mainWorld = scripts.find((s) => s.js?.includes("src/content/main-world.ts"));
     expect(mainWorld).toMatchObject({ run_at: "document_start", world: "MAIN" });
-    expect(mainWorld?.matches).toEqual(["https://x.com/*", "https://twitter.com/*"]);
+    expect(mainWorld?.matches).toEqual(["https://x.com/*"]);
 
     const content = scripts.find((s) => s.js?.includes("src/content/main.tsx"));
-    expect(content).toMatchObject({ run_at: "document_idle" });
+    expect(content).toMatchObject({ run_at: "document_idle", matches: ["https://x.com/*"] });
   });
 
   it("wires the service worker, popup, and options page", () => {

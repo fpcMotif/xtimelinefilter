@@ -19,6 +19,15 @@ export interface KeyBinding {
   command: CommandId;
 }
 
+export interface KeyboardSurfaces {
+  /** True while a Lasso modal must own modified Lasso keys from its input. */
+  modalOpen(): boolean;
+  /** Current palette binding. `null` means the palette is unavailable. */
+  paletteHotkey(): string | null;
+  /** Toggle the palette. False leaves the event for X. */
+  togglePalette(): boolean;
+}
+
 /**
  * Default bindings (Alt+key per the user's choice). X's own action/navigation keys
  * are NOT bound: j/k (cursor), l (like), i (unassigned by X but left free), b
@@ -52,6 +61,15 @@ export const CHORD_WINDOW_MS = 1000;
 
 const MOD_ORDER = ["Alt", "Ctrl", "Meta", "Shift"] as const;
 
+type ComboSpec = {
+  key: string;
+  alt: boolean;
+  ctrl: boolean;
+  meta: boolean;
+  shift: boolean;
+  mod: boolean;
+};
+
 /** Canonical "Alt+Shift+l" form: modifiers in a fixed order, single keys lowercased. */
 export function canonicalCombo(combo: string): string {
   const parts = combo
@@ -62,6 +80,87 @@ export function canonicalCombo(combo: string): string {
   const key = parts.at(-1) ?? "";
   const ordered = MOD_ORDER.filter((m) => mods.has(m.toLowerCase()));
   return [...ordered, key.length === 1 ? key.toLowerCase() : key].join("+");
+}
+
+function parseCombo(combo: string): ComboSpec | null {
+  const parts = combo
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  const key = parts.at(-1)!;
+  const modifiers = parts.slice(0, -1).map((part) => part.toLowerCase());
+  if (!key || key.includes("+") || new Set(modifiers).size !== modifiers.length) return null;
+  if (modifiers.some((part) => !["alt", "ctrl", "meta", "shift", "mod"].includes(part))) {
+    return null;
+  }
+  const mod = modifiers.includes("mod");
+  if (mod && (modifiers.includes("ctrl") || modifiers.includes("meta"))) return null;
+  return {
+    key: key.length === 1 ? key.toLowerCase() : key,
+    alt: modifiers.includes("alt"),
+    ctrl: modifiers.includes("ctrl"),
+    meta: modifiers.includes("meta"),
+    shift: modifiers.includes("shift"),
+    mod,
+  };
+}
+
+function matchesSpec(spec: ComboSpec, combo: string): boolean {
+  const event = parseCombo(combo);
+  if (!event || spec.key !== event.key) return false;
+  if (spec.alt !== event.alt || spec.shift !== event.shift) return false;
+  if (spec.mod) return event.ctrl || event.meta;
+  return spec.ctrl === event.ctrl && spec.meta === event.meta;
+}
+
+/** True when a user-configured combo and a static combo can match one keydown. */
+export function combosCollide(first: string, second: string): boolean {
+  const a = parseCombo(first);
+  const b = parseCombo(second);
+  if (!a || !b || a.key !== b.key) return false;
+  for (const alt of [false, true]) {
+    for (const ctrl of [false, true]) {
+      for (const meta of [false, true]) {
+        for (const shift of [false, true]) {
+          const event = `${alt ? "Alt+" : ""}${ctrl ? "Ctrl+" : ""}${meta ? "Meta+" : ""}${shift ? "Shift+" : ""}${a.key}`;
+          if (matchesSpec(a, event) && matchesSpec(b, event)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/** Palette bindings are deliberate chords: no bare X keys and no static clashes. */
+export function validatePaletteHotkey(
+  combo: string,
+  keymap: KeyBinding[] = DEFAULT_KEYMAP,
+): string | null {
+  const spec = parseCombo(combo);
+  if (
+    !spec ||
+    !spec.key ||
+    (spec.key.length > 1 &&
+      !/^(Escape|Enter|Tab|Space|Arrow(?:Up|Down|Left|Right))$/.test(spec.key))
+  ) {
+    return "Use a key plus modifiers, e.g. Mod+Shift+F.";
+  }
+  if (!(spec.alt || spec.ctrl || spec.meta || spec.mod)) {
+    return "Use Ctrl, Meta, Mod, or Alt.";
+  }
+  if (keymap.some((binding) => combosCollide(combo, binding.combo))) {
+    return "That key is already used by Lasso.";
+  }
+  return null;
+}
+
+/** Match a configured combo with the same grammar used by the main keymap. */
+export function matchesCombo(e: KeyboardEvent, combo: string): boolean {
+  const spec = parseCombo(combo);
+  if (!spec) return false;
+  const event = eventToCombo(e);
+  return matchesSpec(spec, event);
 }
 
 /** "KeyN" → "n", "Digit3" → "3" — physical-key fallback for Alt combos. */
@@ -102,6 +201,8 @@ export interface KeyboardLayerOptions {
    * (e.g. Esc with no Lasso surface open, z with no undo armed).
    */
   run: (command: CommandId) => boolean | void;
+  /** Live filter-surface intents. No listener is installed for them. */
+  surfaces?: KeyboardSurfaces;
   doc?: Document;
   now?: () => number;
 }
@@ -127,18 +228,36 @@ export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
     // No isComposing bail: macOS marks the Option+N dead-key keydown as composing,
     // and IME composition only happens inside editables, which this check covers.
     const target = e.composedPath?.()[0] ?? e.target;
-    if (isTypingTarget(target)) return;
+    const typing = isTypingTarget(target);
+    const modifiedModalInput = !!(
+      typing &&
+      opts.surfaces?.modalOpen() &&
+      (e.altKey || e.ctrlKey || e.metaKey)
+    );
+    if (typing && !modifiedModalInput) return;
     const combo = eventToCombo(e);
     if (combo === "g") {
       chordArmedUntil = now() + CHORD_WINDOW_MS;
       return; // g itself is X's chord prefix — never Lasso's
     }
     const chordPending = now() < chordArmedUntil;
+    const xChordOwnsKey = chordPending && !modifiedModalInput;
     chordArmedUntil = 0; // any key concludes (or breaks) the chord
     const command = table.get(combo);
-    if (!command) return;
-    if (chordPending) return; // the second key of g+h / g+s / g+f — X's, not ours
-    if (opts.run(command) === false) return;
+    // Static bindings always win a collision. Settings are checked on each keydown,
+    // so a changed palette binding needs no listener rebind.
+    if (command) {
+      if (xChordOwnsKey) return; // the second key of g+h / g+s / g+f — X's, not ours
+      if (opts.run(command) === false) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (xChordOwnsKey) return;
+    const paletteHotkey = opts.surfaces?.paletteHotkey();
+    if (!paletteHotkey || validatePaletteHotkey(paletteHotkey, opts.keymap)) return;
+    if (!matchesCombo(e, paletteHotkey)) return;
+    if (opts.surfaces?.togglePalette() === false) return;
     e.preventDefault();
     e.stopImmediatePropagation();
   };

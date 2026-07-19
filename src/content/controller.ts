@@ -1,15 +1,20 @@
 import type { AppState } from "@/content/app-state";
 import type { CommandId } from "@/content/keyboard";
-import { type AssignOptions, assignAuthorsToList } from "@/core/actions/assign-to-list";
+import {
+  type AssignOptions,
+  assignAuthorsToList,
+  removeAuthorsFromList,
+} from "@/core/actions/assign-to-list";
 import { feedbackFor } from "@/core/assign-feedback";
 import type { Coach } from "@/core/coach";
 import type { FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
 import type { ListUsage } from "@/core/list-usage";
+import { membershipIdentityOf } from "@/core/membership-store/identity";
 import { NullMembershipStore } from "@/core/membership-store/null";
 import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
 import type { MirrorStatus } from "@/core/mirror-status";
-import type { PickerController } from "@/core/picker-controller";
+import type { PickerController, PickerEffect } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
 import type { SettingsStore } from "@/core/settings";
 import {
@@ -31,11 +36,22 @@ import {
   WAKE_TOAST,
 } from "@/core/strings";
 import type { ToastAction, ToastSpec, ToastStore } from "@/core/toast-store";
-import type { UndoRegistry } from "@/core/undo";
+import { UNDO_WINDOW_MS, type UndoRegistry } from "@/core/undo";
 import type { XList, XListApi } from "@/core/x-client/types";
 
-/** Mute/assign undo window (story beat 6: "Z, 10s window"). */
-export const UNDO_WINDOW_MS = 10_000;
+export { UNDO_WINDOW_MS };
+
+const ownsTarget = (targetOwner: Owner | null, actingOwner: Owner | null): boolean =>
+  targetOwner ? actingOwner?.userId === targetOwner.userId : actingOwner === null;
+
+/** Optional side effects must not alter X's result or leak a rejected promise. */
+const fireAndForget = (operation: () => Promise<unknown>): void => {
+  try {
+    void operation().catch(() => {});
+  } catch {
+    // A seam may throw before returning its promise.
+  }
+};
 
 export type AssignSource = "pointer" | "keyboard";
 
@@ -72,13 +88,15 @@ export interface ControllerDeps {
   membershipStore?: MembershipStore;
   /** The Owner logged in at action time; absent/returns null ⇒ the Mirror is skipped. */
   currentOwner?: () => Owner | null;
+  /** Opaque identity of the Mirror configured at dispatch time. */
+  mirrorConfigurationId?: () => string | null;
   /**
    * Observability hook for the Mirror: called after every recordAssign attempt with
    * its outcome, so a surface (popup) can show "synced/failing" instantly instead of
    * the user inferring it from a once-only console.warn. Fire-and-forget like the
    * write itself — never load-bearing (ADR-0009).
    */
-  onMirrorResult?: (result: MirrorStatus) => void;
+  onMirrorResult?: (result: MirrorStatus) => void | Promise<void>;
   usage?: ListUsage;
   /** The one global filter store; absent ⇒ filter commands are no-ops (ADR-0010 — never load-bearing). */
   filter?: FilterStore;
@@ -109,7 +127,8 @@ export interface LassoController {
    */
   filterCommand(run: (filter: FilterStore) => void): void;
   openPicker(source?: AssignSource): void;
-  assignSelectedTo(list: XList): Promise<void>;
+  /** Runs only a Picker-approved assignment. */
+  pickerEffect(effect: Exclude<PickerEffect, null>): Promise<void>;
   stopRun(): void;
   toggleSelect(author: TweetAuthor): void;
   trySelectMode(): void;
@@ -126,6 +145,8 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const currentOwner = deps.currentOwner ?? ((): Owner | null => null);
   const filter = deps.filter;
   let stopRequested = false;
+  let activeAssignment: symbol | null = null;
+  let activeUndo: symbol | null = null;
   let lastSource: AssignSource = "pointer";
   let individualSelections = 0; // session-scoped, feeds the select-mode nudge
   let mirrorWarned = false; // C1: first Mirror failure is surfaced once, then silent
@@ -135,27 +156,47 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   };
 
   /**
-   * Mirror the changes from a run, stamped with the Owner logged in right now.
+   * Mirror changes only after the caller confirms the target Owner is still active.
    * Fire-and-forget: the Mirror is off-to-the-side and must never block or break
    * the X flow — no Owner skips it, and a failure is swallowed (ADR-0009). The
    * try/catch also absorbs a *synchronous* throw from the seam (.catch alone only
    * attaches to a returned promise), and the first failure is surfaced once
    * so a silently-blocked Mirror — e.g. a page-CSP-rejected POST — is observable.
    */
-  function recordToMirror(list: XList, changes: MembershipChange[]): void {
-    if (changes.length === 0) return;
-    const owner = currentOwner();
-    if (!owner) return;
+  function recordToMirror(
+    owner: Owner | null,
+    ownerObservedAt: number,
+    list: XList,
+    changes: MembershipChange[],
+  ): void {
+    if (!owner || changes.length === 0) return;
+    let configId: string | null = null;
+    try {
+      configId = deps.mirrorConfigurationId?.() ?? null;
+    } catch {
+      // Status identity is optional observability. The Mirror write still runs.
+    }
+    const report = (ok: boolean): void => {
+      if (!configId) return;
+      try {
+        const result = deps.onMirrorResult?.({ ok, at: now(), configId });
+        void Promise.resolve(result).catch(() => {});
+      } catch {
+        // A status sink cannot alter the optional Mirror or X result.
+      }
+    };
     const onFail = (err: unknown): void => {
-      deps.onMirrorResult?.({ ok: false, at: now() });
+      report(false);
       if (mirrorWarned) return;
       mirrorWarned = true;
       console.warn("[Lasso] Mirror write failed (off-to-the-side; X flow unaffected)", err);
     };
     try {
       void membershipStore
-        .recordAssign(owner, list, changes)
-        .then(() => deps.onMirrorResult?.({ ok: true, at: now() }))
+        .recordAssign(owner, list, { changes, ownerObservedAt })
+        .then(() => {
+          report(true);
+        })
         .catch(onFail);
     } catch (err) {
       onFail(err);
@@ -170,96 +211,142 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     void picker.open(selection.list());
   }
 
-  async function undoAdds(authors: TweetAuthor[], list: XList): Promise<void> {
-    let n = 0;
-    const changes: MembershipChange[] = [];
-    for (const author of authors) {
-      const base: MembershipChange = {
-        screenName: author.screenName,
-        ...(author.userId !== undefined ? { userId: author.userId } : {}),
+  async function undoAdds(authors: TweetAuthor[], owner: Owner | null, list: XList): Promise<void> {
+    if (!ownsTarget(owner, currentOwner())) return;
+    if (activeAssignment || activeUndo) return;
+    const undoRun = Symbol("undo");
+    activeUndo = undoRun;
+    try {
+      const results = await removeAuthorsFromList(authors, list, backend, {
+        ...deps.assignOpts,
+        now,
+        shouldStop: () => !ownsTarget(owner, currentOwner()),
+      });
+      const changes: MembershipChange[] = results.map((r) => ({
+        screenName: r.author.screenName,
+        ...(r.author.userId !== undefined ? { userId: r.author.userId } : {}),
+        identity: membershipIdentityOf(r.author),
         action: "remove",
-        outcome: "removed",
-      };
-      try {
-        await backend.removeMember(list, author);
-        n++;
-        changes.push(base);
-      } catch {
-        // partial undo still gets reported with the real count
-        changes.push({ ...base, outcome: "failed" });
+        outcome: r.outcome,
+        observedAt: r.observedAt,
+      }));
+      const n = results.filter((r) => r.outcome === "removed").length;
+      const actingOwner = currentOwner();
+      const ownerObservedAt = now();
+      if (ownsTarget(owner, actingOwner)) {
+        recordToMirror(actingOwner, ownerObservedAt, list, changes);
       }
+      toasts.show({ kind: "info", title: removedLine(n, list.name) });
+    } finally {
+      if (activeUndo === undoRun) activeUndo = null;
     }
-    recordToMirror(list, changes);
-    toasts.show({ kind: "info", title: removedLine(n, list.name) });
   }
 
   async function runAssign(
     authors: TweetAuthor[],
-    list: XList,
+    listTarget: { owner: Owner | null; list: XList },
     source: AssignSource,
   ): Promise<void> {
-    if (authors.length === 0) return;
-    app.pickerOpen.value = false;
-    app.reviewOpen.value = false;
-    stopRequested = false;
-    void deps.usage?.record(list.id);
+    if (authors.length === 0 || activeAssignment || activeUndo) return;
+    const assignment = Symbol("assignment");
+    activeAssignment = assignment;
+    try {
+      const actingOwner = currentOwner();
+      if (!ownsTarget(listTarget.owner, actingOwner)) return;
+      const { list } = listTarget;
+      app.pickerOpen.value = false;
+      app.reviewOpen.value = false;
+      stopRequested = false;
+      let ownerChanged = false;
+      if (actingOwner && deps.usage)
+        fireAndForget(() => deps.usage!.record(actingOwner.userId, list.id));
 
-    app.running.value = { current: 0, total: authors.length, listName: list.name };
-    const results = await assignAuthorsToList(authors, list, backend, {
-      ...deps.assignOpts,
-      onProgress: (current, total) => {
-        app.running.value = { current, total, listName: list.name };
-      },
-      shouldStop: () => stopRequested,
-    });
-    app.running.value = null;
-
-    recordToMirror(
-      list,
-      results.map((r) => ({
-        screenName: r.author.screenName,
-        ...(r.author.userId !== undefined ? { userId: r.author.userId } : {}),
-        action: "add" as const,
-        outcome: r.outcome,
-      })),
-    );
-
-    const stopped = stopRequested && results.length < authors.length;
-    const fb = feedbackFor(results, list, { selectedCount: authors.length, stopped, nowMs: now() });
-    for (const screenName of fb.deselect) selection.remove(screenName);
-    void coach.recordAssign();
-
-    if (fb.actions.includes("undo") && fb.undoable.length > 0) {
-      undo.arm(() => void undoAdds(fb.undoable, list), UNDO_WINDOW_MS);
-    }
-    const actions: ToastAction[] = fb.actions.map((kind) => {
-      if (kind === "view-list") {
-        return { label: VIEW_LIST, run: () => deps.openUrl(`https://x.com/i/lists/${list.id}`) };
-      }
-      if (kind === "undo") {
-        return {
-          label: UNDO,
-          kbd: "Z",
-          run: () => {
-            undo.trigger();
-          },
+      if (activeAssignment === assignment) {
+        app.running.value = {
+          current: 0,
+          total: authors.length,
+          listName: list.name,
         };
       }
-      return { label: RETRY, run: () => void assignSelectedTo(list) };
-    });
-    toasts.show({ ...fb.toast, actions });
+      const results = await assignAuthorsToList(authors, list, backend, {
+        ...deps.assignOpts,
+        now,
+        onProgress: (current, total) => {
+          if (activeAssignment === assignment)
+            app.running.value = { current, total, listName: list.name };
+        },
+        shouldStop: () => {
+          if (!ownsTarget(listTarget.owner, currentOwner())) ownerChanged = true;
+          return stopRequested || ownerChanged;
+        },
+      });
 
-    if (
-      source === "pointer" &&
-      fb.toast.kind === "success" &&
-      (await coach.tryShowTip("post-assign"))
-    ) {
-      toasts.show({ kind: "info", title: POST_ASSIGN_TIP });
+      const changes = results.map((r) => ({
+        screenName: r.author.screenName,
+        ...(r.author.userId !== undefined ? { userId: r.author.userId } : {}),
+        identity: membershipIdentityOf(r.author),
+        action: "add" as const,
+        outcome: r.outcome,
+        observedAt: r.observedAt,
+      }));
+      const mirrorOwner = currentOwner();
+      const ownerObservedAt = now();
+      if (!ownerChanged && ownsTarget(listTarget.owner, mirrorOwner)) {
+        recordToMirror(mirrorOwner, ownerObservedAt, list, changes);
+      }
+
+      const stopped = results.length < authors.length && (stopRequested || ownerChanged);
+      const fb = feedbackFor(results, list, {
+        selectedCount: authors.length,
+        stopped,
+        nowMs: now(),
+      });
+      for (const screenName of fb.deselect) selection.remove(screenName);
+      void coach.recordAssign();
+
+      if (fb.actions.includes("undo") && fb.undoable.length > 0) {
+        undo.arm(() => void undoAdds(fb.undoable, listTarget.owner, list), UNDO_WINDOW_MS);
+      }
+      const actions: ToastAction[] = fb.actions.map((kind) => {
+        if (kind === "view-list") {
+          return {
+            label: VIEW_LIST,
+            run: () => deps.openUrl(`https://x.com/i/lists/${list.id}`),
+          };
+        }
+        if (kind === "undo") {
+          return {
+            label: UNDO,
+            kbd: "Z",
+            run: () => {
+              undo.trigger();
+            },
+          };
+        }
+        return {
+          label: RETRY,
+          run: () => void runAssign(selection.list(), listTarget, source),
+        };
+      });
+      toasts.show({ ...fb.toast, actions });
+
+      if (
+        source === "pointer" &&
+        fb.toast.kind === "success" &&
+        (await coach.tryShowTip("post-assign"))
+      ) {
+        toasts.show({ kind: "info", title: POST_ASSIGN_TIP });
+      }
+    } finally {
+      if (activeAssignment === assignment) {
+        app.running.value = null;
+        activeAssignment = null;
+      }
     }
   }
 
-  function assignSelectedTo(list: XList): Promise<void> {
-    return runAssign(selection.list(), list, lastSource);
+  async function pickerEffect(effect: Exclude<PickerEffect, null>): Promise<void> {
+    await runAssign([...effect.authors], effect, lastSource);
   }
 
   async function addToDefaultList(): Promise<void> {
@@ -268,15 +355,52 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       nudge();
       return;
     }
-    const { defaultListId } = await settings.get();
-    const lists = defaultListId ? await cache.lists().catch((): XList[] => []) : [];
-    const list = lists.find((l) => l.id === defaultListId);
+
+    // A settings read only chooses the fast path. It must not make this
+    // keyboard command fail or lose its target.
+    let defaultList: Awaited<ReturnType<SettingsStore["get"]>>["defaultList"];
+    let defaultListId: Awaited<ReturnType<SettingsStore["get"]>>["defaultListId"];
+    try {
+      ({ defaultList, defaultListId } = await settings.get());
+    } catch {
+      selection.add(author);
+      openPicker("keyboard");
+      return;
+    }
+    const owner = currentOwner();
+    let defaultTarget = defaultList;
+    let lists: XList[] = [];
+    if (defaultTarget && owner && defaultTarget.ownerUserId === owner.userId) {
+      lists = (await cache.cached(owner).catch((): null => null)) ?? [];
+      if (!ownsTarget(owner, currentOwner())) {
+        selection.add(author);
+        openPicker("keyboard");
+        return;
+      }
+    } else if (!defaultTarget && defaultListId && owner) {
+      lists = await cache.refresh(owner).catch((): XList[] => []);
+      if (!ownsTarget(owner, currentOwner())) {
+        selection.add(author);
+        openPicker("keyboard");
+        return;
+      }
+      if (lists.some((candidate) => candidate.id === defaultListId)) {
+        defaultTarget = { ownerUserId: owner.userId, listId: defaultListId };
+        fireAndForget(() =>
+          settings.set({
+            defaultList: defaultTarget,
+            defaultListId: undefined,
+          }),
+        );
+      }
+    }
+    const list = lists.find((candidate) => candidate.id === defaultTarget?.listId);
     if (!list) {
       selection.add(author);
       openPicker("keyboard");
       return;
     }
-    await runAssign([author], list, "keyboard");
+    await runAssign([author], { owner: owner!, list }, "keyboard");
   }
 
   interface QuickActionOptions<T> {
@@ -332,7 +456,10 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   function unmuteAuthor(author: TweetAuthor): Promise<void> {
     return quickAction({
       attempt: () => quick.unmute(author.screenName),
-      successToast: () => ({ kind: "info", title: unmutedLine(author.screenName) }),
+      successToast: () => ({
+        kind: "info",
+        title: unmutedLine(author.screenName),
+      }),
       failTitle: muteFailedLine(author.screenName),
     });
   }
@@ -342,7 +469,10 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     if (!block) return Promise.resolve();
     return quickAction({
       attempt: () => block(author.screenName),
-      successToast: () => ({ kind: "success", title: blockedLine(author.screenName) }),
+      successToast: () => ({
+        kind: "success",
+        title: blockedLine(author.screenName),
+      }),
       failTitle: blockFailedLine(author.screenName),
       retry: () => void blockAuthor(author),
     });
@@ -361,6 +491,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   }
 
   function toggleSelect(author: TweetAuthor): void {
+    if (activeAssignment) return;
     const wasSelected = selection.isSelected(author.screenName);
     selection.toggle(author);
     if (!wasSelected && !selection.selectMode.value) {
@@ -397,14 +528,43 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   }
 
   function command(cmd: CommandId): boolean {
-    switch (cmd) {
-      case "escape":
+    // True modals own every Lasso binding so nothing can change the page behind
+    // them. Escape and help retain their modal-local meaning below.
+    if (cmd === "escape") {
+      // AppState closes surfaces in priority order. Picker cleanup must run only
+      // when the picker is the surface Esc will close.
+      if (!app.welcomeOpen.value && !app.shortcutsOpen.value && app.pickerOpen.value) {
+        picker.act({ type: "close" });
+      }
+      if (
+        app.welcomeOpen.value ||
+        app.shortcutsOpen.value ||
+        app.pickerOpen.value ||
+        app.reviewOpen.value
+      ) {
         return app.handleEscape();
+      }
+      if (activeAssignment) return true;
+      return app.handleEscape();
+    }
+    if (cmd === "help") {
+      if (app.shortcutsOpen.value) {
+        app.shortcutsOpen.value = false;
+        return true;
+      }
+      if (app.welcomeOpen.value || app.pickerOpen.value) return true;
+      app.shortcutsOpen.value = true;
+      return true;
+    }
+    if (app.modalOpen()) return true;
+    // An assignment owns the selection, progress, Stop, and undo lifetime.
+    // Escape/help above keep their existing modal grammar; every other Lasso key
+    // is consumed here until this run's finally block releases the lock.
+    if (activeAssignment) return true;
+
+    switch (cmd) {
       case "undo":
         return undo.trigger();
-      case "help":
-        app.shortcutsOpen.value = !app.shortcutsOpen.value;
-        return true;
       case "toggle-select-mode":
         selection.setSelectMode(!selection.selectMode.value);
         return true;
@@ -468,7 +628,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     command,
     filterCommand,
     openPicker,
-    assignSelectedTo,
+    pickerEffect,
     stopRun() {
       stopRequested = true;
     },

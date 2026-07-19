@@ -25,11 +25,12 @@ import type { XList } from "@/core/x-client/types";
 
 const owner: Owner = { userId: "100", screenName: "operator" };
 const list: XList = { id: "L1", name: "Builders" };
+const noop = (): void => {};
 
 const refs: MembershipApiRefs = {
   recordAssign: "ref.recordAssign",
   reconcileAuthor: "ref.reconcileAuthor",
-  reconcileCatalog: "ref.reconcileCatalog",
+  replaceCatalog: "ref.replaceCatalog",
   listsContaining: "ref.listsContaining",
   catalog: "ref.catalog",
 };
@@ -80,46 +81,69 @@ const adapters: Array<{ label: string; make: () => MembershipStore }> = [
 ];
 
 describe.each(adapters)("MembershipStore contract: $label", ({ make }) => {
-  it("listsContaining resolves to an array of MembershipHit", async () => {
-    const result = await make().listsContaining("alice");
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.every(isMembershipHit)).toBe(true);
-  });
-
-  it("catalog resolves to an array of OwnerCatalog", async () => {
-    const result = await make().catalog();
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.every(isOwnerCatalog)).toBe(true);
+  it("observe emits a valid snapshot; its disposer is idempotent", async () => {
+    const store = make();
+    const snapshot = await new Promise<{ catalog: OwnerCatalog[]; memberships: MembershipHit[] }>(
+      (resolve) => {
+        let stop = noop;
+        stop = store.observe({ kind: "single", identity: "user:alice" }, (next) => {
+          stop();
+          resolve(next);
+        });
+      },
+    );
+    expect(snapshot.catalog.every(isOwnerCatalog)).toBe(true);
+    expect(snapshot.memberships.every(isMembershipHit)).toBe(true);
+    const stop = make().observe({ kind: "bulk" }, noop);
+    expect(() => {
+      stop();
+      stop();
+    }).not.toThrow();
   });
 
   it("recordAssign resolves", async () => {
     await expect(
-      make().recordAssign(owner, list, [{ screenName: "alice", action: "add", outcome: "added" }]),
+      make().recordAssign(owner, list, {
+        ownerObservedAt: 122,
+        changes: [
+          {
+            screenName: "alice",
+            identity: "user:alice",
+            action: "add",
+            outcome: "added",
+            observedAt: 123,
+          },
+        ],
+      }),
     ).resolves.toBeUndefined();
   });
 
   it("reconcileAuthor resolves", async () => {
-    await expect(make().reconcileAuthor(owner, "alice", ["L1"])).resolves.toBeUndefined();
+    await expect(
+      make().reconcileAuthor(
+        owner,
+        { screenName: "alice", identity: "user:alice" },
+        { listIds: ["L1"], observedAt: 123, ownerObservedAt: 122 },
+      ),
+    ).resolves.toBeUndefined();
   });
 
-  it("reconcileCatalog resolves", async () => {
-    await expect(make().reconcileCatalog(owner, [list])).resolves.toBeUndefined();
+  it("replaceCatalog resolves", async () => {
+    await expect(
+      make().replaceCatalog(owner, { lists: [list], observedAt: 123, ownerObservedAt: 122 }),
+    ).resolves.toBeUndefined();
   });
 });
 
-// Teeth: the contract's read-shape and write-resolves checks must reject a broken
-// adapter — otherwise they are ceremony. These assert the exact predicates the
-// contract above relies on, applied to deliberately-wrong implementations.
+// Teeth: snapshot validation and write-resolves must reject a broken adapter.
 describe("the contract has teeth", () => {
-  const wrongShapeReadStore: MembershipStore = {
+  const wrongShapeSnapshotStore: MembershipStore = {
     async recordAssign() {},
     async reconcileAuthor() {},
-    async reconcileCatalog() {},
-    async listsContaining() {
-      return [{ listId: 1 } as unknown as MembershipHit];
-    },
-    async catalog() {
-      return [];
+    async replaceCatalog() {},
+    observe(_subject, emit) {
+      emit({ catalog: [{ owner: { userId: 1 } }] as unknown as OwnerCatalog[], memberships: [] });
+      return () => {};
     },
   };
   const rejectingWriteStore: MembershipStore = {
@@ -127,21 +151,21 @@ describe("the contract has teeth", () => {
       throw new Error("mirror down");
     },
     async reconcileAuthor() {},
-    async reconcileCatalog() {},
-    async listsContaining() {
-      return [];
-    },
-    async catalog() {
-      return [];
+    async replaceCatalog() {},
+    observe() {
+      return () => {};
     },
   };
 
-  it("a wrong-shape read fails the MembershipHit check", async () => {
-    const result = await wrongShapeReadStore.listsContaining("alice");
-    expect(result.every(isMembershipHit)).toBe(false);
+  it("a wrong-shape snapshot fails the OwnerCatalog check", () => {
+    wrongShapeSnapshotStore.observe({ kind: "bulk" }, (snapshot) => {
+      expect(snapshot.catalog.every(isOwnerCatalog)).toBe(false);
+    });
   });
 
   it("a throwing write fails the resolves check", async () => {
-    await expect(rejectingWriteStore.recordAssign(owner, list, [])).rejects.toThrow("mirror down");
+    await expect(
+      rejectingWriteStore.recordAssign(owner, list, { changes: [], ownerObservedAt: 123 }),
+    ).rejects.toThrow("mirror down");
   });
 });

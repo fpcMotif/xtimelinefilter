@@ -5,6 +5,8 @@
 ## 1. Summary
 A Manifest V3 Chrome extension that lets a user, while browsing the x.com timeline / explore / search, select one or many tweets and assign their **authors** to one of the user's X **Lists** — without leaving the feed. Minimalist, extensible, swift. Built test-first in strict TypeScript.
 
+**Current implementation:** Chrome MV3, CRXJS 2.6.1, and Vite 8. `RestXListApi` is the default mutation adapter; DOM and GraphQL are alternates. List discovery is separate. Optional Mirror sync connects only to the user's configured Convex deployment.
+
 ## 2. Problem
 Curating X Lists is tedious: adding accounts means leaving the timeline, opening each profile, and clicking through a buried menu. There is no bulk path. Power users who discover good accounts while scrolling have no fast way to file them into a List.
 
@@ -27,7 +29,7 @@ Curating X Lists is tedious: adding accounts means leaving the timeline, opening
 2. As a curator, I press a hotkey to enter **select mode**, check several tweets, and assign all their authors to one List at once.
 3. As a curator, I pick the target List from a **fuzzy, keyboard-first** picker showing my Lists.
 4. As a curator, I see a **summary toast** ("Added 3 · 1 already in list · 1 failed") and trust nothing happened silently.
-5. As a privacy/policy-conscious user, I keep the **safe DOM backend** by default and can opt into the faster GraphQL backend with a clear disclosure.
+5. As a privacy/policy-conscious user, I use the default REST backend or choose DOM or GraphQL with clear disclosures.
 
 ## 6. Functional requirements
 - **FR1 Detect tweets** in the virtualized timeline (MutationObserver + dedupe), skipping promoted tweets.
@@ -35,7 +37,7 @@ Curating X Lists is tedious: adding accounts means leaving the timeline, opening
 - **FR3 Select** one or many authors; reactive count; clear/toggle; select-mode toggle.
 - **FR4 List picker** lists the user's Lists (cached), fuzzy-searchable, keyboard-navigable.
 - **FR5 Assign** selected authors to the chosen List via the active backend; per-item `AssignResult`.
-- **FR6 Two backends** behind `XListApi`: DOM (default) + GraphQL (opt-in); selectable in settings; shared contract test.
+- **FR6 Three mutation adapters** behind `XListApi`: REST (default), DOM, and GraphQL (opt-in); selectable in settings; shared contract test.
 - **FR7 Result feedback** summary toast; never silent; loud failures.
 - **FR8 Policy enforcement** human-paced, stop-on-rate-limit, idempotent already-member, explicit-gesture-only.
 - **FR9 Settings** backend strategy, default list, hotkeys, UI prefs in `chrome.storage.sync`.
@@ -49,7 +51,7 @@ Curating X Lists is tedious: adding accounts means leaving the timeline, opening
 - Time to add an author to a List from the feed < 3s (quick path).
 - Bulk-assign 10 authors in one gesture with a correct per-item summary.
 - Zero style bleed / no interference with normal x.com use.
-- Test suite green; core logic covered by unit tests; both backends pass the contract test.
+- Test suite green; core logic covered by unit tests; all mutation adapters pass the contract test.
 
 ## 9. Milestones (vertical slices)
 1. Scaffold + green sample test ✅ (selection-store done)
@@ -60,7 +62,7 @@ Curating X Lists is tedious: adding accounts means leaving the timeline, opening
 6. Playwright E2E; polish; package
 
 ## 10. Risks (see blueprint §0, §8 and ADRs)
-GraphQL id/bearer/transaction-id drift; x.com DOM churn (dialog internals); ToS exposure of internal endpoints; rate limits on bulk; crxjs 2.0-beta build viability (fallback WXT); happy-dom has no layout engine (geometry only testable in E2E).
+GraphQL id/bearer/transaction-id drift; x.com DOM churn (dialog internals); ToS exposure of internal endpoints; rate limits on bulk; happy-dom has no layout engine (geometry only testable in E2E).
 
 ## 11. Open questions (need decision / live check)
 1. Retweets → original author (assumed) or retweeter?

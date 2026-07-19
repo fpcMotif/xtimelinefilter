@@ -14,11 +14,19 @@ describe("getCurrentAccount", () => {
       cookie: `guest_id=v1%3A17; ${TWID}; ct0=abc123; lang=en`,
       profileHref: () => "/jane_doe",
     });
-    expect(owner).toEqual({ userId: "1700000000000000001", screenName: "jane_doe" });
+    expect(owner).toEqual({
+      userId: "1700000000000000001",
+      screenName: "jane_doe",
+    });
   });
 
   it("parses twid when it is the first cookie", () => {
-    expect(getCurrentAccount({ cookie: `${TWID}; ct0=abc`, profileHref: () => "/me" })).toEqual({
+    expect(
+      getCurrentAccount({
+        cookie: `${TWID}; ct0=abc`,
+        profileHref: () => "/me",
+      }),
+    ).toEqual({
       userId: "1700000000000000001",
       screenName: "me",
     });
@@ -26,14 +34,24 @@ describe("getCurrentAccount", () => {
 
   it("returns null when logged out (no twid)", () => {
     expect(
-      getCurrentAccount({ cookie: "guest_id=v1%3A17; ct0=abc", profileHref: () => "/x" }),
+      getCurrentAccount({
+        cookie: "guest_id=v1%3A17; ct0=abc",
+        profileHref: () => "/x",
+      }),
     ).toBeNull();
   });
 
   it("returns null when twid carries no numeric id", () => {
     expect(
-      getCurrentAccount({ cookie: "twid=garbage; ct0=abc", profileHref: () => "/x" }),
+      getCurrentAccount({
+        cookie: "twid=garbage; ct0=abc",
+        profileHref: () => "/x",
+      }),
     ).toBeNull();
+  });
+
+  it("returns null when twid has malformed URI encoding", () => {
+    expect(getCurrentAccount({ cookie: "twid=%E0%A4%A", profileHref: () => "/x" })).toBeNull();
   });
 
   it("falls back to empty screenName when the profile link is absent (best-effort)", () => {
@@ -45,7 +63,10 @@ describe("getCurrentAccount", () => {
 
   it("takes only the first path segment of the profile href", () => {
     expect(
-      getCurrentAccount({ cookie: TWID, profileHref: () => "/jane/status/1?ref=x" })?.screenName,
+      getCurrentAccount({
+        cookie: TWID,
+        profileHref: () => "/jane/status/1?ref=x",
+      })?.screenName,
     ).toBe("jane");
   });
 

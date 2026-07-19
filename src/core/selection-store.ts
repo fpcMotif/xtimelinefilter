@@ -26,6 +26,14 @@ export interface SelectionStore {
 
 const keyOf = (screenName: string): string => screenName.toLowerCase();
 
+const mergeAuthor = (canonical: TweetAuthor, later: TweetAuthor): TweetAuthor => ({
+  ...canonical,
+  userId: canonical.userId ?? later.userId,
+  displayName: canonical.displayName ?? later.displayName,
+  avatarUrl: canonical.avatarUrl ?? later.avatarUrl,
+  tweetId: canonical.tweetId ?? later.tweetId,
+});
+
 /**
  * Reactive, framework-agnostic store of the currently selected tweet authors.
  * Keyed case-insensitively by screen name; signals make it consumable from
@@ -52,7 +60,7 @@ export function createSelectionStore(): SelectionStore {
         const prev = next.get(key);
         // Keep the first-seen identity (e.g. screenName casing); fill in fields
         // we didn't know yet (e.g. a freshly resolved userId).
-        next.set(key, prev ? { ...author, ...prev } : author);
+        next.set(key, prev ? mergeAuthor(prev, author) : author);
       }),
     remove: (screenName) =>
       mutate((next) => {

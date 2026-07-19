@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { feedbackFor } from "@/core/assign-feedback";
+import { UNDO_WINDOW_MS } from "@/core/undo";
 import type { AssignResult } from "@/core/x-client/types";
 
 const LIST = { id: "L1", name: "Design Folks" };
@@ -10,7 +11,12 @@ const r = (
   screenName: string,
   outcome: AssignResult["outcome"],
   extra: Partial<AssignResult> = {},
-): AssignResult => ({ author: { screenName }, outcome, ...extra });
+): AssignResult => ({
+  author: { screenName },
+  outcome,
+  ...extra,
+  observedAt: extra.observedAt ?? NOW,
+});
 
 describe("feedbackFor — every failure is a designed beat (story beat 8)", () => {
   it("full success: blue toast with View List and Undo", () => {
@@ -18,7 +24,11 @@ describe("feedbackFor — every failure is a designed beat (story beat 8)", () =
       selectedCount: 2,
       nowMs: NOW,
     });
-    expect(f.toast).toMatchObject({ kind: "success", title: "Added 2 to Design Folks" });
+    expect(f.toast).toMatchObject({
+      kind: "success",
+      title: "Added 2 to Design Folks",
+      durationMs: UNDO_WINDOW_MS,
+    });
     expect(f.toast.line).toBeUndefined();
     expect(f.actions).toEqual(["view-list", "undo"]);
     expect(f.undoable.map((a) => a.screenName)).toEqual(["a", "b"]);
@@ -107,6 +117,7 @@ describe("feedbackFor — every failure is a designed beat (story beat 8)", () =
       nowMs: NOW,
     });
     expect(f.toast).toMatchObject({ kind: "success", title: "Added 0 to Design Folks" });
+    expect(f.toast.durationMs).toBeUndefined();
     expect(f.toast.line).toBe("2 were already in the List");
     expect(f.actions).toEqual(["view-list"]); // no "undo" — undoable is empty
     expect(f.undoable).toEqual([]);

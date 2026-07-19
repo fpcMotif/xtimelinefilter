@@ -3,11 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createCoach } from "@/core/coach";
 import { createFilterStore } from "@/core/filter-store";
-import { createSettings } from "@/core/settings";
+import type { MembershipStoreProbe } from "@/core/membership-store/types";
+import {
+  DEFAULT_SETTINGS,
+  createSettings,
+  type LassoSettings,
+  type SettingsStore,
+} from "@/core/settings";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import {
   ACTIVATION_COPY,
   BACKEND_COPY,
+  CONVEX_TEST_ERROR,
   CONVEX_URL_ERROR,
   DEFAULT_LIST_HINT,
   DEFAULT_LIST_NONE,
@@ -17,10 +24,40 @@ import {
 
 import { createMemoryArea as memoryArea } from "../helpers/chrome-fake";
 
-async function setup(seedLocal: Record<string, unknown> = {}) {
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+const cachedLists = () => ({
+  [`${STORAGE_KEYS.lists}:100`]: {
+    schema: 1,
+    owner: { userId: "100", screenName: "me" },
+    lists: [{ id: "9", name: "Design Folks" }],
+    refreshedAt: 1,
+  },
+});
+
+async function setup(
+  seedLocal: Record<string, unknown> = {},
+  mirrorProbe?: MembershipStoreProbe,
+  seedSettings: Record<string, unknown> = {},
+) {
   const local = memoryArea();
   const sync = memoryArea();
   Object.assign(local.data, seedLocal);
+  // Tests run in dev, where local .env credentials seed the Mirror by design.
+  // Explicit unset values keep test state independent from that machine-local config.
+  sync.data[STORAGE_KEYS.settings] = {
+    convexUrl: undefined,
+    convexDeviceKey: undefined,
+    ...seedSettings,
+  };
   const settings = createSettings(sync);
   const coach = createCoach(local);
   const filter = createFilterStore({ storage: memoryArea() });
@@ -32,13 +69,268 @@ async function setup(seedLocal: Record<string, unknown> = {}) {
       sync={sync}
       platform="other"
       filter={filter}
+      mirrorProbe={mirrorProbe}
     />,
   );
-  await waitFor(() => expect(r.container.querySelector("main")).toBeTruthy());
+  await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
   return { ...r, local, sync, settings, coach, filter };
 }
 
 describe("OptionsApp — story beat 9", () => {
+  it("shows an error and restores confirmed controls after rejected setting writes", async () => {
+    const settings: SettingsStore = {
+      get: async () => ({
+        ...DEFAULT_SETTINGS,
+        convexUrl: undefined,
+        convexDeviceKey: undefined,
+      }),
+      set: async () => Promise.reject(new Error("storage unavailable")),
+      subscribe: () => () => {},
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        local={memoryArea()}
+        sync={memoryArea()}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.change(r.getByText(BACKEND_COPY.graphql).querySelector("input") as HTMLInputElement, {
+      target: { checked: true },
+    });
+    await waitFor(() =>
+      expect(r.getByRole("alert").textContent).toBe("Could not save settings. Try again."),
+    );
+    expect(
+      (r.getByText(BACKEND_COPY.rest).querySelector("input") as HTMLInputElement).checked,
+    ).toBe(true);
+
+    fireEvent.change(r.getByLabelText("Convex deployment URL"), {
+      target: { value: "https://app.convex.cloud" },
+    });
+    await waitFor(() =>
+      expect(r.getByRole("alert").textContent).toBe("Could not save settings. Try again."),
+    );
+    expect((r.getByLabelText("Convex deployment URL") as HTMLInputElement).value).toBe(
+      "https://app.convex.cloud",
+    );
+  });
+
+  it("surfaces a synchronous setting-write failure", async () => {
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: () => {
+        throw new Error("storage unavailable");
+      },
+      subscribe: () => () => {},
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        local={memoryArea()}
+        sync={memoryArea()}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.click(r.getByLabelText("Higher-contrast buttons"));
+    await waitFor(() =>
+      expect(r.getByRole("alert").textContent).toBe("Could not save settings. Try again."),
+    );
+    expect((r.getByLabelText("Higher-contrast buttons") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("retries a failed settings load instead of leaving the skeleton forever", async () => {
+    const settings: SettingsStore = {
+      get: vi
+        .fn<SettingsStore["get"]>()
+        .mockRejectedValueOnce(new Error("storage unavailable"))
+        .mockResolvedValueOnce(DEFAULT_SETTINGS),
+      set: async () => DEFAULT_SETTINGS,
+      subscribe: () => () => {},
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        local={memoryArea()}
+        sync={memoryArea()}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.getByRole("alert").textContent).toBe("Could not load settings."));
+    fireEvent.click(r.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    expect(r.getByRole("heading", { name: "Settings" })).toBeTruthy();
+  });
+
+  it("keeps a newer subscription snapshot over a late initial read", async () => {
+    const initial = deferred<LassoSettings>();
+    let subscriber: ((snapshot: LassoSettings) => void) | undefined;
+    const settings: SettingsStore = {
+      get: () => initial.promise,
+      set: async () => DEFAULT_SETTINGS,
+      subscribe: (cb) => {
+        subscriber = cb;
+        return () => {
+          subscriber = undefined;
+        };
+      },
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        local={memoryArea()}
+        sync={memoryArea()}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(subscriber).toBeTypeOf("function"));
+    const newest = { ...DEFAULT_SETTINGS, activation: "on-demand" as const };
+    subscriber!(newest);
+    initial.resolve({ ...DEFAULT_SETTINGS, activation: "auto" });
+
+    await waitFor(() => {
+      const radio = r
+        .getByText(ACTIVATION_COPY["on-demand"])
+        .querySelector("input") as HTMLInputElement;
+      expect(radio.checked).toBe(true);
+    });
+  });
+
+  it("keeps W1 and reports W2 when W1 succeeds and the newer write fails", async () => {
+    const first = deferred<LassoSettings>();
+    const second = deferred<LassoSettings>();
+    const subscribers = new Set<(snapshot: LassoSettings) => void>();
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: vi
+        .fn<SettingsStore["set"]>()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise),
+      subscribe: (cb) => {
+        subscribers.add(cb);
+        return () => subscribers.delete(cb);
+      },
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        local={memoryArea()}
+        sync={memoryArea()}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.click(r.getByLabelText("Higher-contrast buttons")); // W1
+    fireEvent.change(r.getByText(BACKEND_COPY.graphql).querySelector("input") as HTMLInputElement, {
+      target: { checked: true },
+    }); // W2
+    const w1 = { ...DEFAULT_SETTINGS, highContrast: true };
+    for (const subscribe of subscribers) subscribe(w1); // settings' pre-promise local notify
+    expect(
+      (r.getByText(BACKEND_COPY.graphql).querySelector("input") as HTMLInputElement).checked,
+    ).toBe(true);
+    first.resolve(w1);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    second.reject(new Error("storage unavailable"));
+
+    await waitFor(() =>
+      expect(r.getByRole("alert").textContent).toBe("Could not save settings. Try again."),
+    );
+    expect((r.getByLabelText("Higher-contrast buttons") as HTMLInputElement).checked).toBe(true);
+    expect(
+      (r.getByText(BACKEND_COPY.rest).querySelector("input") as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it("ignores a late write rejection after unmount", async () => {
+    const write = deferred<LassoSettings>();
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: () => write.promise,
+      subscribe: () => () => {},
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        local={memoryArea()}
+        sync={memoryArea()}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    fireEvent.click(r.getByLabelText("Higher-contrast buttons"));
+    r.unmount();
+    write.reject(new Error("late storage failure"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+  });
+
+  it("adopts successful queued P2 after external Q fenced P1", async () => {
+    const p1 = deferred<LassoSettings>();
+    const p2 = deferred<LassoSettings>();
+    const subscribers = new Set<(snapshot: LassoSettings) => void>();
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: vi
+        .fn<SettingsStore["set"]>()
+        .mockReturnValueOnce(p1.promise)
+        .mockReturnValueOnce(p2.promise),
+      subscribe: (cb) => {
+        subscribers.add(cb);
+        return () => subscribers.delete(cb);
+      },
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        local={memoryArea()}
+        sync={memoryArea()}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.click(r.getByLabelText("Higher-contrast buttons")); // P1
+    fireEvent.change(r.getByText(BACKEND_COPY.dom).querySelector("input") as HTMLInputElement, {
+      target: { checked: true },
+    }); // queued P2
+    const q = { ...DEFAULT_SETTINGS, backend: "graphql" as const };
+    for (const subscribe of subscribers) subscribe(q);
+    p1.resolve(q); // stale P1 is fenced and returns Q
+    const p2Value = { ...DEFAULT_SETTINGS, highContrast: true, backend: "dom" as const };
+    p2.resolve(p2Value); // P2 persisted after Q, so it is now authority
+
+    await waitFor(() => {
+      expect((r.getByLabelText("Higher-contrast buttons") as HTMLInputElement).checked).toBe(true);
+      expect(
+        (r.getByText(BACKEND_COPY.dom).querySelector("input") as HTMLInputElement).checked,
+      ).toBe(true);
+    });
+    expect(r.queryByRole("alert")).toBeNull();
+  });
+
   it("ships the backend disclosure verbatim, REST checked by default", async () => {
     const s = await setup();
     for (const copy of Object.values(BACKEND_COPY)) expect(s.getByText(copy)).toBeTruthy();
@@ -56,16 +348,16 @@ describe("OptionsApp — story beat 9", () => {
   });
 
   it("default List offers None — always ask plus the cached Lists, and explains the chord", async () => {
-    const s = await setup({
-      [STORAGE_KEYS.lists]: [{ id: "9", name: "Design Folks" }],
-    });
+    const s = await setup(cachedLists());
     const select = s.getByLabelText("Default List") as HTMLSelectElement;
     expect([...select.options].map((o) => o.textContent)).toEqual([
       DEFAULT_LIST_NONE,
-      "Design Folks",
+      "Design Folks (@me)",
     ]);
-    fireEvent.change(select, { target: { value: "9" } });
-    await waitFor(async () => expect((await s.settings.get()).defaultListId).toBe("9"));
+    fireEvent.change(select, { target: { value: "100:9" } });
+    await waitFor(async () =>
+      expect((await s.settings.get()).defaultList).toEqual({ ownerUserId: "100", listId: "9" }),
+    );
     await waitFor(() => expect(s.getByText(DEFAULT_LIST_HINT)).toBeTruthy());
   });
 
@@ -78,13 +370,16 @@ describe("OptionsApp — story beat 9", () => {
 
   it("names the data it keeps and wipes all of it", async () => {
     const s = await setup({
-      [STORAGE_KEYS.lists]: [{ id: "9", name: "Design Folks" }],
-      [STORAGE_KEYS.listUsage]: { "9": { n: 2, t: 1 } },
+      ...cachedLists(),
+      [`${STORAGE_KEYS.listUsage}:100`]: {
+        schema: 1,
+        entries: { "9": { count: 2, lastPickedAt: 1 } },
+      },
       [STORAGE_KEYS.coach]: { onboarded: true },
     });
     expect(
       s.getByText(
-        "Lasso has no servers. Your X session, your Lists, and your usage stats never leave this browser.",
+        "Lasso keeps your X session credentials between your browser and X. With Mirror configured, it sends its device key, Owner/List catalog, membership snapshots, and assignment audit events to your Convex deployment.",
       ),
     ).toBeTruthy();
     // Sync also holds the settings + the one global filter — both must go.
@@ -97,6 +392,129 @@ describe("OptionsApp — story beat 9", () => {
     expect(Object.keys(s.local.data)).toEqual([]);
     expect(STORAGE_KEYS.settings in s.sync.data).toBe(false);
     expect(STORAGE_KEYS.filter in s.sync.data).toBe(false);
+  });
+
+  it("renders build defaults after clear without rereading a stale settings cache", async () => {
+    const stale = {
+      ...DEFAULT_SETTINGS,
+      activation: "on-demand" as const,
+      convexUrl: "https://stale.convex.cloud",
+      convexDeviceKey: "stale-key",
+    };
+    const get = vi.fn(async () => stale);
+    const settings: SettingsStore = {
+      get,
+      set: async () => stale,
+      subscribe: () => () => {},
+    };
+    const local = memoryArea();
+    const sync = memoryArea({ [STORAGE_KEYS.settings]: stale });
+    const subscribers = new Set<(snapshot: LassoSettings) => void>();
+    const emit = (snapshot: LassoSettings) => {
+      for (const subscribe of subscribers) subscribe(snapshot);
+    };
+    const remove = sync.remove!;
+    sync.remove = async (keys) => {
+      await remove(keys);
+      emit(DEFAULT_SETTINGS); // chrome.storage's remove event
+    };
+    settings.subscribe = (cb) => {
+      subscribers.add(cb);
+      return () => subscribers.delete(cb);
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(local)}
+        local={local}
+        sync={sync}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    expect((r.getByLabelText("Convex deployment URL") as HTMLInputElement).value).toBe(
+      "https://stale.convex.cloud",
+    );
+    // SurfaceOptions owns its separate initial read; settle it before testing
+    // that the clear path itself never asks a stale cache.
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    const readsBeforeClear = get.mock.calls.length;
+
+    fireEvent.click(r.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => r.getByText("Yes, clear it")));
+    await waitFor(() => expect(r.getByText("Cleared")).toBeTruthy());
+
+    expect(get).toHaveBeenCalledTimes(readsBeforeClear);
+    expect((r.getByLabelText("Convex deployment URL") as HTMLInputElement).value).toBe(
+      DEFAULT_SETTINGS.convexUrl ?? "",
+    );
+    const defaultActivation = r
+      .getByText(ACTIVATION_COPY[DEFAULT_SETTINGS.activation])
+      .querySelector("input") as HTMLInputElement;
+    expect(defaultActivation.checked).toBe(true);
+  });
+
+  it("reports a partial clear failure", async () => {
+    const local = memoryArea({ [STORAGE_KEYS.coach]: { onboarded: true } });
+    local.remove = async () => {
+      throw new Error("local storage unavailable");
+    };
+    const sync = memoryArea();
+    const r = render(
+      <OptionsApp
+        settings={createSettings(sync)}
+        coach={createCoach(local)}
+        local={local}
+        sync={sync}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.click(r.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => r.getByText("Yes, clear it")));
+
+    await waitFor(() => expect(r.getByText("Could not clear all data. Try again.")).toBeTruthy());
+    expect(r.queryByText("Cleared")).toBeNull();
+  });
+
+  it("rejects a clear superseded by an external settings snapshot", async () => {
+    const removal = deferred<void>();
+    const local = memoryArea({ [STORAGE_KEYS.coach]: { onboarded: true } });
+    local.remove = () => removal.promise;
+    const sync = memoryArea();
+    const subscribers = new Set<(snapshot: LassoSettings) => void>();
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: async () => DEFAULT_SETTINGS,
+      subscribe(callback) {
+        subscribers.add(callback);
+        return () => subscribers.delete(callback);
+      },
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(local)}
+        local={local}
+        sync={sync}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.click(r.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => r.getByText("Yes, clear it")));
+    for (const subscribe of subscribers) {
+      subscribe({ ...DEFAULT_SETTINGS, activation: "on-demand" });
+    }
+    removal.resolve();
+
+    await waitFor(() => expect(r.getByText("Could not clear all data. Try again.")).toBeTruthy());
+    expect(r.queryByText("Cleared")).toBeNull();
   });
 
   it("Replay intro restores the welcome card via the coach", async () => {
@@ -114,21 +532,24 @@ describe("OptionsApp — story beat 9", () => {
         platform="other"
       />,
     );
-    await waitFor(() => expect(r.container.querySelector("main")).toBeTruthy());
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
     fireEvent.click(r.getByText("Replay intro"));
     await waitFor(async () => expect(await coach.isOnboarded()).toBe(false));
     expect(replaySpy).toHaveBeenCalled();
   });
 
-  it("resetting the default List back to None clears defaultListId", async () => {
-    const s = await setup({
-      [STORAGE_KEYS.lists]: [{ id: "9", name: "Design Folks" }],
+  it("resetting the default List back to None clears both default formats", async () => {
+    const s = await setup(cachedLists(), undefined, {
+      defaultList: { ownerUserId: "100", listId: "9" },
+      defaultListId: "9",
     });
     const select = s.getByLabelText("Default List") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "9" } });
-    await waitFor(async () => expect((await s.settings.get()).defaultListId).toBe("9"));
     fireEvent.change(select, { target: { value: "" } });
-    await waitFor(async () => expect((await s.settings.get()).defaultListId).toBeUndefined());
+    await waitFor(async () => {
+      const settings = await s.settings.get();
+      expect(settings.defaultList).toBeUndefined();
+      expect(settings.defaultListId).toBeUndefined();
+    });
   });
 
   it("switching the connection backend persists", async () => {
@@ -157,7 +578,7 @@ describe("OptionsApp — story beat 9", () => {
     await waitFor(async () => expect((await s.settings.get()).convexDeviceKey).toBeUndefined());
   });
 
-  it("rejects a scheme-less Convex URL: shows an error and keeps the last valid value", async () => {
+  it("rejects an invalid Convex URL, announces its error, and keeps storage unchanged", async () => {
     const s = await setup();
     const url = s.getByLabelText("Convex deployment URL") as HTMLInputElement;
     fireEvent.change(url, { target: { value: "https://good.convex.cloud" } });
@@ -165,10 +586,89 @@ describe("OptionsApp — story beat 9", () => {
       expect((await s.settings.get()).convexUrl).toBe("https://good.convex.cloud"),
     );
     fireEvent.change(url, { target: { value: "convex.cloud" } }); // no scheme → would brick boot
-    expect(s.getByText(CONVEX_URL_ERROR)).toBeTruthy();
+    const error = s.getByRole("alert");
+    expect(error.textContent).toBe(CONVEX_URL_ERROR);
+    expect(url.getAttribute("aria-invalid")).toBe("true");
+    expect(url.getAttribute("aria-describedby")).toBe(error.id);
     await waitFor(async () =>
       expect((await s.settings.get()).convexUrl).toBe("https://good.convex.cloud"),
     ); // the bad value never reached storage
+    expect(s.sync.data[STORAGE_KEYS.settings]).toMatchObject({
+      convexUrl: "https://good.convex.cloud",
+    });
+  });
+
+  it("tests the saved Mirror connection without exposing credentials", async () => {
+    const probe = vi.fn(async () => {});
+    const s = await setup({}, { probe });
+    const button = s.getByRole("button", { name: "Test connection" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    fireEvent.change(s.getByLabelText("Convex deployment URL"), {
+      target: { value: "https://app.convex.cloud" },
+    });
+    fireEvent.change(s.getByLabelText("Convex device key"), { target: { value: "secret" } });
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+
+    await waitFor(() => expect(s.getByText("Connected")).toBeTruthy());
+    expect(probe).toHaveBeenCalledWith({
+      url: "https://app.convex.cloud",
+      deviceKey: "secret",
+    });
+    expect(s.container.textContent).not.toContain("secret");
+  });
+
+  it("reports a failed Mirror connection", async () => {
+    const s = await setup({}, { probe: async () => Promise.reject(new Error("unauthorized")) });
+    fireEvent.change(s.getByLabelText("Convex deployment URL"), {
+      target: { value: "https://app.convex.cloud" },
+    });
+    fireEvent.change(s.getByLabelText("Convex device key"), { target: { value: "wrong" } });
+    await waitFor(() =>
+      expect(
+        (s.getByRole("button", { name: "Test connection" }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(s.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(s.getByText(CONVEX_TEST_ERROR)).toBeTruthy());
+  });
+
+  it("does not settle a probe for a superseded Mirror configuration", async () => {
+    const probe = deferred<void>();
+    const write = deferred<LassoSettings>();
+    const configured = {
+      ...DEFAULT_SETTINGS,
+      convexUrl: "https://first.convex.cloud",
+      convexDeviceKey: "first",
+    };
+    const settings: SettingsStore = {
+      get: async () => configured,
+      set: () => write.promise,
+      subscribe: () => () => {},
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        local={memoryArea()}
+        sync={memoryArea()}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+        mirrorProbe={{ probe: () => probe.promise }}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.click(r.getByRole("button", { name: "Test connection" }));
+    fireEvent.change(r.getByLabelText("Convex device key"), { target: { value: "second" } });
+    probe.resolve();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(r.queryByText("Connected")).toBeNull();
+    expect(r.queryByText(CONVEX_TEST_ERROR)).toBeNull();
   });
 
   it("a nav-rail item scrolls its target section into view", async () => {
@@ -190,7 +690,9 @@ describe("OptionsApp — story beat 9", () => {
 
   it("arms a content chip straight from the Timeline filter section", async () => {
     const s = await setup();
-    fireEvent.click(s.getByRole("button", { name: /^Video$/ }));
+    fireEvent.click(
+      s.getByRole("button", { name: /^Video\. Current mode: off\. Click to show only\.$/ }),
+    );
     expect(s.filter.state.value.criteria["kind:video"]).toBe("only");
   });
 
@@ -225,11 +727,12 @@ describe("OptionsApp — story beat 9", () => {
 });
 
 describe("isValidConvexUrl", () => {
-  it("accepts full http(s) URLs and rejects scheme-less or unparseable ones", () => {
+  it("accepts only deployment URLs allowed by the manifest", () => {
     expect(isValidConvexUrl("https://app.convex.cloud")).toBe(true);
-    expect(isValidConvexUrl("http://localhost:3210")).toBe(true);
+    expect(isValidConvexUrl("http://localhost:3210")).toBe(false);
+    expect(isValidConvexUrl("https://convex.cloud.example.com")).toBe(false);
     expect(isValidConvexUrl("convex.cloud")).toBe(false); // no scheme
-    expect(isValidConvexUrl("https://")).toBe(false); // scheme present but unparseable (catch)
+    expect(isValidConvexUrl("https://")).toBe(false);
   });
 });
 

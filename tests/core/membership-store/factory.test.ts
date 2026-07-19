@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createMembershipStore } from "@/core/membership-store/factory";
+const convex = vi.hoisted(() => ({ probe: vi.fn(async () => {}) }));
+
+vi.mock("@/core/membership-store/convex-client", () => ({
+  testConvexConnection: convex.probe,
+}));
+
+import {
+  createMembershipStore,
+  createMembershipStoreProbe,
+  defaultMembershipStoreProbe,
+} from "@/core/membership-store/factory";
 import { NullMembershipStore } from "@/core/membership-store/null";
 
 describe("createMembershipStore", () => {
@@ -37,40 +47,49 @@ describe("createMembershipStore", () => {
     expect(loadConvex).not.toHaveBeenCalled();
   });
 
-  it("degrades to Null (never throws) when buildConvex throws — e.g. a malformed URL (H1, ADR-0009)", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("rejects when configured buildConvex throws", async () => {
     const buildConvex = vi.fn(() => {
       throw new Error("Invalid deployment address: convex.cloud");
     });
-    const store = await createMembershipStore(
-      { convexUrl: "convex.cloud", convexDeviceKey: "k" },
-      async () => buildConvex,
-    );
-    expect(store).toBeInstanceOf(NullMembershipStore); // boot never aborts
+    await expect(
+      createMembershipStore(
+        { convexUrl: "convex.cloud", convexDeviceKey: "k" },
+        async () => buildConvex,
+      ),
+    ).rejects.toThrow("Invalid deployment address");
     expect(buildConvex).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(
-      "[Lasso] Mirror disabled — Convex client unavailable",
-      expect.any(Error),
-    );
-    warn.mockRestore();
   });
 
-  it("degrades to Null when the Convex chunk itself fails to load (ADR-0009)", async () => {
-    // The dynamic import() can reject where a static one couldn't: the chunk may be
-    // missing from web_accessible_resources, or blocked. Boot must survive it.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("rejects when the configured Convex chunk fails to load", async () => {
     const loadConvex = vi.fn(async () => {
       throw new Error("Failed to fetch dynamically imported module");
     });
-    const store = await createMembershipStore(
-      { convexUrl: "https://x.convex.cloud", convexDeviceKey: "k" },
-      loadConvex,
-    );
-    expect(store).toBeInstanceOf(NullMembershipStore);
-    expect(warn).toHaveBeenCalledWith(
-      "[Lasso] Mirror disabled — Convex client unavailable",
-      expect.any(Error),
-    );
-    warn.mockRestore();
+    await expect(
+      createMembershipStore(
+        { convexUrl: "https://x.convex.cloud", convexDeviceKey: "k" },
+        loadConvex,
+      ),
+    ).rejects.toThrow("Failed to fetch dynamically imported module");
+  });
+});
+
+describe("createMembershipStoreProbe", () => {
+  it("keeps callers on the membership-store seam", async () => {
+    const probe = vi.fn(async () => {});
+    const load = vi.fn(async () => ({ probe }));
+    const mirrorProbe = createMembershipStoreProbe(load);
+
+    await mirrorProbe.probe({ url: "https://x.convex.cloud", deviceKey: "k" });
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(probe).toHaveBeenCalledWith({ url: "https://x.convex.cloud", deviceKey: "k" });
+  });
+
+  it("loads the default probe only when the health check runs", async () => {
+    convex.probe.mockClear();
+
+    await defaultMembershipStoreProbe.probe({ url: "https://x.convex.cloud", deviceKey: "k" });
+
+    expect(convex.probe).toHaveBeenCalledWith({ url: "https://x.convex.cloud", deviceKey: "k" });
   });
 });

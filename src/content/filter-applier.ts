@@ -7,16 +7,23 @@ import type { FilterStore } from "@/core/filter-store";
 import { decide } from "@/core/timeline-filter";
 import * as tweetRead from "@/core/tweet-read";
 
-const { FILTERED, STUB, TRACELESS, COMPACT } = FilterAttributes;
+const { FILTERED, STUB, COMPACT } = FilterAttributes;
 /**
  * User clicked "show" on the stub — an explicit per-cell un-hide that survives
- * reapply. Its VALUE is the tweet's identity at click time: X recycles cells, so
- * the override is honoured only while the cell still holds the same post (without
- * this, a recycled cell silently leaks "show" onto a different, filtered tweet).
+ * reapply. This attribute is only a DOM marker. The WeakMap below holds the post
+ * identity, so X cannot leak the override when it recycles a cell.
  */
 const SHOW = "data-lasso-show";
 /** The acted-on action-bar button whose appearance/flip means "Owner just liked". */
 const ENGAGEMENT_SEL = FacetSelectors.LIKED;
+
+type ArticleIdentity = string | Element;
+interface CellIdentityState {
+  stubbedFor?: ArticleIdentity;
+  shownFor?: ArticleIdentity;
+}
+
+const identityOf = (article: Element): ArticleIdentity => tweetRead.identity(article) ?? article;
 
 export interface FilterApplier {
   /** Decide + collapse/restore the article's cell. Re-decided every call (never cached). */
@@ -50,26 +57,56 @@ export interface FilterApplierDeps {
  */
 export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
   const { store, root, inScope } = deps;
+  const identities = new WeakMap<Element, CellIdentityState>();
+
+  function identityState(cell: Element): CellIdentityState {
+    const current = identities.get(cell);
+    if (current) return current;
+    const created: CellIdentityState = {};
+    identities.set(cell, created);
+    return created;
+  }
 
   function restore(cell: Element): void {
     cell.removeAttribute(FILTERED);
-    cell.removeAttribute(TRACELESS);
-    cell.querySelector(`[${STUB}]`)?.remove();
+    cell.querySelectorAll(`[${STUB}]`).forEach((stub) => stub.remove());
+    const state = identities.get(cell);
+    if (!state) return;
+    delete state.stubbedFor;
+    if (state.shownFor === undefined) identities.delete(cell);
   }
 
   function collapse(cell: Element, article: Element): void {
-    if (cell.hasAttribute(FILTERED)) return;
+    const articleIdentity = identityOf(article);
+    const existing = cell.querySelector(`[${STUB}]`);
+    // A recycled cell can still be filtered. Reuse only the stub that belongs to
+    // the current tweet; a stale stub retains an old click listener.
+    if (
+      cell.hasAttribute(FILTERED) &&
+      existing &&
+      identities.get(cell)?.stubbedFor === articleIdentity
+    )
+      return;
     cell.setAttribute(FILTERED, "");
+    cell.querySelectorAll(`[${STUB}]`).forEach((stub) => stub.remove());
+    identityState(cell).stubbedFor = articleIdentity;
     const stub = document.createElement("div");
     stub.setAttribute(STUB, "");
     stub.setAttribute("role", "button");
     stub.setAttribute("tabindex", "0");
     stub.textContent = "· hidden — show";
-    stub.addEventListener("click", () => {
-      // Stamp the override with *this* tweet's identity so it can't outlive the
-      // cell being recycled to a different post.
-      cell.setAttribute(SHOW, tweetRead.identity(article));
+    const show = () => {
+      const current = cell.querySelector(Selectors.TWEET);
+      if (!current || identityOf(current) !== articleIdentity) return;
+      identityState(cell).shownFor = articleIdentity;
+      cell.setAttribute(SHOW, "");
       restore(cell);
+    };
+    stub.addEventListener("click", show);
+    stub.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault(); // Space would otherwise scroll the timeline.
+      show();
     });
     cell.prepend(stub);
   }
@@ -82,12 +119,14 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
         restore(cell);
         return;
       }
-      const shown = cell.getAttribute(SHOW);
-      if (shown !== null) {
-        if (shown === tweetRead.identity(article)) {
+      const cellIdentity = identities.get(cell);
+      if (cellIdentity?.shownFor !== undefined) {
+        if (cellIdentity.shownFor === identityOf(article)) {
           restore(cell); // same post the user un-hid — honour the override
           return;
         }
+        delete cellIdentity.shownFor;
+        identities.delete(cell);
         cell.removeAttribute(SHOW); // recycled to a different tweet — drop it, re-decide
       }
       const state = store.state.value;
@@ -100,8 +139,6 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
       }
       const f = tweetRead.facets(article);
       if (decide(f, state) === "hide") {
-        // Erase already-liked posts without a trace (no stub), even outside compact mode.
-        cell.toggleAttribute(TRACELESS, f.liked && state.criteria["engagement:liked"] === "hide");
         collapse(cell, article);
       } else restore(cell);
     } catch {
@@ -119,7 +156,11 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
   }
 
   function restoreAll(): void {
-    for (const cell of root.querySelectorAll(`[${FILTERED}]`)) restore(cell);
+    for (const cell of root.querySelectorAll(Selectors.CELL)) {
+      restore(cell);
+      cell.removeAttribute(SHOW);
+      identities.delete(cell);
+    }
   }
 
   // The compact-mode flag is a page-level CSS hook (filter-feature.ts hides the
@@ -184,6 +225,7 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
       attributeFilter: ["data-testid"],
     });
 
+  let disposed = false;
   return {
     classify,
     reapplyAll,
@@ -191,8 +233,11 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
     hiddenCount: () => root.querySelectorAll(`[${FILTERED}]`).length,
     isStubbed: (el) => (el.closest(Selectors.CELL) ?? el).hasAttribute(FILTERED),
     dispose() {
+      if (disposed) return;
+      disposed = true;
       disposeEffect();
       hydrationObserver.disconnect();
+      compactFlagHost?.removeAttribute(COMPACT);
     },
   };
 }

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTweetScanner } from "@/content/tweet-scanner";
-import type { TweetAuthor } from "@/core/selection-store";
 
 const tweetHtml = (handle: string, id: string) => `
 <article data-testid="tweet" role="article">
@@ -23,9 +22,11 @@ describe("createTweetScanner", () => {
     root.innerHTML = tweetHtml("jack", "1") + tweetHtml("alice", "2");
     document.body.appendChild(root);
 
-    const seen: TweetAuthor[] = [];
-    createTweetScanner(root, (a) => seen.push(a)).start();
-    expect(seen.map((a) => a.screenName)).toEqual(["jack", "alice"]);
+    const seen: Element[] = [];
+    createTweetScanner(root, (article) => seen.push(article)).start();
+    expect(
+      seen.map((article) => article.querySelector("time")?.closest("a")?.getAttribute("href")),
+    ).toEqual(["/jack/status/1", "/alice/status/2"]);
   });
 
   it("reports tweets added later, once each", async () => {
@@ -41,7 +42,7 @@ describe("createTweetScanner", () => {
     await tick();
 
     expect(onTweet).toHaveBeenCalledTimes(1);
-    expect(onTweet.mock.calls[0]?.[0]).toMatchObject({ screenName: "bob", tweetId: "3" });
+    expect(onTweet).toHaveBeenCalledWith(cell.querySelector("article"));
     scanner.stop();
   });
 
@@ -57,14 +58,11 @@ describe("createTweetScanner", () => {
     document.body.appendChild(article);
     await tick();
 
-    expect(onTweet).toHaveBeenCalledWith(
-      expect.objectContaining({ screenName: "direct", tweetId: "4" }),
-      article,
-    );
+    expect(onTweet).toHaveBeenCalledWith(article);
     scanner.stop();
   });
 
-  it("dedupes invalid tweet nodes even when extraction returns null", async () => {
+  it("reports an Author-less tweet once", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     const onTweet = vi.fn();
@@ -77,7 +75,8 @@ describe("createTweetScanner", () => {
     await tick();
     scanner.scanExisting();
 
-    expect(onTweet).not.toHaveBeenCalled();
+    expect(onTweet).toHaveBeenCalledWith(article);
+    expect(onTweet).toHaveBeenCalledTimes(1);
     scanner.stop();
   });
 

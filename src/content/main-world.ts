@@ -8,6 +8,7 @@ import {
 
 // Injected as the MAIN-world content script (manifest `world: "MAIN"`); the
 // empty export makes this an ES module so it can be dynamically imported in tests.
+// oxlint-disable-next-line unicorn/require-module-specifiers -- required module marker.
 export {};
 
 function activate(el: Element): void {

@@ -1,14 +1,13 @@
 # Lasso Product Documentation
 
-Last updated: 2026-06-12  
-Current commit reviewed: `ef39ef4`  
+Status: living user guide. Verify screenshots against the release build.
 Audience: regular users of Lasso
 
-Lasso helps you add people from your X timeline to X Lists without leaving the feed. It works on x.com, stays inside your browser, and gives visible feedback for every action so you know what happened.
+Lasso helps you add people from your X timeline to X Lists without leaving the feed. It works on x.com and gives visible feedback for every action so you know what happened.
 
 ## Screenshot Record
 
-Screenshots were captured from the current built app with a local X timeline simulator and Chrome DevTools Protocol.
+Screenshots are historical records captured from a built app with a local X timeline simulator and Chrome DevTools Protocol.
 
 | Area | Screenshot |
 | --- | --- |
@@ -33,7 +32,7 @@ Lasso keeps your flow on the timeline:
 - Select many people across several posts.
 - Pick a List with search and keyboard controls.
 - See a success, retry, rate-limit, or undo message after the action.
-- Use quick actions such as mute or "not interested" from the same timeline context.
+- Use the timeline's not-interested action from the same context.
 
 ## First Run
 
@@ -217,30 +216,19 @@ Current shortcuts:
 | --- | --- |
 | `Alt+L` | Add the author to a List. If nobody is selected, Lasso uses the hovered or focused post. |
 | `Alt+Shift+L` | Add straight to your default List. If no default List is set, Lasso opens the picker. |
-| `Alt+M` | Mute the author. |
 | `Alt+N` | Mark the post as not interested. |
 | `x` | Select the focused post. |
 | `s` | Turn select mode on or off. |
+| `f` | Turn the timeline filter on or off. |
+| `h` | Show filtered posts; press again to re-hide them. |
 | `?` | Show the shortcuts sheet. |
 | `Esc` | Dismiss one Lasso layer at a time. |
 | `z` | Undo the last undoable Lasso action. |
 
 Lasso does not take over X's own `j` and `k` navigation shortcuts.
+Mute has no default shortcut.
 
 ## Quick Actions
-
-### Mute
-
-Use `Alt+M` while hovering or focusing a post.
-
-Success behavior:
-
-- Lasso shows **Muted @name**.
-- **Undo** is available for a short window.
-
-Failure behavior:
-
-- Lasso shows **Couldn't mute @name** with **Retry**.
 
 ### Not Interested
 
@@ -283,14 +271,14 @@ Open settings from the toolbar popup with **All settings**.
 Options:
 
 - **On every visit (default)**: Lasso starts automatically on x.com.
-- **Only when I click the toolbar icon**: Lasso stays asleep until you wake it from the popup.
+- **Only when I use the toolbar or press `s`**: Lasso stays asleep until you wake it from the popup or enter select mode.
 
 ### How Lasso Talks To X
 
 Options:
 
-- **Drive X's own menus**: slower, but uses only actions you could click yourself.
-- **X's public REST endpoints**: fast and uses the same public endpoints X's site uses.
+- **Drive X's own menus**: slower, requires a currently visible post, and uses only actions you could click yourself. Scrolled-away selections are not author-addressable through this adapter.
+- **X's web REST endpoints**: fast and uses the same endpoints X's site uses. They are not X's developer API.
 - **GraphQL**: fastest, but uses private endpoints and may break or be frowned upon.
 
 Changing this setting affects future List actions.
@@ -313,11 +301,15 @@ Option:
 
 ### Privacy & Data
 
-Lasso states its data boundary clearly: it has no servers, and your X session, Lists, and usage stats stay in your browser.
+Lasso keeps your X session credentials between your browser and X. With Mirror configured, it sends its device key, Owner/List catalog, membership snapshots, and assignment audit events to your Convex deployment.
+
+### Sync
+
+Mirror sync is optional. Enter both a Convex deployment URL and device key to connect. Leave either blank: no Mirror connection.
 
 Buttons:
 
-- **Clear Lasso data**: clears cached Lists, List usage, settings, and onboarding hint state. After clicking, settings shows **Cleared**.
+- **Clear Lasso data**: clears cached Lists, List usage, settings, filter preferences, Mirror status, and onboarding hint state. After clicking, settings shows **Cleared**.
 - **Replay intro**: makes the welcome card appear on your next visit to x.com. After clicking, settings shows **On your next visit to x.com**.
 
 ## Install And Uninstall Behavior
@@ -335,4 +327,3 @@ Keep this file as the living user guide:
 - Document user-visible behavior first: page, entry point, button, post-click result.
 - Keep implementation details out of user sections.
 - If a feature is only planned and not shipped, leave it out or mark it explicitly as future work.
-

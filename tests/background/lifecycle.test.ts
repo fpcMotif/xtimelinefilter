@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  badgeTextFor,
+  badgePresentationFor,
   handleInstalled,
   UNINSTALL_FORM_URL,
   WELCOME_URL,
@@ -26,17 +26,22 @@ describe("install moment (story beat 2)", () => {
 
 describe("toolbar badge mirrors the live state (story beats 7 & 9)", () => {
   it("shows the live selection count and clears at zero", () => {
-    expect(badgeTextFor({ type: "lasso:badge", count: 7 })).toBe("7");
-    expect(badgeTextFor({ type: "lasso:badge", count: 0 })).toBe("");
+    expect(badgePresentationFor({ type: "lasso:badge", count: 7 })).toEqual({
+      text: "7",
+      backgroundColor: "#1d9bf0",
+    });
+    expect(badgePresentationFor({ type: "lasso:badge", count: 0 })).toEqual({ text: "" });
   });
 
-  it("dormant tabs show zz; awake clears it", () => {
-    expect(badgeTextFor({ type: "lasso:state", state: "asleep" })).toBe("zz");
-    expect(badgeTextFor({ type: "lasso:state", state: "awake" })).toBe("");
+  it("dormant tabs show a neutral zz; awake clears it", () => {
+    expect(badgePresentationFor({ type: "lasso:state", state: "asleep" })).toEqual({
+      text: "zz",
+      backgroundColor: "#536471",
+    });
+    expect(badgePresentationFor({ type: "lasso:state", state: "awake" })).toEqual({ text: "" });
   });
 
   it("ignores unrelated messages", () => {
-    expect(badgeTextFor({ type: "something-else" })).toBeNull();
-    expect(badgeTextFor(undefined)).toBeNull();
+    expect(badgePresentationFor(undefined)).toBeNull();
   });
 });

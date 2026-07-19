@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TabState } from "@/popup/PopupApp";
 
-// Mock preact's render so we can capture the three callbacks the entry hands to
-// PopupApp (queryState / wake / openOptions / mirrorStatus) and drive each branch
+// Mock preact's render so we can capture the callbacks the entry hands to
+// PopupApp (tab actions plus Mirror read/watch) and drive each branch
 // directly — the entry's whole job is wiring those to chrome.tabs / chrome.runtime
 // and the mirror-status store.
 const { render } = vi.hoisted(() => ({ render: vi.fn() }));
@@ -13,7 +13,7 @@ vi.mock("preact", async () => {
 });
 
 const { mirrorStore } = vi.hoisted(() => ({
-  mirrorStore: { publish: vi.fn(), read: vi.fn() },
+  mirrorStore: { publish: vi.fn(), read: vi.fn(), subscribe: vi.fn() },
 }));
 vi.mock("@/core/mirror-status", () => ({
   createMirrorStatusStore: () => mirrorStore,
@@ -21,9 +21,12 @@ vi.mock("@/core/mirror-status", () => ({
 
 type PopupProps = {
   queryState(): Promise<TabState>;
-  wake(): Promise<void>;
+  wake(): Promise<boolean>;
   openOptions(): void;
-  mirrorStatus(): Promise<{ ok: boolean; at: number } | null>;
+  mirrorStatus(): Promise<{ ok: boolean; at: number; configId: string } | null>;
+  subscribeMirrorStatus(
+    cb: (status: { ok: boolean; at: number; configId: string } | null) => void,
+  ): () => void;
 };
 
 let query: ReturnType<typeof vi.fn>;
@@ -47,6 +50,7 @@ beforeEach(() => {
   openOptionsPage = vi.fn();
   mirrorStore.publish.mockClear();
   mirrorStore.read.mockClear();
+  mirrorStore.subscribe.mockClear();
   globalThis.chrome = {
     ...(previousChrome as typeof chrome),
     tabs: { query, sendMessage },
@@ -85,6 +89,13 @@ describe("popup entry", () => {
     expect(await queryState()).toBe("off-x");
   });
 
+  it("reports 'off-x' when finding the active tab rejects", async () => {
+    const { queryState } = await loadProps();
+    query.mockRejectedValueOnce(new Error("tabs unavailable"));
+    await expect(queryState()).resolves.toBe("off-x");
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it("reports 'off-x' when there is no active tab", async () => {
     const { queryState } = await loadProps();
     query.mockResolvedValueOnce([]);
@@ -92,24 +103,31 @@ describe("popup entry", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("wakes the active tab", async () => {
+  it("wakes the active tab only after it confirms awake", async () => {
     const { wake } = await loadProps();
-    sendMessage.mockResolvedValueOnce(undefined);
-    await wake();
+    sendMessage.mockResolvedValueOnce({ awake: true });
+    await expect(wake()).resolves.toBe(true);
     expect(sendMessage).toHaveBeenCalledWith(1, { type: "lasso-activate" });
   });
 
   it("wake is a no-op with no active tab", async () => {
     const { wake } = await loadProps();
     query.mockResolvedValueOnce([]);
-    await wake();
+    await expect(wake()).resolves.toBe(false);
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("wake swallows a sendMessage rejection", async () => {
+  it("wake reports false when the content script rejects", async () => {
     const { wake } = await loadProps();
     sendMessage.mockRejectedValueOnce(new Error("gone"));
-    await expect(wake()).resolves.toBeUndefined();
+    await expect(wake()).resolves.toBe(false);
+  });
+
+  it("wake reports false when finding the active tab rejects", async () => {
+    const { wake } = await loadProps();
+    query.mockRejectedValueOnce(new Error("tabs unavailable"));
+    await expect(wake()).resolves.toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("openOptions opens the extension options page", async () => {
@@ -118,10 +136,28 @@ describe("popup entry", () => {
     expect(openOptionsPage).toHaveBeenCalledTimes(1);
   });
 
+  it("absorbs an options-page rejection", async () => {
+    const { openOptions } = await loadProps();
+    openOptionsPage.mockRejectedValueOnce(new Error("extension reloaded"));
+    openOptions();
+    await Promise.resolve();
+    expect(openOptionsPage).toHaveBeenCalledTimes(1);
+  });
+
   it("mirrorStatus is the mirror-status store's read, wired straight through", async () => {
     const { mirrorStatus } = await loadProps();
-    mirrorStore.read.mockResolvedValueOnce({ ok: true, at: 7 });
-    expect(await mirrorStatus()).toEqual({ ok: true, at: 7 });
+    mirrorStore.read.mockResolvedValueOnce({ ok: true, at: 7, configId: "mirror-1" });
+    expect(await mirrorStatus()).toEqual({ ok: true, at: 7, configId: "mirror-1" });
     expect(mirrorStore.read).toHaveBeenCalledTimes(1);
+  });
+
+  it("subscribeMirrorStatus is the live mirror-status subscription", async () => {
+    const { subscribeMirrorStatus } = await loadProps();
+    const listener = vi.fn();
+    const dispose = vi.fn();
+    mirrorStore.subscribe.mockReturnValueOnce(dispose);
+
+    expect(subscribeMirrorStatus(listener)).toBe(dispose);
+    expect(mirrorStore.subscribe).toHaveBeenCalledWith(listener);
   });
 });

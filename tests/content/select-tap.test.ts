@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { installSelectTap } from "@/content/select-tap";
+import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
 
-function click(target: EventTarget): MouseEvent {
-  const evt = new MouseEvent("click", { bubbles: true, cancelable: true });
+function click(target: EventTarget, init: MouseEventInit = {}): MouseEvent {
+  const evt = new MouseEvent("click", { bubbles: true, cancelable: true, ...init });
+  Object.defineProperty(evt, "isTrusted", { value: true });
   target.dispatchEvent(evt);
   return evt;
 }
@@ -13,6 +15,52 @@ afterEach(() => {
 });
 
 describe("installSelectTap", () => {
+  it("ignores untrusted clicks", () => {
+    const article = document.createElement("article");
+    document.body.appendChild(article);
+    const resolveTarget = vi.fn(() => article);
+    const onToggle = vi.fn();
+    const dispose = installSelectTap({ isActive: () => true, resolveTarget, onToggle });
+
+    const evt = new MouseEvent("click", { bubbles: true, cancelable: true });
+    article.dispatchEvent(evt);
+    expect(resolveTarget).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+
+    dispose();
+  });
+
+  it("ignores Lasso's own flagged synthetic clicks", () => {
+    const article = document.createElement("article");
+    document.body.appendChild(article);
+    const resolveTarget = vi.fn(() => article);
+    const onToggle = vi.fn();
+    const dispose = installSelectTap({ isActive: () => true, resolveTarget, onToggle });
+
+    const evt = new MouseEvent("click", { bubbles: true, cancelable: true });
+    Object.defineProperty(evt, "isTrusted", { value: true });
+    Object.defineProperty(evt, SYNTHETIC_EVENT_FLAG, { value: true });
+    article.dispatchEvent(evt);
+    expect(resolveTarget).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+
+    dispose();
+  });
+
+  it("ignores non-primary clicks", () => {
+    const article = document.createElement("article");
+    document.body.appendChild(article);
+    const resolveTarget = vi.fn(() => article);
+    const onToggle = vi.fn();
+    const dispose = installSelectTap({ isActive: () => true, resolveTarget, onToggle });
+
+    click(article, { button: 1 });
+    expect(resolveTarget).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+
+    dispose();
+  });
+
   it("does nothing while inactive", () => {
     const resolveTarget = vi.fn();
     const onToggle = vi.fn();
@@ -118,6 +166,8 @@ describe("installSelectTap", () => {
     installSelectTap({ isActive: () => true, resolveTarget, onToggle: () => {} });
 
     handler!({
+      isTrusted: true,
+      button: 0,
       composedPath: undefined,
       target: article,
       preventDefault: vi.fn(),
@@ -159,6 +209,8 @@ describe("installSelectTap", () => {
     });
 
     listeners.click!({
+      isTrusted: true,
+      button: 0,
       composedPath: () => [article],
       target: article,
       preventDefault: vi.fn(),

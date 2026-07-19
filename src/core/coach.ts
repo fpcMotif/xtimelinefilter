@@ -6,6 +6,10 @@ import { STORAGE_KEYS } from "@/core/storage-keys";
  * they show for 7 days or 5 assigns, whichever comes first, then the UI returns
  * to pure camouflage. "Replay intro" in Settings resets everything for a second
  * pass. Persisted under `lasso:coach` in chrome.storage.local.
+ *
+ * Coach is cosmetic and best-effort. Its profile-wide storage can race across
+ * extension contexts, so exact counts are not an invariant. Product actions
+ * never depend on coaching state.
  */
 
 export const DECAY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -39,47 +43,83 @@ export interface Coach {
 
 export function createCoach(area: StorageLike = localArea(), now: () => number = Date.now): Coach {
   const store = blobStore<CoachState>(area, STORAGE_KEYS.coach, {});
+  let mutationTail: Promise<void> = Promise.resolve();
 
-  async function write(patch: Partial<CoachState>): Promise<CoachState> {
-    const next = { ...(await store.get()), ...patch };
+  /** Keep read-modify-write updates ordered within this Coach instance. */
+  function mutate<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+    const result = mutationTail.then(operation, operation);
+    mutationTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result.catch(() => fallback);
+  }
+
+  function activeHints(state: CoachState & { installedAt: number }): boolean {
+    if ((state.assignCount ?? 0) >= DECAY_ASSIGNS) return false;
+    return now() - state.installedAt <= DECAY_MS;
+  }
+
+  function stampInstalledAt(state: CoachState): CoachState & { installedAt: number } {
+    return state.installedAt === undefined
+      ? { ...state, installedAt: now() }
+      : (state as CoachState & { installedAt: number });
+  }
+
+  function write(next: CoachState): Promise<CoachState> {
     return store.set(next);
   }
 
-  /** Reads coach state, stamping installedAt on first call so it is always set. */
-  async function ensureInstalledAt(): Promise<CoachState & { installedAt: number }> {
-    const s = await store.get();
-    if (s.installedAt !== undefined) return s as CoachState & { installedAt: number };
-    return write({ installedAt: now() }) as Promise<CoachState & { installedAt: number }>;
-  }
-
-  async function hintsActive(): Promise<boolean> {
-    const s = await ensureInstalledAt();
-    if ((s.assignCount ?? 0) >= DECAY_ASSIGNS) return false;
-    return now() - s.installedAt <= DECAY_MS;
+  function hintsActive(): Promise<boolean> {
+    return mutate(async () => {
+      const state = await store.get();
+      const withInstalledAt = stampInstalledAt(state);
+      if (withInstalledAt !== state) await write(withInstalledAt);
+      return activeHints(withInstalledAt);
+    }, false);
   }
 
   return {
     async isOnboarded() {
-      return (await store.get()).onboarded === true;
+      try {
+        return (await store.get()).onboarded === true;
+      } catch {
+        // A missing answer must not show onboarding on every boot.
+        return true;
+      }
     },
     async markOnboarded() {
-      await write({ onboarded: true });
+      await mutate(async () => {
+        const state = await store.get();
+        await write({ ...state, onboarded: true });
+      }, undefined);
     },
     async recordAssign() {
-      const s = await store.get();
-      await write({ assignCount: (s.assignCount ?? 0) + 1 });
+      await mutate(async () => {
+        const state = await store.get();
+        await write({ ...state, assignCount: (state.assignCount ?? 0) + 1 });
+      }, undefined);
     },
     hintsActive,
     async tryShowTip(id, max = 1) {
-      if (!(await hintsActive())) return false;
-      const s = await store.get();
-      const shown = s.tips?.[id] ?? 0;
-      if (shown >= max) return false;
-      await write({ tips: { ...s.tips, [id]: shown + 1 } });
-      return true;
+      return mutate(async () => {
+        const state = await store.get();
+        const withInstalledAt = stampInstalledAt(state);
+        if (!activeHints(withInstalledAt)) return false;
+        const shown = withInstalledAt.tips?.[id] ?? 0;
+        if (shown >= max) return false;
+        await write({
+          ...withInstalledAt,
+          tips: { ...withInstalledAt.tips, [id]: shown + 1 },
+        });
+        return true;
+      }, false);
     },
     async replayIntro() {
-      await write({ onboarded: false, installedAt: now(), assignCount: 0, tips: {} });
+      await mutate(async () => {
+        const state = await store.get();
+        await write({ ...state, onboarded: false, installedAt: now(), assignCount: 0, tips: {} });
+      }, undefined);
     },
   };
 }

@@ -55,7 +55,7 @@ describe("surface preferences", () => {
   });
 
   it("yields surface defaults when a stored object lacks the new keys (migration)", async () => {
-    const legacy: Partial<LassoSettings> = {
+    const legacy: Partial<LassoSettings> & { hotkeySelectMode?: string } = {
       backend: "dom",
       hotkeySelectMode: "s",
       activation: "auto",
@@ -68,5 +68,6 @@ describe("surface preferences", () => {
     expect(got.surfaces).toEqual({ pill: true, palette: false });
     expect(got.pillPosition).toEqual(DEFAULT_SETTINGS.pillPosition);
     expect(got.paletteHotkey).toBe(DEFAULT_SETTINGS.paletteHotkey);
+    expect(got).not.toHaveProperty("hotkeySelectMode");
   });
 });

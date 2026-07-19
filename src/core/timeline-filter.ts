@@ -9,8 +9,6 @@ const normalizeLang = (lang: string): string => lang.split("-")[0]?.toLowerCase(
 const isDetectable = (lang: string | null): lang is string =>
   !!lang && !UNDETECTABLE.has(normalizeLang(lang));
 
-const familyOf = (id: CriterionId): Family => id.split(":")[0] as Family;
-
 // "language" is the single onlyMyLanguages gate in v1, handled in decide(), not as a criterion.
 function matchesCriterion(id: CriterionId, f: Facets, state: FilterState): boolean {
   return CRITERIA_BY_ID.get(id)?.matches(f, state) ?? false;
@@ -36,9 +34,11 @@ export function decide(facets: Facets, state: FilterState): FilterVerdict {
   const onlyByFamily = new Map<Family, CriterionId[]>();
   for (const [id, mode] of Object.entries(state.criteria)) {
     if (mode !== "only") continue;
-    const fam = familyOf(id);
+    const criterion = CRITERIA_BY_ID.get(id);
+    if (!criterion) continue;
+    const { family: fam } = criterion;
     const ids = onlyByFamily.get(fam) ?? [];
-    ids.push(id);
+    ids.push(criterion.id);
     onlyByFamily.set(fam, ids);
   }
   for (const ids of onlyByFamily.values()) {

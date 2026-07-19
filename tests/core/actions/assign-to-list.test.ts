@@ -1,23 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { assignAuthorsToList } from "@/core/actions/assign-to-list";
+import { assignAuthorsToList, removeAuthorsFromList } from "@/core/actions/assign-to-list";
 import type { TweetAuthor } from "@/core/selection-store";
 import { XApiError, type XList, type XListApi } from "@/core/x-client/types";
 
 class FakeApi implements XListApi {
   added: string[] = [];
+  removed: string[] = [];
   addImpl: (author: TweetAuthor) => Promise<void> = async () => {};
-  async getLists(): Promise<XList[]> {
-    return [];
-  }
-  async resolveUserId(): Promise<string | null> {
-    return null;
-  }
+  removeImpl: (author: TweetAuthor) => Promise<void> = async () => {};
   async addMember(_list: XList, author: TweetAuthor): Promise<void> {
     this.added.push(author.screenName);
     return this.addImpl(author);
   }
-  async removeMember(): Promise<void> {}
+  async removeMember(_list: XList, author: TweetAuthor): Promise<void> {
+    this.removed.push(author.screenName);
+    return this.removeImpl(author);
+  }
 }
 
 const LIST: XList = { id: "L", name: "Research" };
@@ -25,6 +24,27 @@ const noSleep = { sleep: async () => {} };
 const a = (screenName: string, userId?: string): TweetAuthor => ({ screenName, userId });
 
 describe("assignAuthorsToList", () => {
+  it("timestamps each result when its backend attempt settles", async () => {
+    const api = new FakeApi();
+    const events: string[] = [];
+    const times = [101, 202, 303];
+    api.addImpl = async (author) => {
+      events.push(`attempt:${author.screenName}`);
+      if (author.screenName === "y") throw new Error("boom");
+    };
+
+    const res = await assignAuthorsToList([a("x"), a("y"), a("z")], LIST, api, {
+      ...noSleep,
+      now: () => {
+        events.push("now");
+        return times.shift() as number;
+      },
+    });
+
+    expect(events).toEqual(["attempt:x", "now", "attempt:y", "now", "attempt:z", "now"]);
+    expect(res.map((result) => result.observedAt)).toEqual([101, 202, 303]);
+  });
+
   it("adds every author in order", async () => {
     const api = new FakeApi();
     const res = await assignAuthorsToList([a("x"), a("y")], LIST, api, noSleep);
@@ -143,6 +163,83 @@ describe("assignAuthorsToList", () => {
   });
 });
 
+describe("removeAuthorsFromList — undo under the same policy", () => {
+  it("removes every author in order and timestamps each attempt", async () => {
+    const api = new FakeApi();
+    const times = [101, 202];
+    const res = await removeAuthorsFromList([a("x"), a("y")], LIST, api, {
+      ...noSleep,
+      now: () => times.shift() as number,
+    });
+    expect(res.map((r) => r.outcome)).toEqual(["removed", "removed"]);
+    expect(res.map((r) => r.observedAt)).toEqual([101, 202]);
+    expect(api.removed).toEqual(["x", "y"]);
+  });
+
+  it("paces removes with an injected sleep between items (not before the first)", async () => {
+    const api = new FakeApi();
+    const sleeps: number[] = [];
+    await removeAuthorsFromList([a("x"), a("y"), a("z")], LIST, api, {
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      delayMs: 1000,
+      jitter: 0,
+      random: () => 0.5,
+    });
+    expect(sleeps).toEqual([1000, 1000]);
+  });
+
+  it("STOPS on rate-limited — later authors un-attempted, carries the reset time", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async (au) => {
+      if (au.screenName === "y")
+        throw new XApiError("rate-limited", "429", { resetAt: 1750000000 });
+    };
+    const res = await removeAuthorsFromList([a("x"), a("y"), a("z")], LIST, api, noSleep);
+    expect(res.map((r) => r.outcome)).toEqual(["removed", "rate-limited"]);
+    expect(api.removed).toEqual(["x", "y"]); // z never attempted
+    expect(res[1]).toMatchObject({ outcome: "rate-limited", resetAt: 1750000000 });
+  });
+
+  it("maps a non-rate-limit error to failed and keeps going", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async (au) => {
+      if (au.screenName === "y") throw new Error("remove boom");
+    };
+    const res = await removeAuthorsFromList([a("x"), a("y"), a("z")], LIST, api, noSleep);
+    expect(res.map((r) => r.outcome)).toEqual(["removed", "failed", "removed"]);
+    expect(res[1]).toMatchObject({ outcome: "failed", message: "remove boom" });
+  });
+
+  it("shouldStop during pacing prevents the next remove", async () => {
+    const api = new FakeApi();
+    let stop = false;
+    let releaseSleep!: () => void;
+    let enteredSleep!: () => void;
+    const sleepEntered = new Promise<void>((resolve) => {
+      enteredSleep = resolve;
+    });
+    const res = removeAuthorsFromList([a("x"), a("y")], LIST, api, {
+      sleep: async () => {
+        enteredSleep();
+        await new Promise<void>((resolve) => {
+          releaseSleep = resolve;
+        });
+      },
+      now: () => 456,
+      shouldStop: () => stop,
+    });
+
+    await sleepEntered;
+    stop = true;
+    releaseSleep();
+
+    await expect(res).resolves.toEqual([{ author: a("x"), outcome: "removed", observedAt: 456 }]);
+    expect(api.removed).toEqual(["x"]);
+  });
+});
+
 describe("story beat 7 — progress + Stop", () => {
   it("reports 1-based progress before each attempt", async () => {
     const api = new FakeApi();
@@ -170,6 +267,33 @@ describe("story beat 7 — progress + Stop", () => {
     });
     expect(res.map((r) => r.outcome)).toEqual(["added", "added"]);
     expect(api.added).toEqual(["x", "y"]); // z never attempted
+  });
+
+  it("Stop during pacing prevents the next attempt", async () => {
+    const api = new FakeApi();
+    let stop = false;
+    let releaseSleep!: () => void;
+    let enteredSleep!: () => void;
+    const sleepEntered = new Promise<void>((resolve) => {
+      enteredSleep = resolve;
+    });
+    const res = assignAuthorsToList([a("x"), a("y")], LIST, api, {
+      sleep: async () => {
+        enteredSleep();
+        await new Promise<void>((resolve) => {
+          releaseSleep = resolve;
+        });
+      },
+      now: () => 456,
+      shouldStop: () => stop,
+    });
+
+    await sleepEntered;
+    stop = true;
+    releaseSleep();
+
+    await expect(res).resolves.toEqual([{ author: a("x"), outcome: "added", observedAt: 456 }]);
+    expect(api.added).toEqual(["x"]);
   });
 
   it("carries the rate-limit reset time onto the result", async () => {

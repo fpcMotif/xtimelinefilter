@@ -11,8 +11,8 @@ export interface FilterPanelProps {
   hiddenCount?: () => number;
   /**
    * Conduct in-page Filter *commands* (cycle a criterion, reveal/show-all) through
-   * the controller's fail-open wall; preferences (master enable, languages, presets)
-   * stay direct. Omit ⇒ commands run directly on the store.
+   * the controller's fail-open wall; preferences (master enable, languages,
+   * saving presets) stay direct. Omit ⇒ commands run directly on the store.
    */
   conduct?: (run: (s: FilterStore) => void) => void;
 }
@@ -21,8 +21,8 @@ export interface FilterPanelProps {
  * The Filter's shared, placement-agnostic body for the in-page funnel pill: the
  * master toggle, the "only my languages" gate, an optional hidden-count line
  * with a persistent "show all" / "hide all" reveal toggle, the shared
- * <CriteriaMatrix> chips, and a presets row (apply + save only — rename/delete
- * live in Options). Positioning is the mount's job. No innerHTML of page data
+ * <CriteriaMatrix> chips, and a presets row (apply is a command; save is a
+ * preference — rename/delete live in Options). Positioning is the mount's job. No innerHTML of page data
  * (ADR-0003).
  */
 export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
@@ -101,7 +101,7 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
           <PresetApplyPill
             key={preset.id}
             preset={preset}
-            onApply={(id) => store.applyPreset(id)}
+            onApply={(id) => cmd((s) => s.applyPreset(id))}
           />
         ))}
         <Input

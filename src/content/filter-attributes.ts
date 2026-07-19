@@ -9,12 +9,6 @@ export const FilterAttributes = {
   FILTERED: "data-lasso-filtered",
   /** Marks the injected stub element so we can find/remove it. */
   STUB: "data-lasso-filter-stub",
-  /**
-   * Per-cell "traceless" mark: this post is hidden because the Owner already liked it,
-   * so its stub is dropped (CSS) and it collapses to 0 height with no visible trace —
-   * "already liked → erase it." Distinct from the global compact toggle.
-   */
-  TRACELESS: "data-lasso-traceless",
   /** Page-level compact-mode flag (popup toggle): CSS drops the stub for every collapsed cell. */
   COMPACT: "data-lasso-compact",
 } as const;

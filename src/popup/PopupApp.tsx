@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { activeCriteriaCount } from "@/core/filter-projection";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
@@ -15,14 +15,16 @@ export interface PopupDeps {
   /** Resolve the active tab's Lasso state. */
   queryState(): Promise<TabState>;
   /** Wake a dormant tab (sends lasso-activate). */
-  wake(): Promise<void>;
+  wake(): Promise<boolean | void>;
   openOptions(): void;
   /** Shared filter store, hydrated from storage.sync on mount; injectable for tests. */
   filter?: FilterStore;
-  /** Settings store — read once for the high-contrast page attribute. */
+  /** Settings store — owns the live high-contrast page attribute. */
   settings?: SettingsStore;
   /** Last Mirror write outcome (storage.local); absent/null ⇒ no Mirror row. */
   mirrorStatus?(): Promise<MirrorStatus | null>;
+  /** Live Mirror status changes while the popup remains open. */
+  subscribeMirrorStatus?(cb: (status: MirrorStatus | null) => void): () => void;
   now?: () => number;
 }
 
@@ -49,6 +51,7 @@ export function PopupApp({
   filter: filterProp,
   settings: settingsProp,
   mirrorStatus,
+  subscribeMirrorStatus,
   now,
 }: PopupDeps) {
   // Create the stores ONCE per mount — never as a parameter default. A
@@ -57,13 +60,33 @@ export function PopupApp({
   // tests/regression/store-stability.test.tsx).
   const filter = useMemo(() => filterProp ?? createFilterStore(), [filterProp]);
   const settings = useMemo(() => settingsProp ?? createSettings(), [settingsProp]);
+  const lifecycle = useRef(true);
   const [state, setState] = useState<TabState | null>(null);
   const [mirror, setMirror] = useState<MirrorStatus | null>(null);
+  const [mirrorConfigId, setMirrorConfigId] = useState<string | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
   const filterState = useSignalValue(filter.state);
 
   useEffect(() => {
-    void queryState().then(setState);
+    lifecycle.current = true;
+    return () => {
+      lifecycle.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void queryState()
+      .then((next) => {
+        if (mounted) setState(next);
+      })
+      .catch(() => {
+        // An injected reader can fail too. The popup must still settle.
+        if (mounted) setState("off-x");
+      });
+    return () => {
+      mounted = false;
+    };
   }, [queryState]);
 
   useEffect(() => {
@@ -71,14 +94,69 @@ export function PopupApp({
   }, [filter]);
 
   useEffect(() => {
-    void settings.get().then((s) => {
-      document.documentElement.toggleAttribute("data-hc", s.highContrast);
+    let mounted = true;
+    let revision = 0;
+    const apply = (next: Awaited<ReturnType<SettingsStore["get"]>>) => {
+      document.documentElement.toggleAttribute("data-hc", next.highContrast);
+      setMirrorConfigId(
+        next.convexUrl && next.convexDeviceKey && next.mirrorConfigId ? next.mirrorConfigId : null,
+      );
+    };
+    const unsubscribe = settings.subscribe((next) => {
+      revision += 1;
+      if (mounted) apply(next);
     });
+
+    // Subscribe before the read: an Options write that wins the race must not
+    // be overwritten by the older snapshot.
+    void settings
+      .get()
+      .then((next) => {
+        if (mounted && revision === 0) apply(next);
+      })
+      .catch(() => {
+        // Contrast is cosmetic. Leave the current document state on failure.
+      });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+      document.documentElement.removeAttribute("data-hc");
+    };
   }, [settings]);
 
   useEffect(() => {
-    void mirrorStatus?.().then((s) => setMirror(s));
-  }, [mirrorStatus]);
+    let mounted = true;
+    let revision = 0;
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = subscribeMirrorStatus?.((next) => {
+        revision += 1;
+        if (mounted) setMirror(next);
+      });
+    } catch {
+      // Mirror status is cosmetic. An injected watcher may fail too.
+    }
+    try {
+      void mirrorStatus?.()
+        .then((next) => {
+          if (mounted && revision === 0) setMirror(next);
+        })
+        .catch(() => {
+          // Mirror status is observability only; leave its row absent on error.
+        });
+    } catch {
+      // An injected reader can throw before returning its promise.
+    }
+    return () => {
+      mounted = false;
+      try {
+        unsubscribe?.();
+      } catch {
+        // Ignore teardown races during extension reload.
+      }
+    };
+  }, [mirrorStatus, subscribeMirrorStatus]);
 
   useEffect(() => {
     if (!applied) return;
@@ -111,6 +189,7 @@ export function PopupApp({
           htmlFor="popup-master-filter"
           class="flex cursor-pointer items-center justify-between gap-3"
         >
+          <span class="sr-only">Timeline filter: </span>
           <span class="flex items-baseline gap-1.5">
             <span
               class={`text-[26px] leading-none font-bold tabular-nums transition-colors ${
@@ -125,13 +204,12 @@ export function PopupApp({
           </span>
           <Switch
             id="popup-master-filter"
-            label="Timeline filter"
             checked={enabled}
             onChange={(on) => filter.setEnabled(on)}
           />
         </label>
 
-        {mirror && (
+        {mirrorConfigId && mirror?.configId === mirrorConfigId && (
           <button
             type="button"
             onClick={openOptions}
@@ -141,16 +219,27 @@ export function PopupApp({
               class={`h-1.5 w-1.5 rounded-full ${mirror.ok ? "bg-success" : "bg-destructive"}`}
             />
             {mirror.ok ? (
-              `Mirror synced ${mirrorAgeLabel(mirror.at, (now ?? Date.now)())}`
+              `Last Mirror write succeeded ${mirrorAgeLabel(mirror.at, (now ?? Date.now)())}`
             ) : (
-              <span class="text-destructive">Mirror failing — open settings</span>
+              <span class="text-destructive">Last Mirror write failed — open settings</span>
             )}
           </button>
         )}
 
         {state === "active" && <p class="text-faint text-xs">{POPUP_ACTIVE}</p>}
         {state === "asleep" && (
-          <Button class="w-full" onClick={() => void wake().then(() => setState("active"))}>
+          <Button
+            class="w-full"
+            onClick={() =>
+              void wake()
+                .then((awake) => {
+                  if (lifecycle.current) setState(awake === true ? "active" : "asleep");
+                })
+                .catch(() => {
+                  if (lifecycle.current) setState("asleep");
+                })
+            }
+          >
             {POPUP_ASLEEP}
           </Button>
         )}

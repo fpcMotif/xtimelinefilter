@@ -74,7 +74,8 @@ export const POST_ASSIGN_TIP = "Tip: Alt+L on a hovered post does this without t
 export const SELECT_MODE_NUDGE = "Tip: press s to select by clicking posts";
 
 // 15 — trust line
-export const TRUST_LINE = "Lasso runs entirely in your browser. Nothing leaves x.com.";
+export const TRUST_LINE =
+  "Lasso never sends your X session credentials to the Mirror. Mirror sync is off until you configure it.";
 
 // 16 — wake toast
 export const WAKE_TOAST = "Lasso is awake on this tab";
@@ -137,7 +138,7 @@ export const SHORTCUTS_TITLE = "Keyboard shortcuts";
 
 // Settings / popup copy (story beat 9)
 export const PRIVACY_LINE =
-  "Lasso has no servers. Your X session, your Lists, and your usage stats never leave this browser.";
+  "Lasso keeps your X session credentials between your browser and X. With Mirror configured, it sends its device key, Owner/List catalog, membership snapshots, and assignment audit events to your Convex deployment.";
 export const POPUP_ACTIVE = "Active on x.com";
 export const POPUP_ASLEEP = "Asleep — click to wake";
 

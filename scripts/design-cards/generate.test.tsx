@@ -111,6 +111,9 @@ const AUTHORS = [
 
 const noop = () => {};
 
+const rootDecls = (text: string): string[] =>
+  [...text.matchAll(/:root(?:\s*,\s*:host)?\{([^{}]*)\}/g)].map((match) => match[1] ?? "");
+
 /* ── card shell ──────────────────────────────────────────────────────────── */
 
 function loadCss(): { css: string; paneCss: string } {
@@ -139,9 +142,6 @@ function loadCss(): { css: string; paneCss: string } {
     i = css.indexOf(marker, j);
   }
   withoutDark += css.slice(cursor);
-
-  const rootDecls = (text: string): string[] =>
-    [...text.matchAll(/:root(?:\s*,\s*:host)?\{([^{}]*)\}/g)].map((m) => m[1] ?? "");
 
   const paneCss =
     rootDecls(withoutDark)
@@ -220,6 +220,7 @@ const section = (label: string, inner: string) =>
 /* ── the generator ───────────────────────────────────────────────────────── */
 
 describe("design-card generator", () => {
+  /* oxlint-disable react/style-prop-object -- This card-rendering fixture deliberately serializes inline CSS strings. */
   it("writes the Lariat card bundle", async () => {
     mkdirSync(OUT, { recursive: true });
     const shared = loadCss();
@@ -727,4 +728,5 @@ describe("design-card generator", () => {
     if (failures.length) console.log(`FAILED:\n${failures.join("\n")}`);
     expect(failures).toEqual([]);
   }, 30_000);
+  /* oxlint-enable react/style-prop-object */
 });

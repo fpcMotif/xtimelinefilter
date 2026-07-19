@@ -1,6 +1,6 @@
 # Convex membership Mirror — design
 
-**Status:** approved via grilling 2026-06-13 · **Branch:** `claude/convex-mirror` · **ADR:** [0009](../../adr/0009-convex-membership-mirror.md)
+**Status:** implemented; architecture review amended 2026-07-18 · **ADR:** [0009](../../adr/0009-convex-membership-mirror.md)
 
 ## Goal
 
@@ -39,7 +39,7 @@ Captured in [CONTEXT.md](../../CONTEXT.md): **Owner**, **Mirror**, **MembershipS
    │  controller ──assign/undo──► XListApi (unchanged)          │
    │      │                                                     │
    │      └─ after run ─► MembershipStore.recordAssign(owner,…) │
-   │  picker ─► MembershipStore.listsContaining / allLists      │
+   │  picker ─► MembershipStore.observe                          │
    │  getCurrentAccount() ─► Owner (twid cookie)                │
    └───────────────────────────┬────────────────────────────────┘
                                 │ reactive WS, deviceKey on every call
@@ -51,29 +51,30 @@ Captured in [CONTEXT.md](../../CONTEXT.md): **Owner**, **Mirror**, **MembershipS
 
 ## Convex data model (`convex/schema.ts`)
 
-- **accounts** `{ userId, screenName, label?, firstSeenAt, lastSeenAt }` — Owners. index `by_userId`.
-- **lists** `{ listId, name, ownerUserId, isPrivate?, memberCount?, lastReconciledAt? }` — the cross-account catalog. index `by_listId`, `by_owner`.
-- **members** (snapshot) `{ listId, memberScreenName, memberUserId?, present, source: "x-seed" | "extension", addedAt, lastSeenAt }` — keyed by (List, screenName). index `by_list`, `by_list_member`, `by_member` (screenName → lists, for "already in").
-- **events** (audit log) `{ listId, ownerUserId, memberScreenName, memberUserId?, action: "add" | "remove", outcome, message?, at }`. index `by_list`, `by_owner`, `by_at`.
+- **accounts** `{ userId, screenName, label?, firstSeenAt, lastSeenAt, catalogGeneration?, catalogObservedAt?, catalogFactObservedAt?, profileObservedAt? }` — Owners. Missing legacy generation means `0`. Complete-catalog and direct-action clocks fence catalog races; the profile clock stops stale handle regressions. Index `by_userId`.
+- **lists** `{ listId, name, ownerUserId, isPrivate?, memberCount?, lastReconciledAt?, catalogGeneration? }` — the cross-account catalog. Only rows stamped with their Owner's current generation are readable. Indexes `by_listId`, `by_owner`, `by_owner_generation`.
+- **members** (snapshot) `{ listId, memberScreenName, memberUserId?, memberIdentity?, present, source: "x-seed" | "extension", observedAt?, addedAt, lastSeenAt }` — keyed by (List, stable member identity). Missing legacy `observedAt` means `0`. Older observations lose; at equal time, direct extension actions beat X seed reads. Numeric user ID wins; tweet ID is a conservative fallback. Legacy handle-keyed rows remain inert. Indexes include `by_list_member_identity` and `by_member_identity`.
+- **events** (audit log) `{ listId, ownerUserId, memberScreenName, memberUserId?, memberIdentity?, action: "add" | "remove", outcome, message?, observedAt?, at }`. `observedAt` is X completion; `at` is Mirror receipt. Indexes `by_list`, `by_owner`, `by_at`.
 
 ## Convex functions
 
 Every function takes `deviceKey`, validated first against env `LASSO_DEVICE_KEY`; mismatch throws.
 
-- `recordAssign({ deviceKey, owner, list, results })` *(mutation)* — upsert Owner + List; per result, append one event and (on `added`/`already-member`/successful remove) upsert the snapshot row. Maps `AssignResult[]` straight from the controller.
-- `reconcileAuthor({ deviceKey, owner, screenName, listIds })` *(mutation)* — write X's truth for one Account: snapshot `present:true source:"x-seed"` for `listIds`, `present:false` for that Account's other rows under this Owner's Lists.
-- `reconcileCatalog({ deviceKey, owner, lists })` *(mutation)* — mirror the active Owner's owned-List catalog (from `ownerships.json`) into `lists`; sets `lastReconciledAt`.
-- `listsContaining({ deviceKey, screenName })` *(query, reactive)* — `{ listId, ownerUserId, present, lastSeenAt }[]` → drives "already in" across Owners.
-- `catalog({ deviceKey })` *(query, reactive)* — all Lists grouped by Owner → the cross-account picker.
+- `recordAssign({ deviceKey, owner, ownerObservedAt, list, results })` *(mutation)* — append one event per result; each result carries its X completion time. A proven X outcome (`added`, `already-member`, `removed`) newer than the complete catalog stamps List existence into the current Owner generation and fences older catalog answers. It never overwrites catalog metadata. Stable identities update causally fenced snapshots; missing identities stay audit-only. Failed-only batches do not advance the catalog fact clock.
+- `reconcileAuthor({ deviceKey, owner, ownerObservedAt, screenName, memberIdentity, observedAt, listIds })` *(mutation)* — write X's truth for one Account across only the current Owner catalog. `observedAt` is membership fetch start. Older rows and snapshots lose. Missing stable identity is a no-op.
+- `replaceCatalog({ deviceKey, owner, ownerObservedAt, observedAt, lists })` *(mutation)* — replace the active Owner's catalog from a complete, terminal-pagination `ownerships.json` result. The millisecond fetch-start `observedAt` rejects older cross-tab answers and answers no newer than a proven direct List fact. Complete-catalog ties use last arrival; equal direct facts win. An accepted answer advances that Owner's catalog generation and stamps reported Lists; older Lists and snapshots become immediately unreadable and remain available for bounded garbage collection. Audit events stay append-only.
+- Every write carries `ownerObservedAt`, captured with its Owner handle. Profile data never borrows a later action/fetch clock.
+- `listsContaining({ deviceKey, memberIdentity })` *(query, reactive)* — current-generation `{ listId, ownerUserId, present, lastSeenAt }[]` → drives cached "already in" across Owners. The query enumerates authoritative current Lists, then performs one exact member lookup per List: `O(Owners + current Lists)`, independent of inert history. Generation `0` keeps the legacy fallback. `lastSeenAt` exposes source observation time, with receipt time only as a legacy fallback.
+- `catalog({ deviceKey })` *(query, reactive)* — current-generation Lists grouped by Owner → the cross-account picker.
 
 ## Extension wiring
 
-- `core/membership-store/{types,null,convex,factory}.ts` — seam + impls + factory (Convex if `convexUrl` + `convexDeviceKey` set, else Null; mirrors `x-client/factory`).
-- `core/convex-client.ts` — builds the reactive `ConvexClient` from `{ url, deviceKey }`, injects `deviceKey` into every call.
-- `core/settings.ts` — add `convexUrl?`, `convexDeviceKey?` to `LassoSettings`; Options gets a "Sync (Convex)" section with a test-connection affordance.
+- `core/membership-store/{types,null,convex,live,factory}.ts` — seam, adapters, and the live settings-driven facade. Convex exists only when URL and device key are complete; otherwise the Null adapter preserves the X flow.
+- `core/membership-store/convex-client.ts` — builds HTTP writes and reactive reads from `{ url, deviceKey }`, injecting the device key into every call.
+- `core/settings.ts` — owns `convexUrl?`, `convexDeviceKey?`, and opaque `mirrorConfigId?`. Options gets a "Sync (Convex)" section with a test-connection affordance.
 - `content/get-current-account.ts` — `getCurrentAccount(): Owner | null` from the `twid` cookie (+ best-effort screenName). **Live-verified on x.com 2026-06-13**: `twid` IS readable from `document.cookie` (not HttpOnly), raw `twid=u%3D<id>`; screenName from `a[data-testid="AppTabBar_Profile_Link"]` href `/<handle>`. Returns null when logged out so callers skip the Mirror rather than mis-attribute a record.
-- `content/controller.ts` — after `runAssign` resolves, `void membershipStore.recordAssign(owner, list, results)`; in `undoAdds`, record the removals. **Failures swallowed/logged** — never touch the toast/undo/selection.
-- `core/picker-controller.ts` — `memberships` becomes Convex-backed `listsContaining` (instant, reactive); still fire X's `memberships.json` for the active Owner to reconcile. Add an **Owner dimension**: `owners` + `activeOwner` (from `getCurrentAccount`), a `selectedOwner` tab and a `scope` (`account | all`) driving `groups`, and per-row `writable = owner === activeOwner`. Catalog from `catalog()`; active Owner's Lists merged live from X.
+- `content/controller.ts` — each assign/remove result is timestamped immediately after its X attempt settles, then sent through `recordAssign`; in-flight assignment locks Escape and pointer selection until Stop/finally releases it. **Mirror failures are swallowed/logged** — never touch the toast/undo/selection.
+- `core/picker-controller.ts` — `memberships` becomes Convex-backed `listsContaining` (instant, reactive); still fire X's `memberships.json` for the active Owner to reconcile. Queue catalog fetch first, membership second; persist the fresh catalog before optional enhancements settle. Add an **Owner dimension**: `owners` + `activeOwner` (from `getCurrentAccount`), a `selectedOwner` tab and a `scope` (`account | all`) driving `groups`, and per-row `writable = owner === activeOwner`. Catalog from `catalog()`; active Owner's Lists merged live from X.
 
 ## Prototype verdict (2026-06-13)
 
@@ -87,7 +88,7 @@ Three layouts were prototyped (Owner sections / account tabs / unified search). 
 ## Tests (TDD order)
 
 1. `MembershipStore` **shared contract test** (Null + a fake-backed Convex impl).
-2. Convex functions via `convex-test`: recordAssign upserts + appends; reconcileAuthor mirrors truth incl. removals; listsContaining reactive correctness; **wrong device key rejected**.
+2. Convex functions via `convex-test`: generation replacement, stale-response rejection, per-member causal ordering and equal-time source priority, direct-action catalog fences, migration defaults, append-only audit, Owner isolation, reactive reads, and **wrong device key rejection**.
 3. `getCurrentAccount` fixtures **+ a live check** against x.com.
 4. **Controller invariance test**: a rejecting `ConvexMembershipStore` yields the *same* toast/undo/selection as `NullMembershipStore` — Mirror is never load-bearing.
 5. Picker: snapshot drives "already in"; Owner grouping; foreign Lists disabled; "as of last use" cue.

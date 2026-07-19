@@ -25,12 +25,12 @@ const config: GraphqlConfig = {
   features: {},
 };
 const gqlFresh = (): XListApi =>
-  new GraphqlXListApi(creds, {
+  new GraphqlXListApi(() => creds, {
     fetch: (async () => jsonResponse({ data: { list: {} } })) as unknown as typeof fetch,
     config,
   });
 const gqlMember = (): XListApi =>
-  new GraphqlXListApi(creds, {
+  new GraphqlXListApi(() => creds, {
     fetch: (async () =>
       jsonResponse({
         errors: [{ message: "User is already a member of this List." }],
@@ -45,20 +45,17 @@ class Driver implements PageDriver {
     this.checked = new Set(checked);
   }
   async openListsDialog(): Promise<void> {}
-  async listNames(): Promise<string[]> {
-    return ["Research"];
+  async isChecked(list: XList): Promise<boolean> {
+    return this.checked.has(list.id);
   }
-  async isChecked(n: string): Promise<boolean> {
-    return this.checked.has(n);
-  }
-  async toggleList(n: string): Promise<void> {
-    this.checked.add(n);
+  async toggleList(list: XList): Promise<void> {
+    this.checked.add(list.id);
   }
   async commit(): Promise<void> {}
   async close(): Promise<void> {}
 }
 const domFresh = (): XListApi => new DomXListApi(new Driver());
-const domMember = (): XListApi => new DomXListApi(new Driver(["Research"]));
+const domMember = (): XListApi => new DomXListApi(new Driver([LIST.id]));
 
 // --- REST backend builders (ADR-0007 default — now enrolled in the shared contract) ---
 const restFetch = (res: () => Response): typeof fetch =>
@@ -77,12 +74,12 @@ const restMember = (): XListApi =>
   );
 
 const backends = [
-  { label: "GraphqlXListApi", fresh: gqlFresh, member: gqlMember },
-  { label: "DomXListApi", fresh: domFresh, member: domMember },
-  { label: "RestXListApi", fresh: restFresh, member: restMember },
+  { label: "GraphqlXListApi", fresh: gqlFresh, member: gqlMember, removable: gqlFresh },
+  { label: "DomXListApi", fresh: domFresh, member: domMember, removable: domMember },
+  { label: "RestXListApi", fresh: restFresh, member: restMember, removable: restFresh },
 ];
 
-describe.each(backends)("XListApi contract: $label", ({ fresh, member }) => {
+describe.each(backends)("XListApi contract: $label", ({ fresh, member, removable }) => {
   it("addMember resolves for a non-member", async () => {
     await expect(fresh().addMember(LIST, AUTHOR)).resolves.toBeUndefined();
   });
@@ -91,6 +88,10 @@ describe.each(backends)("XListApi contract: $label", ({ fresh, member }) => {
     await expect(member().addMember(LIST, AUTHOR)).rejects.toMatchObject({
       kind: "already-member",
     });
+  });
+
+  it("removeMember resolves for an existing member", async () => {
+    await expect(removable().removeMember(LIST, AUTHOR)).resolves.toBeUndefined();
   });
 });
 
@@ -109,7 +110,7 @@ const httpBackends = [
   {
     label: "GraphqlXListApi",
     build: (res: () => Response): XListApi =>
-      new GraphqlXListApi(creds, { fetch: restFetch(res), config }),
+      new GraphqlXListApi(() => creds, { fetch: restFetch(res), config }),
   },
 ];
 
@@ -155,7 +156,7 @@ describe("XListApi HTTP error precedence (intentional divergence)", () => {
   });
 
   it("GraphQL classifies {88,104} as rate-limited (88 checked before 104)", async () => {
-    const graphql = new GraphqlXListApi(creds, { fetch: restFetch(bothCodes), config });
+    const graphql = new GraphqlXListApi(() => creds, { fetch: restFetch(bothCodes), config });
     await expect(graphql.addMember(LIST, AUTHOR)).rejects.toMatchObject({ kind: "rate-limited" });
   });
 });

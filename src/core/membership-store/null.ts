@@ -1,4 +1,4 @@
-import type { MembershipHit, MembershipStore, OwnerCatalog } from "./types";
+import type { MembershipStore, MirrorSnapshot } from "./types";
 
 /**
  * The Mirror disabled: every write is a no-op, every read is empty. This is what
@@ -9,11 +9,9 @@ import type { MembershipHit, MembershipStore, OwnerCatalog } from "./types";
 export class NullMembershipStore implements MembershipStore {
   async recordAssign(): Promise<void> {}
   async reconcileAuthor(): Promise<void> {}
-  async reconcileCatalog(): Promise<void> {}
-  async listsContaining(): Promise<MembershipHit[]> {
-    return [];
-  }
-  async catalog(): Promise<OwnerCatalog[]> {
-    return [];
+  async replaceCatalog(): Promise<void> {}
+  observe(_subject: unknown, emit: (snapshot: MirrorSnapshot) => void): () => void {
+    emit({ catalog: [], memberships: [] });
+    return () => {};
   }
 }

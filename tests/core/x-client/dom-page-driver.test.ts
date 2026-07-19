@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
 import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
+import type { XList } from "@/core/x-client/types";
+
+const list = (name: string, id = name): XList => ({ id, name });
+const RESEARCH = list("Research", "1");
+const FRIENDS = list("Friends", "2");
 
 /**
  * Drives a SYNTHETIC x.com-shaped DOM (caret → menu → Lists dialog) to cover the
@@ -57,25 +63,99 @@ const driver = () =>
   createDomPageDriver({ doc: document, settle: async () => {}, timeoutMs: 1000 });
 
 describe("createDomPageDriver (synthetic x.com)", () => {
-  it("returns no list names before a dialog is open", async () => {
-    expect(await driver().listNames()).toEqual([]);
+  it("throws before a dialog opens or after its dialog disconnects", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/not found/);
+    await d.openListsDialog({ screenName: "jack" });
+    document.querySelector('[role="dialog"]')?.remove();
+    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/not found/);
   });
 
-  it("opens the Lists dialog from a tweet's caret and enumerates lists", async () => {
+  it("opens the Lists dialog from a tweet's caret", async () => {
     setupSyntheticX(document);
     const d = driver();
     await d.openListsDialog({ screenName: "jack" });
-    expect(await d.listNames()).toEqual(["Research", "Friends"]);
+    expect(await d.isChecked(RESEARCH)).toBe(false);
+  });
+
+  it("ignores surviving menus and dialogs from another author", async () => {
+    setupSyntheticX(document);
+    let staleMenuItemClicks = 0;
+    let staleRowToggles = 0;
+    let documentEscapes = 0;
+    let bodyEscapes = 0;
+    const onDocumentEscape = (event: Event) => {
+      if (
+        event.type === "keydown" &&
+        (event as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]
+      ) {
+        documentEscapes++;
+      }
+    };
+    const onBodyEscape = (event: Event) => {
+      if (
+        event.type === "keydown" &&
+        (event as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]
+      ) {
+        bodyEscapes++;
+      }
+    };
+    document.addEventListener("keydown", onDocumentEscape);
+    document.body.addEventListener("keydown", onBodyEscape);
+
+    const staleMenu = document.createElement("div");
+    staleMenu.setAttribute("role", "menu");
+    staleMenu.innerHTML = `<div role="menuitem">Add/remove @other from Lists</div>`;
+    (staleMenu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
+      staleMenuItemClicks++;
+    });
+
+    const staleDialog = document.createElement("div");
+    staleDialog.setAttribute("role", "dialog");
+    staleDialog.innerHTML =
+      `<div role="menuitem"><span>Research</span>` +
+      `<div role="checkbox" aria-checked="false"></div></div>`;
+    const staleRow = staleDialog.querySelector('[role="menuitem"]') as HTMLElement;
+    staleRow.addEventListener("click", () => {
+      staleRowToggles++;
+      const box = staleRow.querySelector('[role="checkbox"]') as HTMLElement;
+      box.setAttribute("aria-checked", "true");
+    });
+    document.body.append(staleMenu, staleDialog);
+
+    try {
+      const d = driver();
+      await d.openListsDialog({ screenName: "jack" });
+      await d.toggleList(RESEARCH);
+
+      const dialogs = [...document.querySelectorAll('[role="dialog"]')];
+      const targetDialog = dialogs.find((dialog) => dialog !== staleDialog) as HTMLElement;
+      expect(targetDialog).toBeTruthy();
+      expect(targetDialog.querySelector('[role="checkbox"]')?.getAttribute("aria-checked")).toBe(
+        "true",
+      );
+      expect(staleMenuItemClicks).toBe(0);
+      expect(staleRowToggles).toBe(0);
+      expect(staleRow.querySelector('[role="checkbox"]')?.getAttribute("aria-checked")).toBe(
+        "false",
+      );
+      expect(documentEscapes).toBe(2);
+      expect(bodyEscapes).toBe(1);
+    } finally {
+      document.removeEventListener("keydown", onDocumentEscape);
+      document.body.removeEventListener("keydown", onBodyEscape);
+    }
   });
 
   it("reads and toggles row checked state", async () => {
     setupSyntheticX(document);
     const d = driver();
     await d.openListsDialog({ screenName: "jack" });
-    expect(await d.isChecked("Research")).toBe(false);
-    expect(await d.isChecked("Friends")).toBe(true);
-    await d.toggleList("Research");
-    expect(await d.isChecked("Research")).toBe(true);
+    expect(await d.isChecked(RESEARCH)).toBe(false);
+    expect(await d.isChecked(FRIENDS)).toBe(true);
+    await d.toggleList(RESEARCH);
+    expect(await d.isChecked(RESEARCH)).toBe(true);
     await d.commit(); // clicks Save without throwing
   });
 
@@ -85,15 +165,86 @@ describe("createDomPageDriver (synthetic x.com)", () => {
     await d.openListsDialog({ screenName: "jack" });
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     dialog.insertAdjacentHTML("beforeend", `<div role="menuitem">No checkbox</div>`);
-    expect(await d.isChecked("No checkbox")).toBe(false);
+    expect(await d.isChecked(list("No checkbox"))).toBe(false);
   });
 
-  it("returns false for missing rows and throws when toggling one", async () => {
+  it("throws for missing rows", async () => {
     setupSyntheticX(document);
     const d = driver();
     await d.openListsDialog({ screenName: "jack" });
-    expect(await d.isChecked("Missing")).toBe(false);
-    await expect(d.toggleList("Missing")).rejects.toThrow(/not found/);
+    await expect(d.isChecked(list("Missing"))).rejects.toThrow(/not found/);
+    await expect(d.toggleList(list("Missing"))).rejects.toThrow(/not found/);
+  });
+
+  it("matches the exact visible list name, not a longer row", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.insertAdjacentHTML(
+      "afterbegin",
+      `<div role="menuitem"><span>Research notes</span><div role="checkbox" aria-checked="true"></div></div>`,
+    );
+
+    expect(await d.isChecked(list(" Research ", "1"))).toBe(false);
+    await d.toggleList(RESEARCH);
+    expect(await d.isChecked(RESEARCH)).toBe(true);
+    expect(await d.isChecked(list("Research notes", "3"))).toBe(true);
+  });
+
+  it("uses a data-list-id to resolve duplicate names", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.innerHTML = `
+      <div role="menuitem" data-list-id="1"><span>Research</span></div>
+      <div role="menuitem" data-list-id="2"><span>Research</span></div>`;
+    const [first, second] = dialog.querySelectorAll('[role="menuitem"]');
+    let firstClicks = 0;
+    let secondClicks = 0;
+    first?.addEventListener("click", () => firstClicks++);
+    second?.addEventListener("click", () => secondClicks++);
+
+    await d.toggleList(list("Research", "2"));
+
+    expect(firstClicks).toBe(0);
+    expect(secondClicks).toBe(1);
+  });
+
+  it("uses an /i/lists link to resolve duplicate names", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.innerHTML = `
+      <div role="menuitem"><a href="/i/lists/1">Research</a><div role="checkbox" aria-checked="false"></div></div>
+      <div role="menuitem"><a href="https://x.com/i/lists/2">Research</a><div role="checkbox" aria-checked="true"></div></div>`;
+
+    expect(await d.isChecked(list("Research", "2"))).toBe(true);
+  });
+
+  it("throws instead of choosing the first duplicate name", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.innerHTML = `
+      <div role="menuitem"><span>Research</span></div>
+      <div role="menuitem"><span>Research</span></div>`;
+
+    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/ambiguous/);
+    await expect(d.toggleList(RESEARCH)).rejects.toThrow(/ambiguous/);
+  });
+
+  it("does not use a name when the sole row names another List id", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.innerHTML = `<div role="menuitem" data-list-id="2"><span>Research</span></div>`;
+
+    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/not found/);
   });
 
   it("commits harmlessly when the Save button is absent and closes with Escape", async () => {
@@ -192,13 +343,26 @@ describe("createDomPageDriver (synthetic x.com)", () => {
     });
     const d = createDomPageDriver({ doc: document, settle: async () => {}, timeoutMs: 100 });
     await d.openListsDialog({ screenName: "jack" });
-    expect(await d.listNames()).toEqual(["Research"]);
+    expect(await d.isChecked(RESEARCH)).toBe(false);
   });
 
   it("works with default document, timeout, and settle options", async () => {
     setupSyntheticX(document);
     const d = createDomPageDriver();
     await d.openListsDialog({ screenName: "jack" });
-    expect(await d.listNames()).toEqual(["Research", "Friends"]);
+    expect(await d.isChecked(FRIENDS)).toBe(true);
+  });
+
+  it("uses the global KeyboardEvent when a detached document has no default view", async () => {
+    const doc = document.implementation.createHTMLDocument("detached");
+    setupSyntheticX(doc);
+    const staleMenu = doc.createElement("div");
+    staleMenu.setAttribute("role", "menu");
+    doc.body.appendChild(staleMenu);
+    const d = createDomPageDriver({ doc, settle: async () => {}, timeoutMs: 100 });
+
+    await d.openListsDialog({ screenName: "jack" });
+
+    expect(await d.isChecked(RESEARCH)).toBe(false);
   });
 });

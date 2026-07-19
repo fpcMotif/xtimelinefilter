@@ -4,7 +4,10 @@ import { watchStorageKey } from "@/core/storage-sync";
 
 import { stubOnChanged as installOnChanged } from "../helpers/chrome-fake";
 
-type Listener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
+type Listener = (
+  changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+  area: string,
+) => void;
 
 describe("watchStorageKey", () => {
   let restore: (() => void) | undefined;
@@ -33,18 +36,18 @@ describe("watchStorageKey", () => {
     // right area, different key — ignored
     listeners[0]!({ "lasso:settings": { newValue: 2 } }, "sync");
     // match
-    listeners[0]!({ "lasso:filter": { newValue: 42 } }, "sync");
+    listeners[0]!({ "lasso:filter": { oldValue: 7, newValue: 42 } }, "sync");
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith(42);
+    expect(onChange).toHaveBeenCalledWith({ oldValue: 7, newValue: 42 });
   });
 
-  it("passes undefined when the changed entry has no newValue", () => {
+  it("passes undefined old/new values when the changed entry is empty", () => {
     const listeners: Listener[] = [];
     restore = installOnChanged({ addListener: (l) => listeners.push(l), removeListener: () => {} });
     const onChange = vi.fn();
     watchStorageKey("local", "lasso:lists", onChange);
     listeners[0]!({ "lasso:lists": {} }, "local");
-    expect(onChange).toHaveBeenCalledWith(undefined);
+    expect(onChange).toHaveBeenCalledWith({ oldValue: undefined, newValue: undefined });
   });
 
   it("removeListener on unsubscribe, and tolerates a missing removeListener", () => {

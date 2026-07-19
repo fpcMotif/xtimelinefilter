@@ -1,6 +1,4 @@
 import { Selectors } from "@/content/selectors";
-import type { TweetAuthor } from "@/core/selection-store";
-import * as tweetRead from "@/core/tweet-read";
 
 export interface TweetScanner {
   /** Process tweets already in the DOM and start observing for new ones. */
@@ -24,12 +22,12 @@ export interface TweetScannerOptions {
 
 /**
  * Observes a root for tweet articles (virtualized timeline mounts/unmounts them),
- * de-dupes by node, extracts the author, and reports each new tweet once.
+ * de-dupes by node and reports each mounted Tweet once.
  * Pure of UI concerns so it is testable in happy-dom.
  */
 export function createTweetScanner(
   root: Document | Element,
-  onTweet: (author: TweetAuthor, article: Element) => void,
+  onTweet: (article: Element) => void,
   opts: TweetScannerOptions = {},
 ): TweetScanner {
   const seen = new WeakSet<Element>();
@@ -37,8 +35,7 @@ export function createTweetScanner(
   const handle = (article: Element): void => {
     if (seen.has(article)) return;
     seen.add(article);
-    const author = tweetRead.author(article);
-    if (author) onTweet(author, article);
+    onTweet(article);
   };
 
   const scanExisting = (): void => {

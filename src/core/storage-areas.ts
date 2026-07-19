@@ -19,7 +19,7 @@ export function localArea(): StorageLike {
 }
 
 export interface BlobStore<T> {
-  /** The stored value, or `defaults` when nothing has been written yet. */
+  /** The stored value, or `defaults` when nothing usable has been written yet. */
   get(): Promise<T>;
   /** Writes the value verbatim — callers merge patches over `get()` themselves — and returns it. */
   set(value: T): Promise<T>;
@@ -29,8 +29,8 @@ export interface BlobStore<T> {
 export function blobStore<T>(area: StorageLike, key: string, defaults: T): BlobStore<T> {
   return {
     async get() {
-      const raw = (await area.get(key))[key] as T | undefined;
-      return raw === undefined ? defaults : raw;
+      const raw = (await area.get(key))[key] as T | null | undefined;
+      return raw == null ? defaults : raw;
     },
     async set(value: T) {
       await area.set({ [key]: value });

@@ -43,19 +43,15 @@ export type AssignOutcome = "added" | "already-member" | "protected" | "rate-lim
 export interface AssignResult {
   author: TweetAuthor;
   outcome: AssignOutcome;
+  /** Epoch milliseconds when this backend attempt settled. */
+  observedAt: number;
   message?: string;
   /** Carried from a rate-limited failure so feedback can say "try again in N min". */
   resetAt?: number;
 }
 
-/**
- * The seam every backend implements. The DOM and GraphQL strategies are
- * interchangeable; consumers depend only on this interface.
- */
+/** The mutation seam every backend implements. */
 export interface XListApi {
-  getLists(): Promise<XList[]>;
-  /** Resolve a handle to a numeric id (GraphQL needs it; DOM returns null). */
-  resolveUserId(screenName: string): Promise<string | null>;
   /** Adds the author to the list; throws {@link XApiError} on failure. */
   addMember(list: XList, author: TweetAuthor): Promise<void>;
   removeMember(list: XList, author: TweetAuthor): Promise<void>;

@@ -16,6 +16,8 @@ export interface AssignOptions {
   jitter?: number;
   /** Injectable randomness for jitter. */
   random?: () => number;
+  /** Injectable clock for per-attempt result timestamps. */
+  now?: () => number;
   /** 1-based progress, reported before each attempt ("Adding 2 of 7…"). */
   onProgress?: (current: number, total: number) => void;
   /** Checked before each attempt; true aborts the rest (the Stop pill, story beat 7). */
@@ -35,6 +37,7 @@ export async function assignAuthorsToList(
   opts: AssignOptions = {},
 ): Promise<AssignResult[]> {
   const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const now = opts.now ?? Date.now;
   const delayMs = opts.delayMs ?? 700;
   const results: AssignResult[] = [];
 
@@ -42,16 +45,71 @@ export async function assignAuthorsToList(
     if (opts.shouldStop?.()) break; // user hit Stop: un-attempted authors stay selected
     const author = authors[i] as TweetAuthor;
     if (i > 0) await sleep(pace(delayMs, opts)); // pace between adds, not before the first
+    if (opts.shouldStop?.()) break; // Stop or Owner may change while pacing
     opts.onProgress?.(i + 1, authors.length);
 
     try {
       await api.addMember(list, author);
-      results.push({ author, outcome: "added" });
+      results.push({ author, outcome: "added", observedAt: now() });
     } catch (e) {
+      const observedAt = now();
       const outcome = outcomeFromError(e);
       results.push({
         author,
         outcome,
+        observedAt,
+        message: e instanceof Error ? e.message : String(e),
+        ...(e instanceof XApiError && e.resetAt !== undefined ? { resetAt: e.resetAt } : {}),
+      });
+      if (outcome === "rate-limited") break; // honor backoff, stop the run
+    }
+  }
+  return results;
+}
+
+export interface RemoveResult {
+  author: TweetAuthor;
+  outcome: "removed" | AssignOutcome;
+  /** Epoch milliseconds when this backend attempt settled. */
+  observedAt: number;
+  message?: string;
+  /** Carried from a rate-limited failure so a partial undo can say "try again in N min". */
+  resetAt?: number;
+}
+
+/**
+ * Undo's counterpart to {@link assignAuthorsToList}: remove each author from the
+ * list under the same policy. Removes mutate the same rate-limited API family, so
+ * they are human-paced between attempts and STOP on rate-limited. No progress or
+ * Stop UI exists on the undo path; shouldStop still fences Owner changes.
+ */
+export async function removeAuthorsFromList(
+  authors: TweetAuthor[],
+  list: XList,
+  api: XListApi,
+  opts: AssignOptions = {},
+): Promise<RemoveResult[]> {
+  const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const now = opts.now ?? Date.now;
+  const delayMs = opts.delayMs ?? 700;
+  const results: RemoveResult[] = [];
+
+  for (let i = 0; i < authors.length; i++) {
+    if (opts.shouldStop?.()) break;
+    const author = authors[i] as TweetAuthor;
+    if (i > 0) await sleep(pace(delayMs, opts)); // pace between removes, not before the first
+    if (opts.shouldStop?.()) break;
+
+    try {
+      await api.removeMember(list, author);
+      results.push({ author, outcome: "removed", observedAt: now() });
+    } catch (e) {
+      const observedAt = now();
+      const outcome = outcomeFromError(e);
+      results.push({
+        author,
+        outcome,
+        observedAt,
         message: e instanceof Error ? e.message : String(e),
         ...(e instanceof XApiError && e.resetAt !== undefined ? { resetAt: e.resetAt } : {}),
       });

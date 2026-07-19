@@ -8,8 +8,8 @@ Internal `/i/api/graphql` endpoints are not a published interface; X's ToS bans 
 ## Decision — invariants enforced in BOTH backends and the orchestrator
 1. **Explicit user gesture only** — one gesture → one run. No autonomous/background actions, no self-draining queues.
 2. **Human-paced** — injected `sleep` + jitter between adds; on `rate-limited`, read `x-rate-limit-reset` and **STOP** the run (no retry-spam).
-3. **User's own session, own data** — no third-party credentials; no scraping of other users beyond the transient author info needed to perform the requested action; no off-device redistribution; local-only cache of the user's own Lists.
-4. **DOM automation is the conservative default** (X's own client supplies bearer/queryId/transaction-id). GraphQL is opt-in behind an in-UI disclosure.
+3. **User's own session, own data** — no third-party X credentials; no scraping beyond the transient author info needed for the requested action. The optional user-configured Mirror sends an Owner/List catalog, membership snapshots, assignment audit events, and its device key to the user's Convex deployment. X session credentials stay browser-side.
+4. **REST is the current default** mutation strategy. It calls undocumented web v1.1 endpoints that may change. DOM automation is the conservative alternate; GraphQL is opt-in behind an in-UI disclosure. List discovery stays separate.
 5. **Idempotent** — `already-member` is success, never retried.
 
 ## Consequences

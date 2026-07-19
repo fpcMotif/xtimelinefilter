@@ -10,6 +10,16 @@ const CHIP_BY_MODE: Record<FilterMode, string> = {
   only: "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
   hide: "border-destructive/50 text-destructive line-through hover:bg-destructive/10",
 };
+const CHIP_A11Y_STATE: Record<FilterMode, { current: string; nextAction: string }> = {
+  off: { current: "off", nextAction: "show only" },
+  only: { current: "show only", nextAction: "hide" },
+  hide: { current: "hide", nextAction: "turn off" },
+};
+
+function chipAriaLabel(label: string, mode: FilterMode): string {
+  const { current, nextAction } = CHIP_A11Y_STATE[mode];
+  return `${label}. Current mode: ${current}. Click to ${nextAction}.`;
+}
 
 export interface CriteriaMatrixProps {
   store: FilterStore;
@@ -43,7 +53,7 @@ export function CriteriaMatrix({ store, conduct, show = true }: CriteriaMatrixPr
 
   return (
     <>
-      <span class="text-faint text-2xs tracking-wide">◯ off · ◉ only · ⊘ hide</span>
+      <span class="text-faint text-2xs tracking-wide">off · show only · hide</span>
       {show &&
         CRITERIA_GROUPS.map(({ group, criteria }) => (
           <div key={group} class="flex flex-wrap items-center gap-1.5">
@@ -56,8 +66,8 @@ export function CriteriaMatrix({ store, conduct, show = true }: CriteriaMatrixPr
                 <button
                   key={chip.id}
                   type="button"
-                  aria-label={chip.label}
-                  title={mode === "off" ? chip.label : `${chip.label}: ${mode}`}
+                  aria-label={chipAriaLabel(chip.label, mode)}
+                  title={chipAriaLabel(chip.label, mode)}
                   data-mode={mode}
                   onClick={() => cmd((s) => s.cycle(chip.id))}
                   class={`${CHIP_BASE} ${CHIP_BY_MODE[mode]}`}

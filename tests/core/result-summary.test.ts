@@ -6,6 +6,7 @@ import type { AssignResult } from "@/core/x-client/types";
 const r = (outcome: AssignResult["outcome"]): AssignResult => ({
   author: { screenName: "x" },
   outcome,
+  observedAt: 0,
 });
 
 describe("summarize", () => {

@@ -10,6 +10,7 @@ import type { PickerController } from "@/core/picker-controller";
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { CREATE_LIST_URL, FIRST_HOVER_TIP, UNIT_TOOLTIP } from "@/core/strings";
 import { createToastStore } from "@/core/toast-store";
+import { UI_LAYER } from "@/ui/layers";
 
 // App is a wiring/container: it owns no logic beyond passing callbacks down. We
 // replace its children with prop-capturing stand-ins so every wired callback and
@@ -24,12 +25,12 @@ type Cap = {
   overlay?: Props;
 };
 const { cap, stub } = vi.hoisted(() => {
-  const cap: Cap = {};
-  const stub = (key: keyof Cap) => (props: Props) => {
-    cap[key] = props;
+  const captured: Cap = {};
+  const componentStub = (key: keyof Cap) => (props: Props) => {
+    captured[key] = props;
     return null;
   };
-  return { cap, stub };
+  return { cap: captured, stub: componentStub };
 });
 vi.mock("@/ui/ActionBar", () => ({ ActionBar: stub("actionBar") }));
 vi.mock("@/ui/ListPicker", () => ({ ListPicker: stub("listPicker") }));
@@ -45,7 +46,7 @@ function makeController() {
   return {
     openPicker: vi.fn(),
     stopRun: vi.fn(),
-    assignSelectedTo: vi.fn(),
+    pickerEffect: vi.fn(),
     trySelectMode: vi.fn(),
     skipWelcome: vi.fn(),
   };
@@ -90,7 +91,7 @@ describe("App wiring", () => {
     const controller = makeController();
     const coach = makeCoach();
     if (opts?.hints) coach.hintsActive.mockResolvedValue(true);
-    const picker = {} as PickerController;
+    const picker = { act: vi.fn() } as unknown as PickerController;
     const openUrl = vi.fn();
     setup?.({ selection, appState });
     render(
@@ -106,12 +107,12 @@ describe("App wiring", () => {
         openUrl={openUrl}
       />,
     );
-    return { selection, appState, toasts, controller, coach, openUrl };
+    return { selection, appState, picker, toasts, controller, coach, openUrl };
   }
 
   it("routes the ActionBar callbacks to the controller and stores", async () => {
-    const { selection, appState, controller, coach } = renderApp(({ selection }) => {
-      selection.add(author("alice"));
+    const { selection, appState, controller, coach } = renderApp(({ selection: selected }) => {
+      selected.add(author("alice"));
     });
 
     fn(cap.actionBar, "onAssign")();
@@ -141,6 +142,20 @@ describe("App wiring", () => {
     await expect(fn(cap.actionBar, "onCountHover")()).resolves.toBeNull();
   });
 
+  it("closes review when the final selected person is removed", async () => {
+    const { selection, appState } = renderApp(({ selection: selected, appState: state }) => {
+      selected.add(author("alice"));
+      state.reviewOpen.value = true;
+    });
+    expect(appState.reviewOpen.value).toBe(true);
+
+    selection.clear();
+    await waitFor(() => expect(appState.reviewOpen.value).toBe(false));
+
+    selection.add(author("bob"));
+    await waitFor(() => expect(cap.actionBar!.reviewOpen).toBe(false));
+  });
+
   it("shows decaying keycap hints only when the coach says so", async () => {
     renderApp();
     expect(cap.actionBar!.hintKeycaps).toBeNull();
@@ -152,14 +167,18 @@ describe("App wiring", () => {
   });
 
   it("opens the picker bottom-centered by default and wires its callbacks", () => {
-    const { appState, controller, openUrl } = renderApp(({ appState }) => {
-      appState.pickerOpen.value = true;
+    const { appState, controller, openUrl } = renderApp(({ appState: state }) => {
+      state.pickerOpen.value = true;
     });
     expect(cap.listPicker).toBeDefined();
 
-    const list = { id_str: "L1", name: "Builders" };
-    fn(cap.listPicker, "onPick")(list);
-    expect(controller.assignSelectedTo).toHaveBeenCalledWith(list);
+    const effect = {
+      type: "chosen",
+      owner: { userId: "100", screenName: "me" },
+      list: { id: "L1", name: "Builders" },
+    };
+    fn(cap.listPicker, "onEffect")(effect);
+    expect(controller.pickerEffect).toHaveBeenCalledWith(effect);
 
     fn(cap.listPicker, "onCreateList")();
     expect(openUrl).toHaveBeenCalledWith(CREATE_LIST_URL);
@@ -174,9 +193,39 @@ describe("App wiring", () => {
       appState.pickerAnchor.value = { left: 120, top: 240 };
     });
     expect(cap.listPicker).toBeDefined();
-    const host = document.querySelector(".fixed") as HTMLElement;
+    const host = document.querySelector<HTMLElement>("[data-list-picker-panel]")!;
     expect(host.style.left).toBe("120px");
     expect(host.style.top).toBe("240px");
+  });
+
+  it("swallows outside presses, closes the Picker, and leaves wheel scrolling untouched", () => {
+    const { appState, picker } = renderApp(({ appState: state }) => {
+      state.pickerOpen.value = true;
+    });
+    const backdrop = document.querySelector<HTMLElement>("[data-list-picker-backdrop]")!;
+    const panel = document.querySelector<HTMLElement>("[data-list-picker-panel]")!;
+    expect(backdrop).toBeTruthy();
+    expect(backdrop.className).toContain("fixed inset-0 bg-transparent");
+    expect(Number(backdrop.style.zIndex)).toBe(UI_LAYER.modal);
+    expect(Number(panel.style.zIndex)).toBe(UI_LAYER.modal);
+
+    const pageWheel = vi.fn();
+    document.addEventListener("wheel", pageWheel);
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true });
+    backdrop.dispatchEvent(wheel);
+    document.removeEventListener("wheel", pageWheel);
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(pageWheel).toHaveBeenCalledOnce();
+
+    const pagePointerDown = vi.fn();
+    document.addEventListener("pointerdown", pagePointerDown);
+    const pointerDown = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+    backdrop.dispatchEvent(pointerDown);
+    document.removeEventListener("pointerdown", pagePointerDown);
+    expect(pointerDown.defaultPrevented).toBe(true);
+    expect(pagePointerDown).not.toHaveBeenCalled();
+    expect(picker.act).toHaveBeenCalledWith({ type: "close" });
+    expect(appState.pickerOpen.value).toBe(false);
   });
 
   it("wires the welcome card", () => {
@@ -190,8 +239,8 @@ describe("App wiring", () => {
   });
 
   it("wires the shortcuts sheet close", () => {
-    const { appState } = renderApp(({ appState }) => {
-      appState.shortcutsOpen.value = true;
+    const { appState } = renderApp(({ appState: state }) => {
+      state.shortcutsOpen.value = true;
     });
     fn(cap.shortcuts, "onClose")();
     expect(appState.shortcutsOpen.value).toBe(false);
@@ -216,6 +265,7 @@ describe("OverlayBinding", () => {
       />,
     );
     // Not hovered: no tooltip, overlay hidden.
+    expect(cap.overlay!.screenName).toBe("alice");
     expect(cap.overlay!.tooltip).toBeNull();
     expect(cap.overlay!.visible).toBe(false);
 
@@ -243,6 +293,25 @@ describe("OverlayBinding", () => {
     );
     await waitFor(() => expect(coach.tryShowTip).toHaveBeenCalledWith("first-hover"));
     expect(cap.overlay!.tooltip).toBeNull();
+  });
+
+  it("shows the first-use tip when the visible overlay receives keyboard focus", async () => {
+    const selection = createSelectionStore();
+    selection.setSelectMode(true);
+    const coach = makeCoach();
+    coach.tryShowTip.mockResolvedValue(true);
+
+    render(
+      <OverlayBinding
+        selection={selection}
+        author={author("focus")}
+        hovered={signal(false)}
+        coach={coach}
+        onToggle={vi.fn()}
+      />,
+    );
+    fn(cap.overlay, "onFocusChange")(true);
+    await waitFor(() => expect(cap.overlay!.tooltip).toBe(FIRST_HOVER_TIP));
   });
 
   it("is visible in select mode and needs no coach", () => {

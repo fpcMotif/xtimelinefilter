@@ -1,11 +1,12 @@
 import { createFilterApplier } from "@/content/filter-applier";
 import { FilterAttributes } from "@/content/filter-attributes";
+import type { HighContrastHosts } from "@/content/high-contrast-hosts";
 import { mountFilterSurfaces, type SurfaceManager } from "@/content/surface-mount";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { SettingsStore } from "@/core/settings";
 import { createUiRoot } from "@/ui/mount";
 
-const { FILTERED, STUB, COMPACT, TRACELESS } = FilterAttributes;
+const { FILTERED, STUB, COMPACT } = FilterAttributes;
 
 /** The slice of the Filter the content boot path interacts with after install. */
 export interface FilterFeature {
@@ -18,13 +19,18 @@ export interface FilterFeature {
   isStubbed(el: Element): boolean;
   /** Re-evaluate surfaces + re-apply collapses (call on SPA route change). */
   sync(): void;
+  /** Explicit keyboard intents; content/keyboard remains the only key listener. */
+  paletteHotkey(): string | null;
+  togglePalette(): boolean;
+  isPaletteOpen(): boolean;
+  dismiss(): boolean;
   /** Tear down every surface and its Shadow host. */
   unmount(): void;
 }
 
 export interface FilterFeatureDeps {
   settings: SettingsStore;
-  highContrast: boolean;
+  highContrastHosts: HighContrastHosts;
   /** True on Home / List / profile timelines — the Filter is inert elsewhere. */
   inScope: () => boolean;
   /** Shared filter store (so the controller conducts the same one the surfaces show); omit ⇒ the feature creates its own. */
@@ -42,11 +48,7 @@ export const COLLAPSE_CSS =
   // Compact mode (opt-in `compactHidden`, popup toggle): also drop the stub so the
   // cell collapses to ~0 height — ADR-0010's deferred upgrade, pending live-DOM
   // virtualization verification. The cell node stays in layout (never removed).
-  `[${COMPACT}] [${STUB}]{display:none !important}` +
-  // Per-cell traceless hide: a post hidden because the Owner already liked it drops
-  // its stub regardless of compact mode ("already liked → erase it, no trace"). Same
-  // safe 0-height collapse — the cell node stays in layout. Set by the applier.
-  `[${TRACELESS}] [${STUB}]{display:none !important}`;
+  `[${COMPACT}] [${STUB}]{display:none !important}`;
 
 /**
  * Installs the Filter capability (ADR-0010, spec §3) as one self-contained unit:
@@ -57,10 +59,22 @@ export const COLLAPSE_CSS =
  * does nothing until the user sets a chip, and fails open.
  */
 export async function installFilterFeature(deps: FilterFeatureDeps): Promise<FilterFeature> {
-  const { settings, highContrast, inScope } = deps;
+  const { settings, highContrastHosts, inScope } = deps;
 
   const store = deps.store ?? createFilterStore();
-  await store.load();
+  const ownsStore = deps.store === undefined;
+  let storeDisposed = false;
+  const disposeOwnedStore = (): void => {
+    if (!ownsStore || storeDisposed) return;
+    storeDisposed = true;
+    store.dispose();
+  };
+  try {
+    await store.load();
+  } catch (error) {
+    disposeOwnedStore();
+    throw error;
+  }
 
   const style = document.createElement("style");
   style.textContent = COLLAPSE_CSS;
@@ -71,33 +85,67 @@ export async function installFilterFeature(deps: FilterFeatureDeps): Promise<Fil
   // One Shadow host for every in-page filter surface; the manager mounts the
   // enabled ones (pill / palette) into it per settings and tears them
   // down off-route.
-  const surfaceRoot = createUiRoot("lasso-filter-surfaces");
-  if (highContrast) surfaceRoot.host.setAttribute("data-hc", "");
-  const surfaces: SurfaceManager = mountFilterSurfaces({
-    root: surfaceRoot.root,
-    store,
-    settings,
-    hiddenCount: () => applier.hiddenCount(),
-    inScope,
-    conduct: deps.conduct,
-  });
+  let surfaceRoot: ReturnType<typeof createUiRoot> | undefined;
+  let unregisterHost: (() => void) | undefined;
+  let surfaces: SurfaceManager | undefined;
+  try {
+    surfaceRoot = createUiRoot("lasso-filter-surfaces");
+    unregisterHost = highContrastHosts.register(surfaceRoot.host);
+    surfaces = mountFilterSurfaces({
+      root: surfaceRoot.root,
+      store,
+      settings,
+      hiddenCount: () => applier.hiddenCount(),
+      inScope,
+      conduct: deps.conduct,
+    });
+  } catch (error) {
+    surfaces?.unmount();
+    unregisterHost?.();
+    surfaceRoot?.destroy();
+    applier.restoreAll();
+    applier.dispose();
+    style.remove();
+    disposeOwnedStore();
+    throw error;
+  }
 
   const sync = (): void => {
-    surfaces.update();
+    surfaces!.update();
     applier.reapplyAll();
   };
-  sync();
+  try {
+    sync();
+  } catch (error) {
+    surfaces.unmount();
+    unregisterHost?.();
+    surfaceRoot.destroy();
+    applier.restoreAll();
+    applier.dispose();
+    style.remove();
+    disposeOwnedStore();
+    throw error;
+  }
 
+  let unmounted = false;
   return {
     classify: (article) => applier.classify(article),
     isStubbed: (el) => applier.isStubbed(el),
     sync,
+    paletteHotkey: () => surfaces!.paletteHotkey(),
+    togglePalette: () => surfaces!.togglePalette(),
+    isPaletteOpen: () => surfaces!.isPaletteOpen(),
+    dismiss: () => surfaces!.dismiss(),
     unmount() {
-      surfaces.unmount();
+      if (unmounted) return;
+      unmounted = true;
+      surfaces!.unmount();
       applier.restoreAll();
       applier.dispose();
       style.remove();
-      surfaceRoot.host.remove();
+      unregisterHost?.();
+      surfaceRoot!.destroy();
+      disposeOwnedStore();
     },
   };
 }

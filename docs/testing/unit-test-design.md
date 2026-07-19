@@ -1,11 +1,9 @@
 # Lasso — Comprehensive Unit-Test Design (100% coverage goal)
 
-**Status:** design only — no tests implemented or run yet.
+**Status:** historical design. The current repository has a shipping Vitest suite and coverage gate; use its tests and `vitest.config.ts` as the current source of truth.
 **Coverage goal:** 100% statements / branches / functions / lines, enforced as
 `thresholds` in `vitest.config.ts` (build fails below 100%).
-**Convex:** the repo has **no `convex/` directory and no Convex dependency** today, so
-there is nothing to simulate. §12 specifies the harness to use the moment Convex
-functions land (per the redesign brief), so the 100% policy extends to them on day one.
+**Convex:** the optional Mirror now has `convex/`, the `convex` dependency, and contract/client tests. §12 is retained as historical harness guidance, not a statement of current scope.
 
 Conventions used below:
 
@@ -53,7 +51,7 @@ a Chrome extension hits `QUOTA_BYTES`/transient storage errors in real life.
 | # | Case | Expected | Notes |
 |---|---|---|---|
 | S1 | [gap] persists under the exact key `lasso:settings` | `area.get("lasso:settings")` returns the merged object | key is part of the storage contract; a rename silently wipes user settings |
-| S2 | [gap] stored partial (e.g. only `{backend:"dom"}`) merges over ALL defaults | `hotkeySelectMode:"s"`, `activation:"auto"` survive | upgrade path: old stored shape + new default fields |
+| S2 | [gap] stored partial (e.g. only `{backend:"dom"}`) merges over ALL defaults | `activation:"auto"` survives; unknown legacy fields stay out | upgrade path: old stored shape + new default fields |
 | S3 | [gap] stored garbage (string / number under the key) | does not throw; defaults win or garbage is ignored — **decide & encode** | current `{...DEFAULT, ...raw}` spreads a string into chars ⚠ bug-trap |
 | S4 | [gap] `set()` returns the merged-next value (not the patch) | return value === what `get()` now returns | API contract used by callers |
 | S5 | [gap] two sequential `set()` patches compose | both patches present | read-modify-write sanity |
@@ -170,7 +168,7 @@ per-key — verify our mock matches); reset between tests. Add a tiny
 | AU4 | [gap] name-prefix non-match: jar `xct0=evil; act0=evil` | auth error (no substring match) | |
 | AU5 | [gap] empty value `ct0=` | **decide & encode**: empty string is falsy → auth error (good) — lock it | |
 | AU6 | [gap] malformed percent-encoding (`ct0=%E0%A4%A`) | `decodeURIComponent` throws URIError — **decide & encode**: wrap as `XApiError("auth")` instead of leaking URIError ⚠ bug-trap | |
-| AU7 | [gap] `credentials()` re-reads the jar every call (rotate ct0 between two calls) | second call sees the new token | lazily-read contract relied on by RestXListApi |
+| AU7 | [gap] `credentials()` re-reads the jar every call (rotate ct0 between two calls) | second call sees the new token | lazily-read contract relied on by REST and GraphQL |
 | AU8 | [gap] default `getCookie` reads `document.cookie` | set a cookie in happy-dom; zero-arg path | covers the default lambda |
 | AU9 | [gap] error has `kind === "auth"` and `name === "XApiError"`, `instanceof XApiError` | typed-error contract incl. prototype chain after class transpile |
 
@@ -271,29 +269,14 @@ per-key — verify our mock matches); reset between tests. Add a tiny
 | C15 | [gap] error message lists row labels truncated to 24 chars, ` | `-joined | exact format already relied on for debugging |
 | C16 | [gap] `mute`/`block` propagate `openMenu` failure unchanged | |
 
-### 4.8 `src/core/x-client/graphql-sniffer.ts` — gaps
-
-| # | Case | Expected |
-|---|---|---|
-| SN1 | [gap] malformed `features` JSON in query string → op still returned, features undefined (catch branch) |
-| SN2 | [gap] non-JSON body → features undefined (second catch) |
-| SN3 | [gap] body JSON without `features` key → undefined |
-| SN4 | [gap] query-string features WIN over body features when both present (body not consulted) |
-| SN5 | [gap] relative URL (`/i/api/graphql/QID/Op`) parsed via the `https://x.com` base |
-| SN6 | [gap] `config()` returns defensive copies — mutating the returned `ops`/`features` does not affect the next `config()` |
-| SN7 | [gap] `record` with garbage URL ("not a url at all") → no-op, no throw |
-| SN8 | [gap] `wrapFetchWithSniffer` with `Request` object input and with `URL` input (only string is covered) |
-| SN9 | [gap] non-string body (FormData/undefined) → recorded with null body, still delegates |
-| SN10 | [gap] sniffer.record throwing → request STILL delegates (the try/catch armor) — inject a sniffer whose record throws |
-| SN11 | [gap] wrapped fetch returns the original's return value and passes `init` through untouched |
-
-### 4.9 `src/core/x-client/graphql-config.ts` + `factory.ts` + `types.ts` [new]
+### 4.8 `src/core/x-client/graphql-config.ts` + `factory.ts` + `types.ts`
 
 - **GC1** snapshot test: `DEFAULT_GRAPHQL_CONFIG` shape — baseUrl is x.com graphql,
   all three tracked ops present and non-empty, features all-boolean. (Pins accidental
   key renames; queryId VALUES are explicitly not asserted — they rotate.)
-- **FA1** [gap] unknown strategy string (cast) falls through to `rest` — the defensive
-  default branch.
+- **FA1** unknown strategy string (cast) falls through to `rest`; factory tests also
+  pin REST and GraphQL's lazy credentials, and DOM's lazy driver.
+- **GA1** a GraphQL 404 reports `XApiError("not-found")` with a query-ID-rotation message.
 - **TY1** `XApiError`: `instanceof Error` and `instanceof XApiError` after
   transpilation, `name === "XApiError"`, kind preserved for every member of
   `XApiErrorKind`. (Subclassing Error is a classic transpile trap.)
@@ -550,10 +533,9 @@ Each gets fixed in its own commit with the corresponding test flipping red→gre
 
 ---
 
-## 12. Convex (forward-looking — nothing to test today)
+## 12. Convex (historical forward-looking proposal)
 
-Verified: no `convex/` directory, no `convex` dependency, no references in `src/`.
-When the redesign introduces Convex functions, the policy is:
+Superseded for the current repository: the optional Mirror has `convex/`, a `convex` dependency, and tests. The original proposed policy was:
 
 - Use **`convex-test`** + vitest (`environment: "edge-runtime"` for the convex
   project subdir), one test file per function module, included in the same 100%
@@ -574,7 +556,7 @@ When the redesign introduces Convex functions, the policy is:
 2. §11 refactors (main/background extraction) — no behavior change, existing suite green.
 3. Pure modules to 100%: fuzzy, selectors, types, keyboard, result-summary (cheap wins, ~40 cases).
 4. Storage quartet (§2) — includes the first bug-trap fixes (S3/S8, LC2/LC5, LU5).
-5. x-client (§4) — auth/rest/graphql/sniffer/provider, then dom-api/driver/caret.
+5. x-client (§4) — auth/rest/graphql/config/provider, then dom-api/driver/caret.
 6. UI (§6) + app (§6.6).
 7. Entry points (§7, §8).
 8. `vitest run --coverage` — thresholds at 100% must pass; any uncovered line gets a

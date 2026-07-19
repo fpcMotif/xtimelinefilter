@@ -1,6 +1,5 @@
 import type { TweetAuthor } from "@/core/selection-store";
 
-import { fetchOwnedLists } from "./lists-provider";
 import { type Credentials, type XList, type XListApi } from "./types";
 import { authHeaders, ensureOk, REST_PROFILE } from "./x-http";
 
@@ -39,8 +38,8 @@ export const blockUser = (deps: RestDeps, screenName: string): Promise<void> =>
   post(deps, "blocks/create.json", { screen_name: screenName });
 
 /**
- * DEFAULT backend: X's stable v1.1 REST API (live-verified). Locale-independent,
- * no DOM driving, no GraphQL query-id drift, no id resolution (uses screen_name).
+ * Current default: X's undocumented web v1.1 endpoints. They may change.
+ * No DOM driving, no GraphQL query-id drift, no id resolution (uses screen_name).
  */
 export class RestXListApi implements XListApi {
   // creds are read lazily per call so constructing the backend never throws
@@ -52,14 +51,6 @@ export class RestXListApi implements XListApi {
 
   private deps(): RestDeps {
     return { fetch: this.fetchImpl, creds: this.getCreds() };
-  }
-
-  getLists(): Promise<XList[]> {
-    return fetchOwnedLists(this.deps());
-  }
-
-  async resolveUserId(_screenName: string): Promise<string | null> {
-    return null; // not needed — v1.1 list mutations take screen_name
   }
 
   addMember(list: XList, author: TweetAuthor): Promise<void> {

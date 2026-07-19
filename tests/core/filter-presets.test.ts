@@ -50,6 +50,7 @@ describe("filter-store presets", () => {
     expect(a.state.value.onlyMyLanguages).toBe(true);
 
     // A fresh store loading from the same area sees the preset (round-trip).
+    await new Promise<void>((resolve) => setTimeout(resolve, 0)); // ordered local writes settle
     const b = createFilterStore({ storage, navLanguages: ["fr"] });
     await b.load();
     expect(b.state.value.presets).toHaveLength(1);

@@ -148,6 +148,46 @@ describe("createFilterApplier", () => {
     expect(applier.isStubbed(cell)).toBe(false);
   });
 
+  it.each(["Enter", " "])("restores a stub with %j and prevents its default", (key) => {
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    store.setOnlyMyLanguages(true);
+    store.setMyLanguages(["ja"]);
+    const root = makeRoot();
+    const cell = addCell(root, "en");
+    const applier = createFilterApplier({ store, root, inScope: () => true });
+    applier.classify(articleOf(cell));
+    const stub = cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement;
+
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    stub.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(applier.isStubbed(cell)).toBe(false);
+    applier.dispose();
+  });
+
+  it("ignores non-activation keys on a hidden stub", () => {
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    store.setOnlyMyLanguages(true);
+    store.setMyLanguages(["ja"]);
+    const root = makeRoot();
+    const cell = addCell(root, "en");
+    const applier = createFilterApplier({ store, root, inScope: () => true });
+    applier.classify(articleOf(cell));
+    const stub = cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement;
+
+    const event = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    stub.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(applier.isStubbed(cell)).toBe(true);
+    applier.dispose();
+  });
+
   it("re-classifies on every scan, never caching a verdict on the node", () => {
     const store = createFilterStore({ navLanguages: ["ja"] });
     store.setOnlyMyLanguages(true);
@@ -226,7 +266,7 @@ describe("createFilterApplier", () => {
     applier.dispose();
   });
 
-  it("drops a stale 'show' override when a cell is recycled to a different tweet", () => {
+  it("drops a node-keyed override when a cell receives a new article with equal text", () => {
     const store = createFilterStore({ navLanguages: ["ja"] });
     store.setOnlyMyLanguages(true);
     store.setMyLanguages(["ja"]);
@@ -240,13 +280,44 @@ describe("createFilterApplier", () => {
     (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click();
     expect(applier.isStubbed(cell)).toBe(false);
 
-    // X recycles the cell for a DIFFERENT (still non-matching) tweet.
-    cell.querySelector(Selectors.TWEET_TEXT)!.textContent = "a different post";
-    applier.classify(articleOf(cell));
+    // X recycles the cell for a different article with identical visible text.
+    const previous = articleOf(cell);
+    const replacement = previous.cloneNode(true) as Element;
+    previous.replaceWith(replacement);
+    applier.classify(replacement);
 
-    // The override is keyed to the original post, so it must not leak — the
-    // recycled tweet collapses again.
+    // Text is not identity. The new article must be decided and collapsed.
     expect(applier.isStubbed(cell)).toBe(true);
+  });
+
+  it("rebinds a hidden stub when X recycles its cell, and a detached old stub cannot reveal the new tweet", () => {
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    store.setOnlyMyLanguages(true);
+    store.setMyLanguages(["ja"]);
+    const root = makeRoot();
+    const cell = addCell(root, "en");
+    const applier = createFilterApplier({ store, root, inScope: () => true });
+
+    applier.classify(articleOf(cell));
+    const oldStub = cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement;
+
+    // X keeps the cell and its filtered marker, but replaces its article.
+    const previous = articleOf(cell);
+    const replacement = previous.cloneNode(true) as Element;
+    replacement.querySelector(Selectors.TWEET_TEXT)!.textContent = "a different hidden tweet";
+    previous.replaceWith(replacement);
+    applier.classify(replacement);
+    const newStub = cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement;
+
+    expect(newStub).not.toBe(oldStub);
+    expect(oldStub.isConnected).toBe(false);
+    oldStub.click(); // a retained, detached listener must not affect tweet B
+    expect(applier.isStubbed(cell)).toBe(true);
+    expect(cell.hasAttribute("data-lasso-show")).toBe(false);
+
+    newStub.click();
+    expect(applier.isStubbed(cell)).toBe(false);
+    expect(cell.hasAttribute("data-lasso-show")).toBe(true);
   });
 
   it("reveals everything while revealed is true (filter stays armed), then re-applies on resume", () => {
@@ -368,7 +439,7 @@ describe("createFilterApplier", () => {
     expect(() => applier.classify(bogus)).not.toThrow();
   });
 
-  it("falls back to an empty identity when a collapsed post has neither permalink nor text", () => {
+  it("does not leak a node-keyed override across media-only article replacement", () => {
     const store = createFilterStore({ navLanguages: ["en"] });
     store.setMode("kind:video", "only"); // non-video collapses, no text needed
     const root = makeRoot();
@@ -382,10 +453,15 @@ describe("createFilterApplier", () => {
     applier.classify(articleOf(cell));
     expect(applier.isStubbed(cell)).toBe(true); // a photo-only post under "video only" → hidden
 
-    // Clicking the stub stamps SHOW with identity() → "" (no id, no text).
+    // No permalink means the exact article node is the fallback identity.
     (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click();
-    expect(cell.getAttribute("data-lasso-show")).toBe("");
     expect(applier.isStubbed(cell)).toBe(false);
+
+    const previous = articleOf(cell);
+    const replacement = previous.cloneNode(true) as Element;
+    previous.replaceWith(replacement);
+    applier.classify(replacement);
+    expect(applier.isStubbed(cell)).toBe(true);
   });
 
   it("tolerates a bodyless document root (no observer target, no compact-flag host)", () => {
@@ -441,7 +517,7 @@ describe("createFilterApplier", () => {
     expect(applier.hiddenCount()).toBe(0);
   });
 
-  it("keys the 'show' override on the status id when the permalink is present", () => {
+  it("keeps a status-id override across article replacement", () => {
     const store = createFilterStore({ navLanguages: ["ja"] });
     store.setOnlyMyLanguages(true);
     store.setMyLanguages(["ja"]);
@@ -456,10 +532,14 @@ describe("createFilterApplier", () => {
     applier.classify(articleOf(cell));
     expect(applier.isStubbed(cell)).toBe(true);
 
-    (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click(); // stamps SHOW=12345
-    expect(cell.getAttribute("data-lasso-show")).toBe("12345");
+    (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click();
+    expect(cell.hasAttribute("data-lasso-show")).toBe(true);
 
-    applier.reapplyAll(); // same status id → override honoured, stays shown
+    const previous = articleOf(cell);
+    const replacement = previous.cloneNode(true) as Element;
+    replacement.querySelector(Selectors.TWEET_TEXT)!.textContent = "replacement article";
+    previous.replaceWith(replacement);
+    applier.classify(replacement); // same status id → override survives node replacement
     expect(applier.isStubbed(cell)).toBe(false);
   });
 
@@ -596,12 +676,24 @@ describe("createFilterApplier", () => {
       expect(() => applier.reapplyAll()).not.toThrow();
       applier.dispose();
     });
+
+    it("ignores inserted text nodes", async () => {
+      const store = createFilterStore({ navLanguages: ["en"] });
+      store.setMode("engagement:liked", "hide");
+      const root = makeRoot();
+      const cell = addCell(root, "en");
+      const applier = createFilterApplier({ store, root, inScope: () => true });
+
+      articleOf(cell).appendChild(document.createTextNode("hydration noise"));
+      await tick();
+
+      expect(applier.isStubbed(cell)).toBe(false);
+      applier.dispose();
+    });
   });
 
-  describe("traceless hide for already-liked posts (no stub trace)", () => {
-    const TRACELESS = "data-lasso-traceless";
-
-    it("marks a liked post hidden under hide:liked as traceless", () => {
+  describe("engagement-hidden posts retain a reversible stub", () => {
+    it("keeps an already-liked hidden post reachable outside compact mode", () => {
       const store = createFilterStore({ navLanguages: ["en"] });
       store.setMode("engagement:liked", "hide");
       const root = makeRoot();
@@ -609,46 +701,7 @@ describe("createFilterApplier", () => {
       const applier = createFilterApplier({ store, root, inScope: () => true });
       applier.reapplyAll();
       expect(applier.isStubbed(cell)).toBe(true);
-      expect(cell.hasAttribute(TRACELESS)).toBe(true);
-      applier.dispose();
-    });
-
-    it("does NOT mark a post hidden by a non-engagement criterion as traceless", () => {
-      const store = createFilterStore({ navLanguages: ["ja"] });
-      store.setOnlyMyLanguages(true);
-      store.setMyLanguages(["ja"]);
-      const root = makeRoot();
-      const cell = addCell(root, "en"); // hidden by the language gate, not liked
-      const applier = createFilterApplier({ store, root, inScope: () => true });
-      applier.classify(articleOf(cell));
-      expect(applier.isStubbed(cell)).toBe(true);
-      expect(cell.hasAttribute(TRACELESS)).toBe(false);
-      applier.dispose();
-    });
-
-    it("does NOT mark a liked post traceless when hide:liked is inactive (hidden for another reason)", () => {
-      const store = createFilterStore({ navLanguages: ["ja"] });
-      store.setOnlyMyLanguages(true);
-      store.setMyLanguages(["ja"]);
-      const root = makeRoot();
-      const cell = addCell(root, "en", { liked: true }); // liked, but hidden by lang gate; no engagement:liked
-      const applier = createFilterApplier({ store, root, inScope: () => true });
-      applier.classify(articleOf(cell));
-      expect(applier.isStubbed(cell)).toBe(true);
-      expect(cell.hasAttribute(TRACELESS)).toBe(false);
-      applier.dispose();
-    });
-
-    it("clears the traceless mark when the post is restored", () => {
-      const store = createFilterStore({ navLanguages: ["en"] });
-      store.setMode("engagement:liked", "hide");
-      const root = makeRoot();
-      const cell = addCell(root, "en", { liked: true });
-      const applier = createFilterApplier({ store, root, inScope: () => true });
-      applier.reapplyAll();
-      expect(cell.hasAttribute(TRACELESS)).toBe(true);
-      applier.restoreAll();
-      expect(cell.hasAttribute(TRACELESS)).toBe(false);
+      expect(cell.querySelector(`[${FilterAttributes.STUB}]`)).toBeTruthy();
       applier.dispose();
     });
   });
@@ -668,5 +721,33 @@ describe("createFilterApplier", () => {
     expect(applier.isStubbed(a)).toBe(false);
     expect(applier.isStubbed(b)).toBe(false);
     expect(applier.hiddenCount()).toBe(0);
+  });
+
+  it("restoreAll() also clears show overrides left on revealed cells", () => {
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    store.setOnlyMyLanguages(true);
+    store.setMyLanguages(["ja"]);
+    const root = makeRoot();
+    const cell = addCell(root, "en");
+    const applier = createFilterApplier({ store, root, inScope: () => true });
+
+    applier.classify(articleOf(cell));
+    (cell.querySelector(`[${FilterAttributes.STUB}]`) as HTMLElement).click();
+    expect(cell.hasAttribute("data-lasso-show")).toBe(true);
+
+    applier.restoreAll();
+    expect(cell.hasAttribute("data-lasso-show")).toBe(false);
+  });
+
+  it("dispose() removes the compact marker and is idempotent", () => {
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    const root = makeRoot();
+    const applier = createFilterApplier({ store, root, inScope: () => true });
+
+    store.setCompactHidden(true);
+    expect(root.hasAttribute("data-lasso-compact")).toBe(true);
+    applier.dispose();
+    applier.dispose();
+    expect(root.hasAttribute("data-lasso-compact")).toBe(false);
   });
 });

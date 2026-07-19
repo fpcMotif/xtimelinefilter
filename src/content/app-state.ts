@@ -28,6 +28,8 @@ export interface AppState {
   reviewOpen: Signal<boolean>;
   pickerAnchor: Signal<PickerAnchor | null>;
   running: Signal<RunningAssign | null>;
+  /** True while a true modal owns Lasso's keyboard commands. */
+  modalOpen(): boolean;
   handleEscape(): boolean;
 }
 
@@ -38,6 +40,8 @@ export function createAppState(selection: SelectionStore): AppState {
   const reviewOpen = signal(false);
   const pickerAnchor = signal<PickerAnchor | null>(null);
   const running = signal<RunningAssign | null>(null);
+
+  const modalOpen = (): boolean => welcomeOpen.value || shortcutsOpen.value || pickerOpen.value;
 
   function handleEscape(): boolean {
     if (welcomeOpen.value) {
@@ -74,6 +78,7 @@ export function createAppState(selection: SelectionStore): AppState {
     reviewOpen,
     pickerAnchor,
     running,
+    modalOpen,
     handleEscape,
   };
 }

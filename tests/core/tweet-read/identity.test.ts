@@ -17,10 +17,8 @@ describe("identity", () => {
     expect(identity(article(`<a href="/i/status/678">x</a>`))).toBe("678");
   });
 
-  it("falls back to the trimmed visible tweet text when no permalink resolves", () => {
-    expect(identity(article(`<div data-testid="tweetText">  hello world  </div>`))).toBe(
-      "hello world",
-    );
+  it("does not treat visible text as stable identity", () => {
+    expect(identity(article(`<div data-testid="tweetText">  hello world  </div>`))).toBeNull();
   });
 
   it("prefers the status id over the text when both are present", () => {
@@ -31,7 +29,7 @@ describe("identity", () => {
     ).toBe("9");
   });
 
-  it("is an empty string when neither a permalink nor tweet text is present", () => {
-    expect(identity(article(""))).toBe("");
+  it("returns null when no stable status id is present", () => {
+    expect(identity(article(""))).toBeNull();
   });
 });
