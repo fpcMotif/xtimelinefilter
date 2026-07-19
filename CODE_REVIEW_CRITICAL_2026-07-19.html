@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lasso critical review - 2026-07-19</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #121a30;
+        --panel-2: #0f1730;
+        --text: #e8eefc;
+        --muted: #9fb0d0;
+        --line: #2a3a5f;
+        --red: #ff6b6b;
+        --amber: #ffd166;
+        --blue: #6aa6ff;
+        --green: #54d18c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at top left, #18244a 0, var(--bg) 42rem);
+        color: var(--text);
+        font:
+          15px/1.45 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 34px 22px 60px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 34px;
+        letter-spacing: -0.03em;
+      }
+      h2 {
+        margin: 34px 0 12px;
+        font-size: 22px;
+      }
+      p {
+        margin: 6px 0;
+      }
+      code {
+        color: #dbe7ff;
+        background: rgba(106, 166, 255, 0.12);
+        border: 1px solid rgba(106, 166, 255, 0.2);
+        border-radius: 6px;
+        padding: 1px 5px;
+      }
+      .sub {
+        color: var(--muted);
+      }
+      .verdict {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 14px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255, 107, 107, 0.12);
+        border: 1px solid rgba(255, 107, 107, 0.35);
+        color: #ffd6d6;
+        font-weight: 800;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 14px;
+        margin-top: 18px;
+      }
+      .card {
+        grid-column: span 6;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+          var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+      }
+      .card.wide {
+        grid-column: span 12;
+      }
+      .tag {
+        display: inline-block;
+        margin-bottom: 8px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .warn {
+        color: #2b1b00;
+        background: var(--amber);
+      }
+      .high {
+        color: #fff;
+        background: var(--red);
+      }
+      .ok {
+        color: #06210f;
+        background: var(--green);
+      }
+      .why {
+        color: var(--muted);
+      }
+      .fix {
+        color: #cfe7ff;
+      }
+      ul {
+        margin: 8px 0 0 18px;
+        padding: 0;
+      }
+      li {
+        margin: 4px 0;
+      }
+      .diagram {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 12px;
+        overflow-x: auto;
+      }
+      svg text {
+        font:
+          12px ui-sans-serif,
+          system-ui,
+          sans-serif;
+        fill: var(--text);
+      }
+      svg .muted {
+        fill: var(--muted);
+      }
+      svg .box {
+        fill: #18264a;
+        stroke: #4c6fb8;
+        stroke-width: 1.4;
+      }
+      svg .bad {
+        fill: #4a1824;
+        stroke: #ff6b6b;
+      }
+      svg .good {
+        fill: #143d2a;
+        stroke: #54d18c;
+      }
+      svg .arrow {
+        fill: none;
+        stroke: #9fb0d0;
+        stroke-width: 1.6;
+        marker-end: url(#arrow);
+      }
+      svg .arrowBad {
+        fill: none;
+        stroke: #ff6b6b;
+        stroke-width: 2;
+        marker-end: url(#arrowBad);
+      }
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      .table th,
+      .table td {
+        border-top: 1px solid var(--line);
+        padding: 9px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .table th {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      @media (max-width: 820px) {
+        .card {
+          grid-column: span 12;
+        }
+        h1 {
+          font-size: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Lasso critical review</h1>
+      <p class="sub">
+        2026-07-19 · Scope: working tree, 151 changed files, PR #11-#15 · Read-only · No tests run
+      </p>
+      <div class="verdict">REQUEST CHANGES <span class="sub">Critical: none found</span></div>
+
+      <section class="grid">
+        <article class="card wide">
+          <span class="tag ok">Checked clean</span>
+          <p>
+            No committed secrets. No runtime <code>innerHTML</code> in <code>src/</code>.
+            <code>git diff --check</code> clean. LSP clean.
+          </p>
+        </article>
+
+        <article class="card">
+          <span class="tag high">W1 runtime</span>
+          <h2>Chrome floor lies</h2>
+          <p>Manifest says Chrome 106. Code uses newer APIs.</p>
+          <p class="why">
+            <code>src/manifest.config.ts:33</code> vs <code>src/options/OptionsApp.tsx:66</code>,
+            <code>src/core/list-cache.ts:87</code>, <code>src/core/picker-controller.ts:186</code>,
+            <code>src/core/list-usage.ts:66</code>, <code>src/core/fuzzy.ts:26</code>,
+            <code>src/content/main.tsx:164</code>.
+          </p>
+          <p class="fix">Fix: raise floor to Chrome 120, or replace the APIs.</p>
+        </article>
+
+        <article class="card">
+          <span class="tag high">W2 select</span>
+          <h2>Select mode eats Lasso clicks</h2>
+          <p>No trusted-event guard. No outermost-tweet fix in this tree.</p>
+          <p class="why">
+            <code>src/content/select-tap.ts:21-29</code>; synthetic clicks at
+            <code>src/core/x-client/caret-actions.ts:118-128</code>,
+            <code>src/core/x-client/dom-page-driver.ts:8</code>; target code at
+            <code>src/content/main.tsx:303-313</code>.
+          </p>
+          <p class="fix">
+            Fix: ignore <code>!isTrusted</code> and flagged synthetic events. Resolve outermost
+            tweet. Land PR #12.
+          </p>
+        </article>
+
+        <article class="card">
+          <span class="tag high">W3 policy</span>
+          <h2>Undo breaks pacing</h2>
+          <p>Adds are paced. Removes are not. Toast Undo can overlap an active assign.</p>
+          <p class="why">
+            <code>src/core/actions/assign-to-list.ts:44-48</code> vs
+            <code>src/content/controller.ts:210-231</code>,
+            <code>src/content/controller.ts:312-319</code>,
+            <code>src/content/controller.ts:240-247</code>.
+          </p>
+          <p class="fix">
+            Fix: forward-port PR #11. Keep <code>observedAt</code>. Block undo during
+            <code>activeAssignment</code>.
+          </p>
+        </article>
+
+        <article class="card">
+          <span class="tag warn">W4 UX</span>
+          <h2>Undo toast dies early</h2>
+          <p>Success toast lives 4s. Undo lives 10s.</p>
+          <p class="why">
+            <code>src/core/assign-feedback.ts:106-110</code>,
+            <code>src/core/toast-store.ts:73-83</code>,
+            <code>src/content/controller.ts:38-39</code>.
+          </p>
+          <p class="fix">Fix: success toast <code>durationMs</code> = undo window.</p>
+        </article>
+
+        <article class="card">
+          <span class="tag warn">W5 privacy</span>
+          <h2>Device key still syncs</h2>
+          <p>Mirror key sits in settings. Settings use <code>chrome.storage.sync</code>.</p>
+          <p class="why">
+            <code>src/core/storage-keys.ts:12-13</code>, <code>src/core/settings.ts:169-173</code>.
+          </p>
+          <p class="fix">
+            Fix: move settings to local storage. Pass the area through <code>syncedStore</code>. Do
+            not merge PR #15 as-is.
+          </p>
+        </article>
+
+        <article class="card">
+          <span class="tag warn">W6 quota</span>
+          <h2>Presets can break sync</h2>
+          <p>No preset count or size cap. Writes fail soft.</p>
+          <p class="why">
+            <code>src/core/filter-store.ts:203-218</code>,
+            <code>src/core/filter-store.ts:276-288</code>.
+          </p>
+          <p class="fix">Fix: cap presets. Surface quota errors.</p>
+        </article>
+
+        <article class="card">
+          <span class="tag warn">W7 mirror</span>
+          <h2>Mirror can latch dead</h2>
+          <p>One failed build marks Mirror unavailable until settings change.</p>
+          <p class="why">
+            <code>src/core/membership-store/live.ts:148-160</code>,
+            <code>src/core/membership-store/live.ts:171-186</code>.
+          </p>
+          <p class="fix">Fix: bounded retry or manual retry.</p>
+        </article>
+
+        <article class="card">
+          <span class="tag warn">W8 mirror</span>
+          <h2>Mirror reads hide failure</h2>
+          <p>Reactive observe swallows errors. HTTP fallback emits nothing on failure.</p>
+          <p class="why">
+            <code>src/core/membership-store/convex-client.ts:60-79</code>,
+            <code>src/core/membership-store/convex.ts:138-150</code>.
+          </p>
+          <p class="fix">Fix: publish read failure. Show an explicit error state.</p>
+        </article>
+
+        <article class="card">
+          <span class="tag warn">W9 data</span>
+          <h2>Convex grows forever</h2>
+          <p>Old generations stay. Events append forever.</p>
+          <p class="why">
+            <code>convex/membership.ts:395-398</code>, <code>convex/schema.ts:58-74</code>.
+          </p>
+          <p class="fix">Fix: add the bounded garbage collector.</p>
+        </article>
+
+        <article class="card">
+          <span class="tag warn">W10 filter</span>
+          <h2>Hidden posts stay selectable</h2>
+          <p>The stub gate exists. Callers do not use it.</p>
+          <p class="why">
+            <code>src/content/filter-applier.ts:35-41</code>,
+            <code>src/content/filter-feature.ts:15-20</code>, not used at
+            <code>src/content/main.tsx:309-313</code> or <code>src/content/main.tsx:373-381</code>.
+          </p>
+          <p class="fix">Fix: check <code>isStubbed</code> before overlay and select.</p>
+        </article>
+
+        <article class="card">
+          <span class="tag warn">W11 copy</span>
+          <h2>Wrong unmute failure copy</h2>
+          <p>Failed unmute says "Couldn't mute".</p>
+          <p class="why">
+            <code>src/content/controller.ts:451-459</code>, <code>src/core/strings.ts:65</code>,
+            <code>src/core/strings.ts:119</code>,
+            <code>tests/content/controller.test.ts:1472-1480</code>.
+          </p>
+          <p class="fix">Fix: add <code>unmuteFailedLine</code>. Update the test.</p>
+        </article>
+      </section>
+
+      <h2>State diagram: where the flow breaks</h2>
+      <div class="diagram">
+        <svg
+          width="1060"
+          height="330"
+          viewBox="0 0 1060 330"
+          role="img"
+          aria-label="State diagram of select and undo failure"
+        >
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L9,3 z" fill="#9fb0d0" />
+            </marker>
+            <marker
+              id="arrowBad"
+              markerWidth="10"
+              markerHeight="10"
+              refX="8"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L0,6 L9,3 z" fill="#ff6b6b" />
+            </marker>
+          </defs>
+          <rect x="20" y="34" width="120" height="52" rx="12" class="box" />
+          <text x="80" y="64" text-anchor="middle">Ready</text>
+          <rect x="190" y="34" width="140" height="52" rx="12" class="box" />
+          <text x="260" y="58" text-anchor="middle">Select mode</text>
+          <text x="260" y="74" text-anchor="middle" class="muted">user turns on</text>
+          <rect x="380" y="34" width="150" height="52" rx="12" class="bad" />
+          <text x="455" y="58" text-anchor="middle">Synthetic click</text>
+          <text x="455" y="74" text-anchor="middle" class="muted">no guard</text>
+          <rect x="580" y="34" width="150" height="52" rx="12" class="bad" />
+          <text x="655" y="58" text-anchor="middle">Suppress click</text>
+          <text x="655" y="74" text-anchor="middle" class="muted">toggle + stop</text>
+          <rect x="780" y="34" width="250" height="52" rx="12" class="bad" />
+          <text x="905" y="58" text-anchor="middle">X menu never opens</text>
+          <text x="905" y="74" text-anchor="middle" class="muted">
+            Retry toast + changed selection
+          </text>
+          <path d="M140 60 H190" class="arrow" />
+          <path d="M330 60 H380" class="arrowBad" />
+          <path d="M530 60 H580" class="arrowBad" />
+          <path d="M730 60 H780" class="arrowBad" />
+
+          <rect x="20" y="190" width="120" height="52" rx="12" class="box" />
+          <text x="80" y="220" text-anchor="middle">Ready</text>
+          <rect x="190" y="190" width="140" height="52" rx="12" class="good" />
+          <text x="260" y="214" text-anchor="middle">Assign running</text>
+          <text x="260" y="230" text-anchor="middle" class="muted">paced adds</text>
+          <rect x="380" y="190" width="150" height="52" rx="12" class="box" />
+          <text x="455" y="214" text-anchor="middle">Undo armed</text>
+          <text x="455" y="230" text-anchor="middle" class="muted">success toast</text>
+          <rect x="580" y="190" width="170" height="52" rx="12" class="bad" />
+          <text x="665" y="214" text-anchor="middle">Undo running</text>
+          <text x="665" y="230" text-anchor="middle" class="muted">unpaced removes</text>
+          <rect x="800" y="190" width="230" height="52" rx="12" class="bad" />
+          <text x="915" y="214" text-anchor="middle">Rate-limit risk</text>
+          <text x="915" y="230" text-anchor="middle" class="muted">missing active-run lock</text>
+          <path d="M140 216 H190" class="arrow" />
+          <path d="M330 216 H380" class="arrow" />
+          <path d="M530 216 H580" class="arrowBad" />
+          <path d="M750 216 H800" class="arrowBad" />
+          <path d="M260 242 C 330 300, 520 300, 640 242" class="arrowBad" />
+          <text x="470" y="292" text-anchor="middle" class="muted">
+            toast Undo can start while assign is still running
+          </text>
+        </svg>
+      </div>
+
+      <h2>Sequence diagram: synthetic click self-block</h2>
+      <div class="diagram">
+        <svg
+          width="1060"
+          height="300"
+          viewBox="0 0 1060 300"
+          role="img"
+          aria-label="Sequence diagram of select tap blocking Lasso driver click"
+        >
+          <defs>
+            <marker
+              id="seqArrow"
+              markerWidth="10"
+              markerHeight="10"
+              refX="8"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L0,6 L9,3 z" fill="#9fb0d0" />
+            </marker>
+            <marker id="seqBad" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L9,3 z" fill="#ff6b6b" />
+            </marker>
+          </defs>
+          <text x="80" y="30" text-anchor="middle">User</text>
+          <text x="300" y="30" text-anchor="middle">Controller</text>
+          <text x="520" y="30" text-anchor="middle">Driver</text>
+          <text x="740" y="30" text-anchor="middle">SelectTap</text>
+          <text x="940" y="30" text-anchor="middle">X page</text>
+          <line x1="80" y1="45" x2="80" y2="275" stroke="#2a3a5f" />
+          <line x1="300" y1="45" x2="300" y2="275" stroke="#2a3a5f" />
+          <line x1="520" y1="45" x2="520" y2="275" stroke="#2a3a5f" />
+          <line x1="740" y1="45" x2="740" y2="275" stroke="#2a3a5f" />
+          <line x1="940" y1="45" x2="940" y2="275" stroke="#2a3a5f" />
+          <line x1="88" y1="70" x2="292" y2="70" stroke="#9fb0d0" marker-end="url(#seqArrow)" />
+          <text x="190" y="62" text-anchor="middle">1. Alt+N / assign</text>
+          <line x1="308" y1="100" x2="512" y2="100" stroke="#9fb0d0" marker-end="url(#seqArrow)" />
+          <text x="410" y="92" text-anchor="middle">2. open caret</text>
+          <line x1="528" y1="130" x2="932" y2="130" stroke="#9fb0d0" marker-end="url(#seqArrow)" />
+          <text x="730" y="122" text-anchor="middle">3. synthetic click</text>
+          <line x1="932" y1="160" x2="748" y2="160" stroke="#ff6b6b" marker-end="url(#seqBad)" />
+          <text x="840" y="152" text-anchor="middle">4. capture, no guard</text>
+          <line x1="732" y1="190" x2="308" y2="190" stroke="#ff6b6b" marker-end="url(#seqBad)" />
+          <text x="520" y="182" text-anchor="middle">5. toggle selection</text>
+          <line x1="748" y1="220" x2="932" y2="220" stroke="#ff6b6b" marker-end="url(#seqBad)" />
+          <text x="840" y="212" text-anchor="middle">6. suppress native click</text>
+          <line x1="932" y1="250" x2="308" y2="250" stroke="#ff6b6b" marker-end="url(#seqBad)" />
+          <text x="620" y="242" text-anchor="middle">7. menu never opens, failure</text>
+        </svg>
+      </div>
+
+      <h2>PR disposition</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>PR</th>
+            <th>Call</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>#11</td>
+            <td>Forward-port</td>
+            <td>Right undo pacing fix. Add <code>observedAt</code>. Add active-run guard.</td>
+          </tr>
+          <tr>
+            <td>#12</td>
+            <td>Land</td>
+            <td>Current tree still has quoted-tweet target bug.</td>
+          </tr>
+          <tr>
+            <td>#13</td>
+            <td>Land</td>
+            <td>Test-only deflake.</td>
+          </tr>
+          <tr>
+            <td>#14</td>
+            <td>Do not merge as-is</td>
+            <td>
+              Direction matches ADR-0008, but this tree already has mutation-only
+              <code>XListApi</code> and owner-qualified <code>ListCache</code>. PR adds unvalidated
+              cache reads, empty-cache-as-cold, membership failure as <code>[]</code>.
+            </td>
+          </tr>
+          <tr>
+            <td>#15</td>
+            <td>Do not merge</td>
+            <td>
+              Real fixes, but stale. Predates <code>synced-store</code>. Settings-local patch must
+              pass area through.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Fix order</h2>
+      <ul>
+        <li>1. Select-tap: trusted guard, synthetic guard, outermost tweet, stub gate.</li>
+        <li>2. Undo: pacing, active-run lock, toast lifetime, unmute copy.</li>
+        <li>3. Chrome floor: raise to 120 or remove new APIs.</li>
+        <li>4. Settings: move device key off sync storage.</li>
+        <li>5. Mirror: retry, read-error state, Convex GC.</li>
+        <li>6. Quota: cap filter presets.</li>
+      </ul>
+    </main>
+  </body>
+</html>

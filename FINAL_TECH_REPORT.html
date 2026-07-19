@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lasso final tech report - 2026-07-19</title>
+    <style>
+      :root {
+        --bg: #07101f;
+        --panel: #101b2e;
+        --panel2: #0b1526;
+        --text: #ecf3ff;
+        --muted: #9fb0d0;
+        --line: #2a4166;
+        --blue: #6aa6ff;
+        --green: #55d68d;
+        --amber: #ffd166;
+        --red: #ff6b6b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 10% 0%, rgba(106, 166, 255, 0.24), transparent 34rem),
+          radial-gradient(circle at 100% 0%, rgba(85, 214, 141, 0.13), transparent 28rem), var(--bg);
+        font:
+          15px/1.45 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        max-width: 1220px;
+        margin: 0 auto;
+        padding: 34px 22px 70px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 38px;
+        letter-spacing: -0.045em;
+      }
+      h2 {
+        margin: 30px 0 10px;
+        font-size: 22px;
+      }
+      h3 {
+        margin: 0 0 8px;
+        font-size: 17px;
+      }
+      p {
+        margin: 6px 0;
+      }
+      code {
+        padding: 1px 5px;
+        border: 1px solid rgba(106, 166, 255, 0.28);
+        border-radius: 6px;
+        background: rgba(106, 166, 255, 0.12);
+        color: #dce8ff;
+      }
+      .sub {
+        color: var(--muted);
+      }
+      .pill {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        margin-top: 14px;
+        padding: 9px 13px;
+        border: 1px solid rgba(85, 214, 141, 0.42);
+        border-radius: 999px;
+        background: rgba(85, 214, 141, 0.12);
+        color: #d8ffe8;
+        font-weight: 850;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 14px;
+        margin-top: 18px;
+      }
+      .card {
+        grid-column: span 6;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+          var(--panel);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+      }
+      .card.wide {
+        grid-column: span 12;
+      }
+      .num {
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        margin-bottom: 8px;
+        border-radius: 10px;
+        background: rgba(106, 166, 255, 0.16);
+        color: #cfe0ff;
+        font-weight: 900;
+      }
+      .why {
+        color: var(--muted);
+      }
+      .good {
+        color: #d6ffe7;
+      }
+      .warn {
+        color: #ffe7a8;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      th,
+      td {
+        padding: 9px 8px;
+        border-top: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .mermaid-block {
+        margin-top: 10px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel2);
+        overflow: hidden;
+      }
+      .view-switch {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .switch-item {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 3px 10px;
+        border-radius: 8px;
+        background: rgba(106, 166, 255, 0.14);
+        color: #cfe0ff;
+        font-weight: 800;
+      }
+      .switch-item.active {
+        background: rgba(106, 166, 255, 0.36);
+        color: #fff;
+      }
+      .switch-details {
+        margin: 0;
+      }
+      .switch-details summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+      }
+      .switch-details summary::-webkit-details-marker {
+        display: none;
+      }
+      .switch-details pre {
+        margin: 10px 0 0;
+        max-width: min(980px, 88vw);
+      }
+      .diagram {
+        padding: 12px;
+        overflow-x: auto;
+      }
+      svg text {
+        font:
+          12px ui-sans-serif,
+          system-ui,
+          sans-serif;
+        fill: var(--text);
+      }
+      svg .muted {
+        fill: var(--muted);
+      }
+      svg .box {
+        fill: #18264a;
+        stroke: #4c6fb8;
+        stroke-width: 1.4;
+      }
+      svg .bad {
+        fill: #4a1824;
+        stroke: var(--red);
+      }
+      svg .ok {
+        fill: #143d2a;
+        stroke: var(--green);
+      }
+      svg .line {
+        stroke: #2a4166;
+        stroke-width: 1.4;
+      }
+      svg .arrow {
+        fill: none;
+        stroke: #9fb0d0;
+        stroke-width: 1.7;
+        marker-end: url(#arrow);
+      }
+      svg .arrowBad {
+        fill: none;
+        stroke: var(--red);
+        stroke-width: 2;
+        marker-end: url(#arrowBad);
+      }
+      details {
+        margin-top: 10px;
+      }
+      summary {
+        cursor: pointer;
+        color: #cfe0ff;
+        font-weight: 750;
+      }
+      pre {
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #07101f;
+        overflow-x: auto;
+      }
+      @media (max-width: 840px) {
+        .card {
+          grid-column: span 12;
+        }
+        h1 {
+          font-size: 30px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Final tech report</h1>
+      <p class="sub">2026-07-19 · HTML focuses on visual read. MD focuses on proof.</p>
+      <div class="pill">Quality improved: runtime, mutation policy, privacy</div>
+
+      <section class="grid">
+        <article class="card wide">
+          <h2>Verification dashboard</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Check</th>
+                <th>Result</th>
+                <th>Read</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Unit tests</td>
+                <td class="good">92 files / 1334 passed</td>
+                <td>Behavior pinned</td>
+              </tr>
+              <tr>
+                <td>Typecheck</td>
+                <td class="good">passed</td>
+                <td><code>tsc --noEmit</code></td>
+              </tr>
+              <tr>
+                <td>Format</td>
+                <td class="good">passed</td>
+                <td><code>oxfmt --check</code></td>
+              </tr>
+              <tr>
+                <td>Lint</td>
+                <td class="warn">passed, 5 warnings</td>
+                <td>
+                  Warnings prefer <code>toSorted</code>/<code>toReversed</code>; replacements keep
+                  Chrome 106.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card">
+          <span class="num">1</span>
+          <h3>Trusted selection only</h3>
+          <p>
+            Select-tap now ignores untrusted, synthetic, and non-primary clicks. It resolves the
+            outermost tweet.
+          </p>
+          <p class="why">
+            <code>src/content/select-tap.ts:23-36</code> · <code>src/content/main.tsx:303-308</code>
+          </p>
+          <p class="good">Effect: no driver self-block. No quoted-tweet wrong author.</p>
+        </article>
+
+        <article class="card">
+          <span class="num">2</span>
+          <h3>Undo under policy</h3>
+          <p>
+            Removals are paced, stop on rate-limit, carry <code>observedAt</code>, and cannot
+            overlap an active assign.
+          </p>
+          <p class="why">
+            <code>src/core/actions/assign-to-list.ts:70-120</code> ·
+            <code>src/content/controller.ts:214-250</code>
+          </p>
+          <p class="good">Effect: undo follows the same mutation policy as assign.</p>
+        </article>
+
+        <article class="card">
+          <span class="num">3</span>
+          <h3>Toast matches undo</h3>
+          <p>Undo toast lives for the undo window only when Undo exists.</p>
+          <p class="why"><code>src/core/assign-feedback.ts:107-115</code></p>
+          <p class="good">Effect: no invisible undo. No needless 10s toast.</p>
+        </article>
+
+        <article class="card">
+          <span class="num">4</span>
+          <h3>Chrome 106 safe</h3>
+          <p>
+            Replaced <code>toSorted</code>, <code>toReversed</code>, and <code>URL.canParse</code>.
+          </p>
+          <p class="why">
+            <code>src/options/OptionsApp.tsx:65-72</code> · <code>src/content/main.tsx:164</code> ·
+            <code>src/core/picker-controller.ts:186</code> ·
+            <code>src/core/list-cache.ts:87</code> · <code>src/core/list-usage.ts:66</code> ·
+            <code>src/core/fuzzy.ts:26</code>
+          </p>
+          <p class="good">Effect: no Chrome 106-119 TypeError. Chrome 150+ still works.</p>
+        </article>
+
+        <article class="card wide">
+          <span class="num">5</span>
+          <h3>Settings off sync</h3>
+          <p>
+            Settings moved to <code>chrome.storage.local</code>. Legacy sync migrates once. Clear
+            still wipes legacy sync. Explicit Mirror clear stores <code>null</code> so a dev default
+            credential does not refill.
+          </p>
+          <p class="why">
+            <code>src/core/settings.ts:177-208</code> · <code>src/core/settings.ts:70-81</code> ·
+            <code>src/core/settings.ts:266-280</code> ·
+            <code>src/core/storage-keys.ts:12-15</code> ·
+            <code>src/core/storage-keys.ts:22-30</code>
+          </p>
+          <p class="good">
+            Effect: better privacy. Local-first claim matches behavior. Explicit opt-out sticks.
+          </p>
+        </article>
+      </section>
+
+      <h2>Time sequence diagram: paced undo</h2>
+      <div class="mermaid-block">
+        <div class="view-switch" aria-label="Preview or code">
+          <span class="switch-item active">Preview</span>
+          <details class="switch-details">
+            <summary class="switch-item">Code</summary>
+            <pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant C as Controller
+  participant R as removeAuthorsFromList
+  participant B as Backend
+  participant M as Mirror
+  U->>C: Undo
+  C->>C: block if activeAssignment or activeUndo
+  C->>R: authors, list, backend, shouldStop
+  loop each author
+    R->>R: sleep with jitter, not before first
+    R->>B: removeMember
+    B-->>R: removed or typed error
+    R-->>C: result with observedAt
+    alt rate-limited
+      R-->>C: stop, later authors un-attempted
+    end
+  end
+  C->>M: recordAssign remove facts, if Owner still current
+  C-->>U: Removed N toast</pre
+            >
+          </details>
+        </div>
+        <div class="diagram">
+          <svg
+            width="1120"
+            height="330"
+            viewBox="0 0 1120 330"
+            role="img"
+            aria-label="Time sequence diagram for paced undo"
+          >
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#9fb0d0" />
+              </marker>
+              <marker
+                id="arrowBad"
+                markerWidth="10"
+                markerHeight="10"
+                refX="8"
+                refY="3"
+                orient="auto"
+              >
+                <path d="M0,0 L0,6 L9,3 z" fill="#ff6b6b" />
+              </marker>
+            </defs>
+            <text x="70" y="28" text-anchor="middle">User</text>
+            <text x="290" y="28" text-anchor="middle">Controller</text>
+            <text x="520" y="28" text-anchor="middle">removeAuthorsFromList</text>
+            <text x="790" y="28" text-anchor="middle">Backend</text>
+            <text x="1010" y="28" text-anchor="middle">Mirror</text>
+            <line x1="70" y1="45" x2="70" y2="300" class="line" />
+            <line x1="290" y1="45" x2="290" y2="300" class="line" />
+            <line x1="520" y1="45" x2="520" y2="300" class="line" />
+            <line x1="790" y1="45" x2="790" y2="300" class="line" />
+            <line x1="1010" y1="45" x2="1010" y2="300" class="line" />
+            <line x1="78" y1="68" x2="282" y2="68" class="arrow" />
+            <text x="180" y="60" text-anchor="middle">1. Undo</text>
+            <line x1="298" y1="96" x2="298" y2="96" class="arrow" />
+            <text x="380" y="88" text-anchor="middle">2. block if active assign/undo</text>
+            <line x1="298" y1="124" x2="512" y2="124" class="arrow" />
+            <text x="405" y="116" text-anchor="middle">3. authors + shouldStop</text>
+            <line x1="528" y1="152" x2="528" y2="152" class="arrow" />
+            <text x="620" y="144" text-anchor="middle">4. jitter sleep, not before first</text>
+            <line x1="528" y1="180" x2="782" y2="180" class="arrow" />
+            <text x="655" y="172" text-anchor="middle">5. removeMember</text>
+            <line x1="782" y1="208" x2="528" y2="208" class="arrow" />
+            <text x="655" y="200" text-anchor="middle">6. removed / typed error</text>
+            <line x1="528" y1="236" x2="298" y2="236" class="arrowBad" />
+            <text x="413" y="228" text-anchor="middle">7. rate-limited stops later authors</text>
+            <line x1="298" y1="264" x2="1002" y2="264" class="arrow" />
+            <text x="650" y="256" text-anchor="middle">
+              8. record remove facts if Owner still current
+            </text>
+            <line x1="290" y1="292" x2="78" y2="292" class="arrow" />
+            <text x="184" y="284" text-anchor="middle">9. Removed N toast</text>
+          </svg>
+        </div>
+      </div>
+
+      <h2>State machine diagram v1</h2>
+      <p class="sub">Kept for comparison.</p>
+      <div class="mermaid-block">
+        <div class="view-switch" aria-label="Preview or code">
+          <span class="switch-item active">Preview</span>
+          <details class="switch-details">
+            <summary class="switch-item">Code</summary>
+            <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> SelectMode: trusted primary click
+  SelectMode --> Toggle: outermost tweet + author found
+  SelectMode --> PassThrough: Lasso UI, no tweet, no author
+  SelectMode --> Ignored: untrusted, synthetic, non-primary
+
+  Idle --> AssignRunning: runAssign starts
+  AssignRunning --> UndoArmed: success with undoable authors
+  UndoArmed --> UndoRunning: Undo accepted
+  AssignRunning --> BlockedUndo: Undo attempted while active
+  UndoRunning --> Idle: finally releases activeUndo
+  AssignRunning --> Idle: finally releases activeAssignment</pre
+            >
+          </details>
+        </div>
+        <div class="diagram">
+          <svg
+            width="1120"
+            height="330"
+            viewBox="0 0 1120 330"
+            role="img"
+            aria-label="State machine diagram v1 kept for comparison"
+          >
+            <rect x="30" y="130" width="120" height="56" rx="12" class="box" />
+            <text x="90" y="154" text-anchor="middle">Idle</text>
+            <text x="90" y="170" text-anchor="middle" class="muted">start</text>
+            <rect x="220" y="42" width="160" height="56" rx="12" class="box" />
+            <text x="300" y="66" text-anchor="middle">SelectMode</text>
+            <text x="300" y="82" text-anchor="middle" class="muted">trusted primary click</text>
+            <rect x="450" y="42" width="170" height="56" rx="12" class="ok" />
+            <text x="535" y="66" text-anchor="middle">Toggle</text>
+            <text x="535" y="82" text-anchor="middle" class="muted">outermost + author</text>
+            <rect x="450" y="130" width="170" height="56" rx="12" class="box" />
+            <text x="535" y="154" text-anchor="middle">PassThrough</text>
+            <text x="535" y="170" text-anchor="middle" class="muted">Lasso UI / no author</text>
+            <rect x="450" y="218" width="170" height="56" rx="12" class="ok" />
+            <text x="535" y="242" text-anchor="middle">Ignored</text>
+            <text x="535" y="258" text-anchor="middle" class="muted">
+              untrusted / synthetic / aux
+            </text>
+            <rect x="700" y="42" width="170" height="56" rx="12" class="box" />
+            <text x="785" y="66" text-anchor="middle">AssignRunning</text>
+            <text x="785" y="82" text-anchor="middle" class="muted">activeAssignment</text>
+            <rect x="700" y="130" width="170" height="56" rx="12" class="box" />
+            <text x="785" y="154" text-anchor="middle">UndoArmed</text>
+            <text x="785" y="170" text-anchor="middle" class="muted">success toast</text>
+            <rect x="930" y="130" width="160" height="56" rx="12" class="ok" />
+            <text x="1010" y="154" text-anchor="middle">UndoRunning</text>
+            <text x="1010" y="170" text-anchor="middle" class="muted">activeUndo</text>
+            <rect x="930" y="218" width="160" height="56" rx="12" class="bad" />
+            <text x="1010" y="242" text-anchor="middle">BlockedUndo</text>
+            <text x="1010" y="258" text-anchor="middle" class="muted">active assign/undo</text>
+            <path d="M150 158 C 180 120, 190 90, 220 76" class="arrow" />
+            <path d="M380 70 H450" class="arrow" />
+            <path d="M300 98 C 300 120, 360 158, 450 158" class="arrow" />
+            <path d="M300 98 C 300 150, 360 246, 450 246" class="arrow" />
+            <path d="M150 158 C 300 158, 520 70, 700 70" class="arrow" />
+            <path d="M785 98 C 785 110, 785 118, 785 130" class="arrow" />
+            <path d="M870 158 H930" class="arrow" />
+            <path d="M870 158 C 900 190, 900 246, 930 246" class="arrowBad" />
+            <path d="M1010 130 C 1010 90, 620 246, 150 186" class="arrow" />
+            <path d="M785 186 C 785 260, 300 260, 150 186" class="arrow" />
+          </svg>
+        </div>
+      </div>
+
+      <h2>State machine diagram v2</h2>
+      <div class="mermaid-block">
+        <div class="view-switch" aria-label="Preview or code">
+          <span class="switch-item active">Preview</span>
+          <details class="switch-details">
+            <summary class="switch-item">Code</summary>
+            <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> SelectMode: trusted primary click
+  SelectMode --> Toggle: outermost tweet + author found
+  SelectMode --> PassThrough: Lasso UI, no tweet, no author
+  SelectMode --> Ignored: untrusted, synthetic, non-primary
+
+  Idle --> AssignRunning: runAssign starts
+  AssignRunning --> UndoArmed: success with undoable authors
+  UndoArmed --> UndoRunning: Undo accepted
+  AssignRunning --> BlockedUndo: Undo attempted while active
+  UndoRunning --> Idle: finally releases activeUndo
+  AssignRunning --> Idle: finally releases activeAssignment</pre
+            >
+          </details>
+        </div>
+        <div class="diagram">
+          <svg
+            width="1120"
+            height="450"
+            viewBox="0 0 1120 450"
+            role="img"
+            aria-label="State machine diagram v2 with no crossing arrows"
+          >
+            <rect x="30" y="150" width="130" height="56" rx="12" class="box" />
+            <text x="95" y="174" text-anchor="middle">Idle</text>
+            <text x="95" y="190" text-anchor="middle" class="muted">start</text>
+            <rect x="240" y="40" width="180" height="56" rx="12" class="box" />
+            <text x="330" y="64" text-anchor="middle">SelectMode</text>
+            <text x="330" y="80" text-anchor="middle" class="muted">trusted primary click</text>
+            <rect x="500" y="40" width="180" height="56" rx="12" class="ok" />
+            <text x="590" y="64" text-anchor="middle">Toggle</text>
+            <text x="590" y="80" text-anchor="middle" class="muted">outermost + author</text>
+            <rect x="500" y="128" width="180" height="48" rx="12" class="box" />
+            <text x="590" y="146" text-anchor="middle">PassThrough</text>
+            <text x="590" y="162" text-anchor="middle" class="muted">Lasso UI / no author</text>
+            <rect x="500" y="200" width="180" height="48" rx="12" class="ok" />
+            <text x="590" y="218" text-anchor="middle">Ignored</text>
+            <text x="590" y="234" text-anchor="middle" class="muted">
+              untrusted / synthetic / aux
+            </text>
+            <rect x="240" y="286" width="180" height="56" rx="12" class="box" />
+            <text x="330" y="310" text-anchor="middle">AssignRunning</text>
+            <text x="330" y="326" text-anchor="middle" class="muted">activeAssignment</text>
+            <rect x="500" y="286" width="180" height="56" rx="12" class="box" />
+            <text x="590" y="310" text-anchor="middle">UndoArmed</text>
+            <text x="590" y="326" text-anchor="middle" class="muted">success toast</text>
+            <rect x="760" y="286" width="180" height="56" rx="12" class="ok" />
+            <text x="850" y="310" text-anchor="middle">UndoRunning</text>
+            <text x="850" y="326" text-anchor="middle" class="muted">activeUndo</text>
+            <rect x="240" y="366" width="180" height="48" rx="12" class="bad" />
+            <text x="330" y="384" text-anchor="middle">BlockedUndo</text>
+            <text x="330" y="400" text-anchor="middle" class="muted">active assign/undo</text>
+            <path d="M160 150 C 190 110, 210 80, 240 68" class="arrow" />
+            <path d="M420 68 H500" class="arrow" />
+            <path d="M420 76 C 455 104, 470 128, 500 152" class="arrow" />
+            <path d="M420 84 C 465 150, 470 200, 500 224" class="arrow" />
+            <path d="M160 178 C 190 232, 210 286, 240 314" class="arrow" />
+            <path d="M420 314 H500" class="arrow" />
+            <path d="M680 314 H760" class="arrow" />
+            <path d="M330 342 V366" class="arrowBad" />
+            <text x="560" y="434" text-anchor="middle" class="muted">
+              finally releases activeAssignment / activeUndo -&gt; Idle
+            </text>
+          </svg>
+        </div>
+      </div>
+
+      <h2>Settings migration sequence</h2>
+      <div class="mermaid-block">
+        <div class="view-switch" aria-label="Preview or code">
+          <span class="switch-item active">Preview</span>
+          <details class="switch-details">
+            <summary class="switch-item">Code</summary>
+            <pre class="mermaid">
+sequenceDiagram
+  participant S as Settings
+  participant L as storage.local
+  participant Y as legacy storage.sync
+  S->>L: read lasso:settings
+  alt local has value
+    L-->>S: local wins
+  else local empty
+    S->>Y: read legacy lasso:settings
+    alt legacy has value
+      Y-->>S: legacy value
+      S->>L: write legacy value
+      S->>Y: remove legacy key
+    else no legacy
+      Y-->>S: empty
+    end
+  end
+  S->>S: normalize + repair mirrorConfigId</pre
+            >
+          </details>
+        </div>
+        <div class="diagram">
+          <svg
+            width="1120"
+            height="250"
+            viewBox="0 0 1120 250"
+            role="img"
+            aria-label="Settings migration from sync to local"
+          >
+            <text x="120" y="28" text-anchor="middle">Settings</text>
+            <text x="480" y="28" text-anchor="middle">storage.local</text>
+            <text x="840" y="28" text-anchor="middle">legacy storage.sync</text>
+            <line x1="120" y1="45" x2="120" y2="220" class="line" />
+            <line x1="480" y1="45" x2="480" y2="220" class="line" />
+            <line x1="840" y1="45" x2="840" y2="220" class="line" />
+            <line x1="128" y1="66" x2="472" y2="66" class="arrow" />
+            <text x="300" y="58" text-anchor="middle">1. read lasso:settings</text>
+            <line x1="472" y1="94" x2="128" y2="94" class="arrow" />
+            <text x="300" y="86" text-anchor="middle">2. local value wins</text>
+            <line x1="128" y1="122" x2="832" y2="122" class="arrow" />
+            <text x="480" y="114" text-anchor="middle">3. if local empty, read legacy</text>
+            <line x1="832" y1="150" x2="128" y2="150" class="arrow" />
+            <text x="480" y="142" text-anchor="middle">4. legacy value or empty</text>
+            <line x1="128" y1="178" x2="472" y2="178" class="arrow" />
+            <text x="300" y="170" text-anchor="middle">5. write legacy value to local</text>
+            <line x1="128" y1="206" x2="832" y2="206" class="arrow" />
+            <text x="480" y="198" text-anchor="middle">6. remove legacy key, then normalize</text>
+          </svg>
+        </div>
+      </div>
+
+      <h2>Failure classes, root causes, avoidance</h2>
+      <div class="card wide">
+        <table>
+          <thead>
+            <tr>
+              <th>Failure class</th>
+              <th>Root cause</th>
+              <th>Avoid while coding</th>
+              <th>Guard</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Event trust confusion</td>
+              <td>
+                Capture-phase listeners accepted every event. Some driver events were unmarked.
+              </td>
+              <td>
+                Default deny: ignore <code>!isTrusted</code>. Mark every synthetic event with
+                <code>SYNTHETIC_EVENT_FLAG</code>.
+              </td>
+              <td>Test trusted, untrusted, flagged, and aux clicks.</td>
+            </tr>
+            <tr>
+              <td>Nested DOM targeting</td>
+              <td><code>closest(Selectors.TWEET)</code> stops at the quoted inner article.</td>
+              <td>For author/caret actions, resolve the outermost tweet. Keep one resolver.</td>
+              <td>Fixture with nested <code>article[data-testid="tweet"]</code>.</td>
+            </tr>
+            <tr>
+              <td>Asymmetric mutation policy</td>
+              <td>Pacing lived in the add path only. Undo reused a raw loop.</td>
+              <td>One policy function per mutation verb. Share pacing, STOP, outcome mapping.</td>
+              <td>Rate-limit tests for add and remove.</td>
+            </tr>
+            <tr>
+              <td>Missing async lock</td>
+              <td>Keyboard path consumed commands during a run. Toast Undo bypassed it.</td>
+              <td>
+                Token locks in the conductor. Check the lock in the action itself. Release in
+                <code>finally</code>.
+              </td>
+              <td>Deferred backend test: start run, fire old Undo, prove no remove.</td>
+            </tr>
+            <tr>
+              <td>Version floor drift</td>
+              <td>Manifest floor said Chrome 106. Lint env said ES2024. Code used newer APIs.</td>
+              <td>Treat <code>minimum_chrome_version</code> as an API budget.</td>
+              <td>Align <code>.oxlintrc.json</code> env with the floor; add a banned-API check.</td>
+            </tr>
+            <tr>
+              <td>Secret storage drift</td>
+              <td>Settings storage predated the Mirror credential.</td>
+              <td>
+                Classify every key in <code>storage-keys.ts</code>: secret or not, local or sync.
+              </td>
+              <td>Storage-boundary test proves the credential area.</td>
+            </tr>
+            <tr>
+              <td>Sentinel loss in JSON storage</td>
+              <td>
+                Chrome storage drops object fields set to <code>undefined</code>. Defaults then
+                refilled.
+              </td>
+              <td>
+                Encode explicit clear as <code>null</code> only at the storage edge. Normalize
+                <code>null</code> back to <code>undefined</code>.
+              </td>
+              <td>Test clear -&gt; reload -&gt; still cleared.</td>
+            </tr>
+            <tr>
+              <td>Timer lifetime mismatch</td>
+              <td>Toast default and undo window were owned by different modules.</td>
+              <td>One source for the window. UI duration derives from it.</td>
+              <td>Test toast duration equals the armed undo window.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Better discipline and oxlint suggestions</h2>
+      <div class="card wide">
+        <ul>
+          <li>
+            Align lint env with runtime floor. <code>.oxlintrc.json:11</code> sets
+            <code>env.es2024: true</code>; <code>src/manifest.config.ts:33</code> says Chrome 106.
+            Set the lint env to the floor, or add an override for app code.
+          </li>
+          <li>
+            Ban floor-breaking APIs. If this oxlint version supports
+            <code>no-restricted-syntax</code>, ban <code>toSorted</code>, <code>toReversed</code>,
+            <code>toSpliced</code>, <code>with</code>, and <code>URL.canParse</code>. If not, run
+            one tiny <code>lint:chrome-floor</code> script until oxlint has a browser-compat rule.
+          </li>
+          <li>
+            Keep <code>unicorn/no-array-sort</code> and <code>unicorn/no-array-reverse</code> useful
+            without fighting the floor: centralize old-Chrome sort/reverse in one reviewed compat
+            helper, then forbid ad-hoc copies elsewhere.
+          </li>
+          <li>
+            Add a custom rule later: <code>lasso/require-trusted-event-guard</code> for
+            document-level <code>click</code>, <code>keydown</code>, and <code>mousemove</code>
+            listeners. Until then, keep the review checklist: every listener must say why trusted
+            input is safe.
+          </li>
+          <li>
+            Keep architecture rules in tests, not comments: storage-key classification, mutation
+            pacing, async locks, and API floor should each have one failing test when broken.
+          </li>
+        </ul>
+      </div>
+
+      <h2>Quality call</h2>
+      <p>
+        Yes, significant. It removes failure classes: driver self-block, wrong-author selection,
+        unpaced undo mutations, old-Chrome crashes, credential sync replication, and
+        refill-after-clear. Tests now pin each behavior.
+      </p>
+      <p class="warn">
+        Residual risk: lint still warns about <code>sort</code>/<code>reverse</code>; intentional
+        for Chrome 106. Remaining gaps: Mirror retry/GC, filter preset quota, hidden-post selection
+        gate, unmute failure copy, GraphQL feature flags, PR #14/#15 need rework rather than merge.
+      </p>
+    </main>
+  </body>
+</html>
