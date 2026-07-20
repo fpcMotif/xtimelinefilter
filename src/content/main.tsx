@@ -161,7 +161,7 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
     cleanups.push(cleanup);
   };
   const rollback = (): void => {
-    for (const cleanup of [...cleanups].reverse()) {
+    for (const cleanup of [...cleanups].toReversed()) {
       try {
         cleanup();
       } catch (error) {

@@ -23,7 +23,7 @@ export function fuzzyRank<T>(query: string, items: readonly T[], key: (item: T) 
     if (s !== null) scored.push({ item, s });
   }
   return scored
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       const byScore = a.s - b.s;
       if (byScore !== 0) return byScore;
       return key(a.item).localeCompare(key(b.item));

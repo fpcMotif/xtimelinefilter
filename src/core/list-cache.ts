@@ -84,7 +84,7 @@ export async function readCachedCatalog(area: StorageLike = localArea()): Promis
         (value): value is { key: string; catalog: CachedOwnerCatalog } =>
           value.catalog !== null && value.key === ownerKey(value.catalog.owner.userId),
       )
-      .sort((a, b) => a.catalog.owner.screenName.localeCompare(b.catalog.owner.screenName))
+      .toSorted((a, b) => a.catalog.owner.screenName.localeCompare(b.catalog.owner.screenName))
       .map(({ catalog: { owner, lists } }) => ({ owner, lists }));
   } catch {
     return [];
