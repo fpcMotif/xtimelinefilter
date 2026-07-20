@@ -44,7 +44,8 @@ async function wake(): Promise<boolean> {
       | LassoStatusResponse
       | undefined;
     return response?.awake === true;
-  } catch {
+  } catch (error) {
+    console.error("[Lasso] Failed to wake tab:", error);
     return false;
   }
 }
