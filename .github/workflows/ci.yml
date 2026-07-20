@@ -32,6 +32,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Boundary check
+        run: bun run lint:boundaries
+
       - name: Format check
         run: bun run format:check
 

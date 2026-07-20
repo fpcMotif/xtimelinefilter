@@ -9,7 +9,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "happy-dom",
-    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "convex/**/*.test.ts"],
+    include: [
+      "tests/**/*.test.ts",
+      "tests/**/*.test.tsx",
+      "src/packages/**/tests/*.test.ts",
+      "src/packages/**/tests/*.test.tsx",
+      "convex/**/*.test.ts",
+    ],
     setupFiles: ["tests/setup.ts"],
     coverage: {
       provider: "v8",
@@ -20,7 +26,16 @@ export default defineConfig({
       // Ambient declarations carry no runtime code; HTML entry points are not
       // JS and only make v8's instrumenter throw a parse error; convex/_generated
       // is codegen, not hand-written logic.
-      exclude: ["src/types/**", "convex/_generated/**", "**/*.d.ts", "**/*.html", "**/*.json"],
+      // src/packages/*/tests is co-located test code, not product code.
+      exclude: [
+        "src/types/**",
+        "convex/_generated/**",
+        "**/*.d.ts",
+        "**/*.html",
+        "**/*.json",
+        "**/*.md",
+        "src/packages/**/tests/**",
+      ],
       reporter: ["text", "html", "lcov"],
       // Goal: 100% across frontend (content/ui) and backend (background,
       // storage, x-client, convex) logic — see docs/testing/unit-test-design.md.
