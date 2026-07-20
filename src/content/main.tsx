@@ -42,6 +42,9 @@ import { createDocumentAuth } from "@/core/x-client/auth";
 import { createCaretActions } from "@/core/x-client/caret-actions";
 import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
 import { createXListApi } from "@/core/x-client/factory";
+import { DEFAULT_GRAPHQL_CONFIG } from "@/core/x-client/graphql-config";
+import { createGraphqlOpsResolver } from "@/core/x-client/graphql-ops";
+import { createChromeOpsCache } from "@/core/x-client/graphql-ops-chrome";
 import { fetchMembershipListIds, fetchOwnedLists } from "@/core/x-client/lists-provider";
 import { blockUser, muteUser, unmuteUser } from "@/core/x-client/rest-api";
 import { createMembershipStore } from "@/packages/membership-store/factory";
@@ -186,6 +189,13 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
       fetch: pageFetch,
       credentials: () => auth.credentials(),
       createPageDriver: () => createDomPageDriver(),
+      // Self-healing GraphQL query ids: scraped from X's bundles, persisted across
+      // restarts, static config as last resort (graphql-ops.ts, ADR-0004).
+      graphqlOps: createGraphqlOpsResolver({
+        fetch: pageFetch,
+        cache: createChromeOpsCache(),
+        fallback: DEFAULT_GRAPHQL_CONFIG.ops,
+      }),
     });
     const currentOwner = getCurrentAccount;
     // List discovery uses separate undocumented web v1.1 endpoints, not the mutation backend.

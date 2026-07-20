@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { GraphqlXListApi } from "@/core/x-client/graphql-api";
-import type { Credentials, GraphqlConfig } from "@/core/x-client/types";
+import type { GraphqlOpsResolver } from "@/core/x-client/graphql-ops";
+import type { Credentials, GraphqlConfig, GraphqlOps } from "@/core/x-client/types";
 import { XApiError } from "@/core/x-client/types";
 
 const creds: Credentials = { csrf: "ct0token", bearer: "BEARER123" };
@@ -25,8 +26,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function makeApi(fetchImpl: typeof fetch, getCredentials = () => creds) {
-  return new GraphqlXListApi(getCredentials, { fetch: fetchImpl, config });
+const opsStub = (overrides: Partial<GraphqlOpsResolver> = {}): GraphqlOpsResolver => ({
+  resolve: async () => config.ops,
+  refresh: async () => config.ops,
+  ...overrides,
+});
+
+function makeApi(
+  fetchImpl: typeof fetch,
+  getCredentials = () => creds,
+  ops: GraphqlOpsResolver = opsStub(),
+) {
+  return new GraphqlXListApi(getCredentials, { fetch: fetchImpl, config, ops });
 }
 
 describe("GraphqlXListApi.addMember", () => {
@@ -203,5 +214,106 @@ describe("GraphqlXListApi.removeMember", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://x.com/i/api/graphql/removeQID/ListRemoveMember");
     expect(JSON.parse(init.body as string).variables).toEqual({ listId: "L1", userId: "U9" });
+  });
+});
+
+// Query ids rotate with X deploys (2026-07-19: all three rotated at once and adds
+// silently failed). The backend self-heals: endpoint 404 → one resolver refresh → one retry.
+describe("GraphqlXListApi query-id rotation recovery", () => {
+  const refreshedOps: GraphqlOps = {
+    ListAddMember: "freshAddQID",
+    ListRemoveMember: "freshRemoveQID",
+    UserByScreenName: "freshUserQID",
+  };
+
+  it("refreshes once on a 404 and retries the mutation with fresh ids", async () => {
+    const refresh = vi.fn(async () => refreshedOps);
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).includes("addQID") ? jsonResponse({}, 404) : jsonResponse({ data: { list: {} } }),
+    );
+
+    await makeApi(
+      fetchMock as unknown as typeof fetch,
+      () => creds,
+      opsStub({ refresh }),
+    ).addMember(list, author);
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls).toEqual([
+      "https://x.com/i/api/graphql/addQID/ListAddMember",
+      "https://x.com/i/api/graphql/freshAddQID/ListAddMember",
+    ]);
+  });
+
+  it("surfaces the typed rotated failure when the retry also 404s", async () => {
+    const refresh = vi.fn(async () => refreshedOps);
+    const fetchMock = vi.fn(async () => jsonResponse({}, 404));
+
+    await expect(
+      makeApi(fetchMock as unknown as typeof fetch, () => creds, opsStub({ refresh })).addMember(
+        list,
+        author,
+      ),
+    ).rejects.toMatchObject({
+      kind: "not-found",
+      message: "GraphQL ListAddMember endpoint was not found; its query ID may have rotated.",
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes and retries a rotated UserByScreenName lookup endpoint", async () => {
+    // Model the real resolver: a refresh updates what later resolves return.
+    let current = config.ops;
+    const resolve = vi.fn(async () => current);
+    const refresh = vi.fn(async () => (current = refreshedOps));
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes("userQID")) return jsonResponse({}, 404);
+      if (u.includes("UserByScreenName")) {
+        return jsonResponse({ data: { user: { result: { rest_id: "777" } } } });
+      }
+      return jsonResponse({ data: { list: {} } });
+    });
+
+    await makeApi(
+      fetchMock as unknown as typeof fetch,
+      () => creds,
+      opsStub({ resolve, refresh }),
+    ).addMember(list, { screenName: "jack" });
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls[0]).toContain("/userQID/UserByScreenName");
+    expect(urls[1]).toContain("/freshUserQID/UserByScreenName");
+    expect(urls[2]).toContain("/freshAddQID/ListAddMember");
+  });
+
+  it("does not refresh when the lookup returns no user (not a rotation)", async () => {
+    const refresh = vi.fn(async () => refreshedOps);
+    const fetchMock = vi.fn(async () => jsonResponse({ data: { user: {} } }));
+
+    await expect(
+      makeApi(fetchMock as unknown as typeof fetch, () => creds, opsStub({ refresh })).addMember(
+        list,
+        { screenName: "ghost" },
+      ),
+    ).rejects.toMatchObject({ kind: "not-found", message: "Could not resolve @ghost" });
+    expect(refresh).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh on non-404 failures like rate limiting", async () => {
+    const refresh = vi.fn(async () => refreshedOps);
+    const fetchMock = vi.fn(async () => jsonResponse({}, 429));
+
+    await expect(
+      makeApi(fetchMock as unknown as typeof fetch, () => creds, opsStub({ refresh })).addMember(
+        list,
+        author,
+      ),
+    ).rejects.toMatchObject({ kind: "rate-limited" });
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

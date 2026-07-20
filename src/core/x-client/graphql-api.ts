@@ -1,8 +1,10 @@
 import type { TweetAuthor } from "@/core/selection-store";
 
+import type { GraphqlOpsResolver } from "./graphql-ops";
 import {
   type Credentials,
   type GraphqlConfig,
+  type GraphqlOps,
   XApiError,
   type XList,
   type XListApi,
@@ -12,6 +14,8 @@ import { authHeaders, ensureOk, GRAPHQL_PROFILE } from "./x-http";
 export interface GraphqlDeps {
   fetch: typeof fetch;
   config: GraphqlConfig;
+  /** Query-id source; a rotated-id 404 triggers one refresh + retry, then the typed failure. */
+  ops: GraphqlOpsResolver;
 }
 
 /**
@@ -27,16 +31,15 @@ export class GraphqlXListApi implements XListApi {
 
   async addMember(list: XList, author: TweetAuthor): Promise<void> {
     const userId = await this.requireUserId(author);
-    await this.mutateMember("ListAddMember", this.deps.config.ops.ListAddMember, list.id, userId);
+    await this.withOpsRetry((ops) =>
+      this.mutateMember("ListAddMember", ops.ListAddMember, list.id, userId),
+    );
   }
 
   async removeMember(list: XList, author: TweetAuthor): Promise<void> {
     const userId = await this.requireUserId(author);
-    await this.mutateMember(
-      "ListRemoveMember",
-      this.deps.config.ops.ListRemoveMember,
-      list.id,
-      userId,
+    await this.withOpsRetry((ops) =>
+      this.mutateMember("ListRemoveMember", ops.ListRemoveMember, list.id, userId),
     );
   }
 
@@ -47,22 +50,38 @@ export class GraphqlXListApi implements XListApi {
   }
 
   private async resolveUserId(screenName: string): Promise<string | null> {
-    const op = this.deps.config.ops.UserByScreenName;
-    const params = new URLSearchParams({
-      variables: JSON.stringify({ screen_name: screenName, withSafetyModeUserFields: true }),
-      features: JSON.stringify(this.deps.config.features),
+    return this.withOpsRetry(async (ops) => {
+      const params = new URLSearchParams({
+        variables: JSON.stringify({ screen_name: screenName, withSafetyModeUserFields: true }),
+        features: JSON.stringify(this.deps.config.features),
+      });
+      const url = `${this.deps.config.baseUrl}/${ops.UserByScreenName}/UserByScreenName?${params.toString()}`;
+      const res = await this.deps.fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: authHeaders(this.getCredentials()),
+      });
+      const json = (await this.ensureOk(res, "UserByScreenName")) as {
+        data?: { user?: { result?: { rest_id?: string } } };
+      };
+      const restId = json?.data?.user?.result?.rest_id;
+      return typeof restId === "string" ? restId : null;
     });
-    const url = `${this.deps.config.baseUrl}/${op}/UserByScreenName?${params.toString()}`;
-    const res = await this.deps.fetch(url, {
-      method: "GET",
-      credentials: "include",
-      headers: authHeaders(this.getCredentials()),
-    });
-    const json = (await this.ensureOk(res, "UserByScreenName")) as {
-      data?: { user?: { result?: { rest_id?: string } } };
-    };
-    const restId = json?.data?.user?.result?.rest_id;
-    return typeof restId === "string" ? restId : null;
+  }
+
+  /**
+   * One endpoint call with resolved query ids; on the rotated-id 404 boundary it
+   * forces one re-scrape and retries once. Only endpoint 404s can land in the catch —
+   * the "Could not resolve @handle" not-found is thrown by requireUserId, outside
+   * this wrapper, and never triggers a refresh.
+   */
+  private async withOpsRetry<T>(call: (ops: GraphqlOps) => Promise<T>): Promise<T> {
+    try {
+      return await call(await this.deps.ops.resolve());
+    } catch (error) {
+      if (!(error instanceof XApiError && error.kind === "not-found")) throw error;
+      return call(await this.deps.ops.refresh());
+    }
   }
 
   private async mutateMember(

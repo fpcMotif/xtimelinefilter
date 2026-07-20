@@ -24,10 +24,12 @@ const config: GraphqlConfig = {
   ops: { ListAddMember: "add", ListRemoveMember: "rm", UserByScreenName: "u" },
   features: {},
 };
+const gqlOps = { resolve: async () => config.ops, refresh: async () => config.ops };
 const gqlFresh = (): XListApi =>
   new GraphqlXListApi(() => creds, {
     fetch: (async () => jsonResponse({ data: { list: {} } })) as unknown as typeof fetch,
     config,
+    ops: gqlOps,
   });
 const gqlMember = (): XListApi =>
   new GraphqlXListApi(() => creds, {
@@ -36,6 +38,7 @@ const gqlMember = (): XListApi =>
         errors: [{ message: "User is already a member of this List." }],
       })) as unknown as typeof fetch,
     config,
+    ops: gqlOps,
   });
 
 // --- DOM backend builders ---
@@ -110,7 +113,7 @@ const httpBackends = [
   {
     label: "GraphqlXListApi",
     build: (res: () => Response): XListApi =>
-      new GraphqlXListApi(() => creds, { fetch: restFetch(res), config }),
+      new GraphqlXListApi(() => creds, { fetch: restFetch(res), config, ops: gqlOps }),
   },
 ];
 
@@ -156,7 +159,11 @@ describe("XListApi HTTP error precedence (intentional divergence)", () => {
   });
 
   it("GraphQL classifies {88,104} as rate-limited (88 checked before 104)", async () => {
-    const graphql = new GraphqlXListApi(() => creds, { fetch: restFetch(bothCodes), config });
+    const graphql = new GraphqlXListApi(() => creds, {
+      fetch: restFetch(bothCodes),
+      config,
+      ops: gqlOps,
+    });
     await expect(graphql.addMember(LIST, AUTHOR)).rejects.toMatchObject({ kind: "rate-limited" });
   });
 });

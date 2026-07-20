@@ -60,10 +60,13 @@ export interface XListApi {
 /** Configuration for the GraphQL backend (query ids drift; keep them here). */
 export interface GraphqlConfig {
   baseUrl: string;
-  ops: {
-    ListAddMember: string;
-    ListRemoveMember: string;
-    UserByScreenName: string;
-  };
+  ops: GraphqlOps;
   features: Record<string, boolean>;
+}
+
+/** The internal GraphQL operations the list backend depends on. Ids rotate with X deploys. */
+export interface GraphqlOps {
+  ListAddMember: string;
+  ListRemoveMember: string;
+  UserByScreenName: string;
 }
