@@ -80,9 +80,7 @@ window.addEventListener("message", (event) => {
     return;
   }
 
-  const target = [...document.querySelectorAll(`[${PAGE_ACTIVATE_TARGET}]`)].find(
-    (el) => el.getAttribute(PAGE_ACTIVATE_TARGET) === data.id,
-  );
+  const target = document.querySelector(`[${PAGE_ACTIVATE_TARGET}="${CSS.escape(data.id)}"]`);
   if (!target) {
     window.postMessage(
       {
