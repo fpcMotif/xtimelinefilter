@@ -89,6 +89,9 @@ module.exports = {
   options: {
     doNotFollow: { path: "node_modules" },
     tsConfig: { fileName: "tsconfig.json" },
+    // Track imports as written (before TS compiles type-only ones away), so
+    // `import type` can't reach into a package's private subfolders either.
+    tsPreCompilationDeps: true,
     enhancedResolveOptions: {
       extensions: [".ts", ".tsx", ".js", ".jsx", ".json"],
     },
