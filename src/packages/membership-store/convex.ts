@@ -1,4 +1,4 @@
-import type { XList } from "@/core/x-client/types";
+import type { XList } from "@/packages/x-client/types";
 
 import type {
   CompleteCatalogSnapshot,

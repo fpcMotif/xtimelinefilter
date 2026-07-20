@@ -5,7 +5,7 @@ import {
   XApiError,
   type XList,
   type XListApi,
-} from "@/core/x-client/types";
+} from "@/packages/x-client/types";
 
 export interface AssignOptions {
   /** Injected for deterministic tests; defaults to a real timer. */

@@ -1,6 +1,6 @@
 import type { TweetAuthor } from "@/core/selection-store";
 
-import type { PageDriver } from "./page-driver";
+import type { PageDriver } from "./lib/page-driver";
 import { XApiError, type XList, type XListApi } from "./types";
 
 /**

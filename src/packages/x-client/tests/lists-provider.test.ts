@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchMembershipListIds, fetchOwnedLists } from "@/core/x-client/lists-provider";
+import { fetchMembershipListIds, fetchOwnedLists } from "@/packages/x-client/lists-provider";
 
 const creds = { csrf: "ct0", bearer: "B" };
 

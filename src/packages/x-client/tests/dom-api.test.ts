@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { TweetAuthor } from "@/core/selection-store";
-import { DomXListApi } from "@/core/x-client/dom-api";
-import type { PageDriver } from "@/core/x-client/page-driver";
-import type { XList } from "@/core/x-client/types";
+import { DomXListApi } from "@/packages/x-client/dom-api";
+import type { PageDriver } from "@/packages/x-client/dom-page-driver";
+import type { XList } from "@/packages/x-client/types";
 
 class FakeDriver implements PageDriver {
   checked = new Set<string>();

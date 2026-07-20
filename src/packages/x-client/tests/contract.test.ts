@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { TweetAuthor } from "@/core/selection-store";
-import { DomXListApi } from "@/core/x-client/dom-api";
-import { GraphqlXListApi } from "@/core/x-client/graphql-api";
-import type { PageDriver } from "@/core/x-client/page-driver";
-import { RestXListApi } from "@/core/x-client/rest-api";
-import type { Credentials, GraphqlConfig, XList, XListApi } from "@/core/x-client/types";
+import { DomXListApi } from "@/packages/x-client/dom-api";
+import type { PageDriver } from "@/packages/x-client/dom-page-driver";
+import { GraphqlXListApi } from "@/packages/x-client/graphql-api";
+import { RestXListApi } from "@/packages/x-client/rest-api";
+import type { Credentials, GraphqlConfig, XList, XListApi } from "@/packages/x-client/types";
 
 const LIST: XList = { id: "Research", name: "Research" };
 const AUTHOR: TweetAuthor = { screenName: "jack", userId: "12" };

@@ -11,8 +11,8 @@ import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { createSettings } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
 import { createUndoRegistry } from "@/core/undo";
-import { XApiError, type XList, type XListApi } from "@/core/x-client/types";
 import type { MembershipChange, MembershipStore, Owner } from "@/packages/membership-store/types";
+import { XApiError, type XList, type XListApi } from "@/packages/x-client/types";
 
 const LISTS: XList[] = [
   { id: "L1", name: "Design Folks" },

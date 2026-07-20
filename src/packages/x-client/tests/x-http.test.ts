@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { XApiError } from "@/core/x-client/types";
+import { XApiError } from "@/packages/x-client/types";
 import {
   authHeaders,
   ensureOk,
   GRAPHQL_PROFILE,
   rateLimitResetOf,
   REST_PROFILE,
-} from "@/core/x-client/x-http";
+} from "@/packages/x-client/x-http";
 
 /**
  * Direct tests for the X HTTP boundary. Every other x-client module has its own

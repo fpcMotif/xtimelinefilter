@@ -1,6 +1,6 @@
 import type { TweetAuthor } from "@/core/selection-store";
 
-import type { XList } from "./types";
+import type { XList } from "../types";
 
 /**
  * Thin DOM-interaction layer the DOM backend drives. The real implementation

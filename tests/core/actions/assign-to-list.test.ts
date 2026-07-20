@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { assignAuthorsToList, removeAuthorsFromList } from "@/core/actions/assign-to-list";
 import type { TweetAuthor } from "@/core/selection-store";
-import { XApiError, type XList, type XListApi } from "@/core/x-client/types";
+import { XApiError, type XList, type XListApi } from "@/packages/x-client/types";
 
 class FakeApi implements XListApi {
   added: string[] = [];

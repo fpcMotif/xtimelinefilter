@@ -8,7 +8,7 @@ import {
   createMemoryOpsCache,
   type GraphqlOpsResolver,
 } from "./graphql-ops";
-import type { PageDriver } from "./page-driver";
+import type { PageDriver } from "./lib/page-driver";
 import { RestXListApi } from "./rest-api";
 import type { Credentials, XListApi } from "./types";
 

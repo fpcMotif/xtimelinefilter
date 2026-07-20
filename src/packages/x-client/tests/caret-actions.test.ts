@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MUTE_ICON_PATH_PREFIX } from "@/content/selectors";
-import { createCaretActions } from "@/core/x-client/caret-actions";
+import { createCaretActions } from "@/packages/x-client/caret-actions";
 
 const clicked: string[] = [];
 

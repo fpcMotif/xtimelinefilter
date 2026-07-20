@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createDocumentAuth, PUBLIC_WEB_BEARER } from "@/core/x-client/auth";
-import { XApiError } from "@/core/x-client/types";
+import { createDocumentAuth, PUBLIC_WEB_BEARER } from "@/packages/x-client/auth";
+import { XApiError } from "@/packages/x-client/types";
 
 describe("createDocumentAuth", () => {
   it("reads ct0 from the cookie jar as the csrf token", () => {

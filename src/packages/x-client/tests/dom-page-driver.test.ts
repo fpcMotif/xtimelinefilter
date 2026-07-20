@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
-import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
-import type { XList } from "@/core/x-client/types";
+import { createDomPageDriver } from "@/packages/x-client/dom-page-driver";
+import type { XList } from "@/packages/x-client/types";
 
 const list = (name: string, id = name): XList => ({ id, name });
 const RESEARCH = list("Research", "1");

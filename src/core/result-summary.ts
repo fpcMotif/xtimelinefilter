@@ -1,4 +1,4 @@
-import type { AssignResult } from "@/core/x-client/types";
+import type { AssignResult } from "@/packages/x-client/types";
 
 export interface AssignSummary {
   added: number;

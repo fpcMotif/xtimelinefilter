@@ -38,18 +38,18 @@ import {
 import { createSettings, type SettingsStore } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
 import { createUndoRegistry } from "@/core/undo";
-import { createDocumentAuth } from "@/core/x-client/auth";
-import { createCaretActions } from "@/core/x-client/caret-actions";
-import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
-import { createXListApi } from "@/core/x-client/factory";
-import { DEFAULT_GRAPHQL_CONFIG } from "@/core/x-client/graphql-config";
-import { createGraphqlOpsResolver } from "@/core/x-client/graphql-ops";
-import { createChromeOpsCache } from "@/core/x-client/graphql-ops-chrome";
-import { fetchMembershipListIds, fetchOwnedLists } from "@/core/x-client/lists-provider";
-import { blockUser, muteUser, unmuteUser } from "@/core/x-client/rest-api";
 import { createMembershipStore } from "@/packages/membership-store/factory";
 import { createLiveMembershipStore } from "@/packages/membership-store/live";
 import * as tweetRead from "@/packages/tweet-read";
+import { createDocumentAuth } from "@/packages/x-client/auth";
+import { createCaretActions } from "@/packages/x-client/caret-actions";
+import { createDomPageDriver } from "@/packages/x-client/dom-page-driver";
+import { createXListApi } from "@/packages/x-client/factory";
+import { DEFAULT_GRAPHQL_CONFIG } from "@/packages/x-client/graphql-config";
+import { createGraphqlOpsResolver } from "@/packages/x-client/graphql-ops";
+import { createChromeOpsCache } from "@/packages/x-client/graphql-ops-chrome";
+import { fetchMembershipListIds, fetchOwnedLists } from "@/packages/x-client/lists-provider";
+import { blockUser, muteUser, unmuteUser } from "@/packages/x-client/rest-api";
 import { attachShadowRoot, createUiRoot } from "@/ui/mount";
 
 const OVERLAY_FLAG = "data-lasso-overlay";

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { summarize } from "@/core/result-summary";
-import type { AssignResult } from "@/core/x-client/types";
+import type { AssignResult } from "@/packages/x-client/types";
 
 const r = (outcome: AssignResult["outcome"]): AssignResult => ({
   author: { screenName: "x" },

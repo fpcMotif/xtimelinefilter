@@ -3,7 +3,6 @@ import { computed, type ReadonlySignal, signal } from "@preact/signals-core";
 import { fuzzyRank } from "@/core/fuzzy";
 import type { ListCache } from "@/core/list-cache";
 import type { TweetAuthor } from "@/core/selection-store";
-import { XApiError, type XList } from "@/core/x-client/types";
 import { membershipIdentityOf, NullMembershipStore } from "@/packages/membership-store";
 import type {
   MembershipHit,
@@ -12,6 +11,7 @@ import type {
   Owner,
   OwnerCatalog,
 } from "@/packages/membership-store/types";
+import { XApiError, type XList } from "@/packages/x-client/types";
 
 export type PickerStatus = "loading" | "ready" | "empty" | "error";
 export type PickerErrorKind = "auth" | "rate-limited" | "unknown";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createChromeOpsCache } from "@/core/x-client/graphql-ops-chrome";
+import { createChromeOpsCache } from "@/packages/x-client/graphql-ops-chrome";
 
 const KEY = "lasso.graphqlOps.v1";
 const entry = {

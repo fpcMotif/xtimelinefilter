@@ -7,9 +7,9 @@ import {
   removeFromList,
   RestXListApi,
   unmuteUser,
-} from "@/core/x-client/rest-api";
-import type { Credentials, XList } from "@/core/x-client/types";
-import { XApiError } from "@/core/x-client/types";
+} from "@/packages/x-client/rest-api";
+import type { Credentials, XList } from "@/packages/x-client/types";
+import { XApiError } from "@/packages/x-client/types";
 
 const creds: Credentials = { csrf: "ct0", bearer: "BEARER" };
 const ok = () => new Response(JSON.stringify({}), { status: 200 });

@@ -7,8 +7,13 @@ import {
 import type { TweetAuthor } from "@/core/selection-store";
 import * as tweetRead from "@/packages/tweet-read";
 
-import type { PageDriver } from "./page-driver";
+import type { PageDriver } from "./lib/page-driver";
 import type { XList } from "./types";
+
+// page-driver is private plumbing (lib/); intra-package code imports it directly.
+// This re-export exists so co-located tests can reach the contract through an
+// entry — the boundary gate forbids tests from importing a package's lib/.
+export type { PageDriver } from "./lib/page-driver";
 
 const click = (el: Element): void => (el as HTMLElement).click();
 const textOf = (el: Element): string => el.textContent as string;

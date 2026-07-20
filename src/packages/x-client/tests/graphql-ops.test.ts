@@ -4,8 +4,8 @@ import {
   createGraphqlOpsResolver,
   createMemoryOpsCache,
   type GraphqlOpsCache,
-} from "@/core/x-client/graphql-ops";
-import type { GraphqlOps } from "@/core/x-client/types";
+} from "@/packages/x-client/graphql-ops";
+import type { GraphqlOps } from "@/packages/x-client/types";
 
 const LIVE: GraphqlOps = {
   ListAddMember: "addLive",

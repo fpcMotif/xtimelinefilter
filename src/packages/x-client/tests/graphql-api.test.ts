@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { GraphqlXListApi } from "@/core/x-client/graphql-api";
-import type { GraphqlOpsResolver } from "@/core/x-client/graphql-ops";
-import type { Credentials, GraphqlConfig, GraphqlOps } from "@/core/x-client/types";
-import { XApiError } from "@/core/x-client/types";
+import { GraphqlXListApi } from "@/packages/x-client/graphql-api";
+import type { GraphqlOpsResolver } from "@/packages/x-client/graphql-ops";
+import type { Credentials, GraphqlConfig, GraphqlOps } from "@/packages/x-client/types";
+import { XApiError } from "@/packages/x-client/types";
 
 const creds: Credentials = { csrf: "ct0token", bearer: "BEARER123" };
 const list = { id: "L1", name: "Research" };

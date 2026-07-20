@@ -34,9 +34,9 @@ import {
 } from "@/core/strings";
 import type { ToastAction, ToastSpec, ToastStore } from "@/core/toast-store";
 import { UNDO_WINDOW_MS, type UndoRegistry } from "@/core/undo";
-import type { XList, XListApi } from "@/core/x-client/types";
 import { membershipIdentityOf, NullMembershipStore } from "@/packages/membership-store";
 import type { MembershipChange, MembershipStore, Owner } from "@/packages/membership-store/types";
+import type { XList, XListApi } from "@/packages/x-client/types";
 
 export { UNDO_WINDOW_MS };
 

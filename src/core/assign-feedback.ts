@@ -13,7 +13,7 @@ import {
 } from "@/core/strings";
 import type { ToastSpec } from "@/core/toast-store";
 import { UNDO_WINDOW_MS } from "@/core/undo";
-import type { AssignResult, XList } from "@/core/x-client/types";
+import type { AssignResult, XList } from "@/packages/x-client/types";
 
 export type FeedbackAction = "view-list" | "undo" | "retry";
 

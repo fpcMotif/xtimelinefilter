@@ -1,4 +1,5 @@
-import { localArea } from "../storage-areas";
+import { localArea } from "@/core/storage-areas";
+
 import type { GraphqlOpsCache, GraphqlOpsCacheEntry } from "./graphql-ops";
 
 const KEY = "lasso.graphqlOps.v1";

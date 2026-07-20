@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { feedbackFor } from "@/core/assign-feedback";
 import { UNDO_WINDOW_MS } from "@/core/undo";
-import type { AssignResult } from "@/core/x-client/types";
+import type { AssignResult } from "@/packages/x-client/types";
 
 const LIST = { id: "L1", name: "Design Folks" };
 const NOW = Date.UTC(2026, 5, 10, 12, 0, 0);

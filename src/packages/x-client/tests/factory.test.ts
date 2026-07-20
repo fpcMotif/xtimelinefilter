@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DomXListApi } from "@/core/x-client/dom-api";
-import { createXListApi } from "@/core/x-client/factory";
-import { GraphqlXListApi } from "@/core/x-client/graphql-api";
-import type { PageDriver } from "@/core/x-client/page-driver";
-import { RestXListApi } from "@/core/x-client/rest-api";
+import { DomXListApi } from "@/packages/x-client/dom-api";
+import type { PageDriver } from "@/packages/x-client/dom-page-driver";
+import { createXListApi } from "@/packages/x-client/factory";
+import { GraphqlXListApi } from "@/packages/x-client/graphql-api";
+import { RestXListApi } from "@/packages/x-client/rest-api";
 
 const fakeDriver: PageDriver = {
   openListsDialog: async () => {},

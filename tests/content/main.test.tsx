@@ -264,26 +264,26 @@ vi.mock("@/core/picker-controller", () => ({
 }));
 vi.mock("@/core/settings", () => ({ createSettings: () => H.fake.settings }));
 vi.mock("@/packages/tweet-read", () => ({ author: H.spy.extractAuthor }));
-vi.mock("@/core/x-client/auth", () => ({
+vi.mock("@/packages/x-client/auth", () => ({
   createDocumentAuth: () => H.fake.auth,
 }));
-vi.mock("@/core/x-client/caret-actions", () => ({
+vi.mock("@/packages/x-client/caret-actions", () => ({
   createCaretActions: () => H.fake.caret,
 }));
-vi.mock("@/core/x-client/dom-page-driver", () => ({
+vi.mock("@/packages/x-client/dom-page-driver", () => ({
   createDomPageDriver: H.spy.createDomPageDriver,
 }));
-vi.mock("@/core/x-client/factory", () => ({
+vi.mock("@/packages/x-client/factory", () => ({
   createXListApi: (_backend: unknown, runtime: Caps["xlistRuntime"]) => {
     H.cap.xlistRuntime = runtime;
     return H.fake.backend;
   },
 }));
-vi.mock("@/core/x-client/lists-provider", () => ({
+vi.mock("@/packages/x-client/lists-provider", () => ({
   fetchMembershipListIds: H.spy.fetchMembershipListIds,
   fetchOwnedLists: H.spy.fetchOwnedLists,
 }));
-vi.mock("@/core/x-client/rest-api", () => ({
+vi.mock("@/packages/x-client/rest-api", () => ({
   blockUser: H.spy.blockUser,
   muteUser: H.spy.muteUser,
   unmuteUser: H.spy.unmuteUser,
