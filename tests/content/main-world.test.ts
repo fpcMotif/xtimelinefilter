@@ -74,7 +74,7 @@ describe("main-world activator", () => {
     expect(target.hasAttribute(TARGET_ATTR)).toBe(false); // consumed
     expect(postSpy).toHaveBeenCalledWith(
       expect.objectContaining({ channel: CHANNEL, ok: true, requestId: "r1", type: "activated" }),
-      "*",
+      window.location.origin,
     );
   });
 
@@ -87,7 +87,7 @@ describe("main-world activator", () => {
     expect(target.scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" });
     expect(postSpy).toHaveBeenCalledWith(
       expect.objectContaining({ ok: true, requestId: "r2" }),
-      "*",
+      window.location.origin,
     );
   });
 
@@ -109,7 +109,7 @@ describe("main-world activator", () => {
     expect(clicks).toHaveBeenCalledTimes(1);
     expect(postSpy).toHaveBeenCalledWith(
       expect.objectContaining({ ok: true, requestId: "r3" }),
-      "*",
+      window.location.origin,
     );
   });
 
@@ -121,7 +121,7 @@ describe("main-world activator", () => {
 
     expect(postSpy).toHaveBeenCalledWith(
       expect.objectContaining({ channel: CHANNEL, ok: false, requestId: "r4", type: "activated" }),
-      "*",
+      window.location.origin,
     );
   });
 

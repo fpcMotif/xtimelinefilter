@@ -69,7 +69,7 @@ async function mainWorldActivate(el: Element): Promise<boolean> {
     win.addEventListener("message", onMessage);
     win.postMessage(
       { channel: PAGE_ACTIVATE_CHANNEL, id, requestId, type: PAGE_ACTIVATE_REQUEST },
-      "*",
+      window.location.origin,
     );
   });
 }
