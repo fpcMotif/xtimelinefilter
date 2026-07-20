@@ -126,4 +126,25 @@ describe("createMirrorStatusStore", () => {
       bridge.restore();
     }
   });
+
+  it("keeps watching for the survivors when one of several subscribers disposes", () => {
+    const bridge = installOnChanged();
+    try {
+      const store = createMirrorStatusStore(createMemoryArea());
+      const first = vi.fn();
+      const second = vi.fn();
+      const disposeFirst = store.subscribe(first);
+      store.subscribe(second);
+      const status = { ok: true, at: 9, configId: "mirror-1" };
+
+      disposeFirst();
+      bridge.emit(STORAGE_KEYS.mirrorStatus, status, "local");
+
+      // subscribers.size is still 1, so the underlying watch is NOT torn down.
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledWith(status);
+    } finally {
+      bridge.restore();
+    }
+  });
 });

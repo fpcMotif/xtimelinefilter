@@ -356,6 +356,36 @@ describe("ActionBar", () => {
     expect(queryByRole("tooltip")).toBeNull();
   });
 
+  it("ignores a stale rejected count tooltip request", async () => {
+    let rejectFirst!: (reason?: unknown) => void;
+    let resolveSecond!: (text: string | null) => void;
+    const onCountHover = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<string | null>((_, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<string | null>((done) => {
+            resolveSecond = done;
+          }),
+      );
+    const { getByText, findByRole } = render(
+      <ActionBar {...barProps({ authors: authors("a"), onCountHover })} />,
+    );
+    const count = getByText("1 person selected");
+    fireEvent.mouseEnter(count);
+    fireEvent.mouseLeave(count);
+    fireEvent.mouseEnter(count);
+    rejectFirst(new Error("tooltip unavailable"));
+    resolveSecond("fresh");
+
+    expect((await findByRole("tooltip")).textContent).toBe("fresh");
+  });
+
   it("resolves a null count tooltip to no tooltip", async () => {
     const onCountHover = vi.fn(async () => null);
     const { getByText, queryByRole } = render(

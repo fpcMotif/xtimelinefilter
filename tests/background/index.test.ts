@@ -188,4 +188,39 @@ describe("background service worker wiring", () => {
     expect(setBadgeText).toHaveBeenLastCalledWith({ tabId: 7, text: "4" });
     expect(setBadgeBackgroundColor).toHaveBeenCalledTimes(1);
   });
+
+  it("does not touch the badge for an accepted message that maps to no presentation", async () => {
+    // Defensive guard on index.ts:44: `isContentToBackgroundMessage` (protocol)
+    // and `badgePresentationFor` (lifecycle) are maintained independently, so a
+    // message type the guard admits may still map to no presentation — e.g. a
+    // future ContentToBackground variant wired into the guard before the badge
+    // mapper learns it. Relax only the guard so the *real* badgePresentationFor
+    // returns null, and confirm publish never runs (getFrame is its first act).
+    vi.doMock("@/core/protocol", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@/core/protocol")>();
+      return {
+        ...actual,
+        isContentToBackgroundMessage: (msg: unknown) =>
+          actual.isContentToBackgroundMessage(msg) ||
+          (typeof msg === "object" &&
+            msg !== null &&
+            (msg as { type?: unknown }).type === "lasso:future"),
+      };
+    });
+    try {
+      const { message, getFrame, setBadgeText, setBadgeBackgroundColor } = await load();
+
+      // A fully valid sender: had a presentation been produced, publish would
+      // have queried getFrame. It is null presentation — not the sender — that
+      // short-circuits the write.
+      message({ type: "lasso:future" }, { tab: { id: 7 }, frameId: 0, documentId: "doc-7" });
+
+      await Promise.resolve();
+      expect(getFrame).not.toHaveBeenCalled();
+      expect(setBadgeText).not.toHaveBeenCalled();
+      expect(setBadgeBackgroundColor).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("@/core/protocol");
+    }
+  });
 });

@@ -184,6 +184,28 @@ describe("createListCache", () => {
     expect(await cache.cached(A)).toEqual(newLists);
   });
 
+  it("keeps a queued refresh persisting after an earlier same-Owner persist rejects", async () => {
+    const oldLists: XList[] = [{ id: "old", name: "Old" }];
+    const newLists: XList[] = [{ id: "new", name: "New" }];
+    const loader = vi
+      .fn<(_: Owner | null) => Promise<XList[]>>()
+      .mockResolvedValueOnce(oldLists)
+      .mockResolvedValueOnce(newLists);
+    // Only R1's queued persist observes the changed Owner and rejects; R2 must still persist.
+    let ownerCall = 0;
+    const cache = createListCache(loader, {
+      area: memoryArea(),
+      currentOwner: () => (ownerCall++ === 2 ? B : A),
+    });
+
+    const first = cache.refresh(A);
+    const second = cache.refresh(A);
+
+    await expect(first).rejects.toMatchObject({ name: "ListCacheOwnerChangedError" });
+    await expect(second).resolves.toEqual(newLists);
+    expect(await cache.cached(A)).toEqual(newLists);
+  });
+
   it("rejects a queued refresh when Owner changes before persistence starts", async () => {
     const firstWrite = deferred<void>();
     const values: Record<string, unknown> = {};

@@ -502,6 +502,31 @@ describe("syncedStore", () => {
       await second;
     });
 
+    it("ignores a no-op echo of the confirmed value without displacing a queued write", async () => {
+      bridge = installOnChanged();
+      const secondSet = deferred<void>();
+      let calls = 0;
+      const p = { a: 1, b: "P" };
+      const r = { a: 2, b: "R" };
+      const store = syncedStore<Shape>(KEY, DEFAULTS, {
+        get: async () => ({}),
+        set: () => (++calls === 1 ? Promise.resolve() : secondSet.promise),
+      });
+      const cb = vi.fn();
+      store.onExternalChange(cb);
+      await store.write(p); // confirmed = P, authority known
+      const second = store.write(r); // R optimistic, its own set() still in flight
+      await vi.waitFor(() => expect(calls).toBe(2));
+
+      bridge.emit(p, "sync", p); // a P→P echo of the confirmed value: no new authority
+      expect(store.current()).toEqual(r); // queued optimistic R must survive
+      expect(cb).not.toHaveBeenCalled();
+
+      secondSet.resolve();
+      await second;
+      expect(store.current()).toEqual(r);
+    });
+
     it("does not suppress external Q → P after duplicate local P writes", async () => {
       bridge = installOnChanged();
       const p = { a: 1, b: "P" };

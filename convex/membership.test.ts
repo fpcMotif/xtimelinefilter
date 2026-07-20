@@ -467,6 +467,25 @@ describe("reconcileAuthor", () => {
     expect(await t.query(api.membership.catalog, { deviceKey: DEVICE_KEY })).toHaveLength(1);
   });
 
+  test("upserts the Owner but writes no snapshot for an identityless current observation", async () => {
+    const t = convexTest(schema, modules);
+
+    // No prior catalog, so the causal guard passes and upsertOwner runs; the
+    // missing stable identity then short-circuits before any snapshot write.
+    await t.mutation(api.membership.reconcileAuthor, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      screenName: "display-only",
+      observedAt: T0,
+      listIds: ["L1"],
+    });
+
+    expect(await t.run((ctx) => ctx.db.query("members").collect())).toHaveLength(0);
+    const accounts = await t.run((ctx) => ctx.db.query("accounts").collect());
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ userId: owner.userId, screenName: owner.screenName });
+  });
+
   test("treats missing legacy generations as generation zero", async () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
@@ -1306,6 +1325,40 @@ describe("listsContaining", () => {
       }),
     ).resolves.toEqual([
       { listId: "L1", ownerUserId: owner.userId, present: true, lastSeenAt: T0 },
+    ]);
+  });
+
+  test("falls back to lastSeenAt for a legacy snapshot with no observedAt", async () => {
+    const t = convexTest(schema, modules);
+
+    // A current List for the Owner.
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0,
+      lists: [{ listId: "L1", name: "Builders" }],
+    });
+    // A pre-migration snapshot row keyed by identity but missing observedAt.
+    await t.run((ctx) =>
+      ctx.db.insert("members", {
+        listId: "L1",
+        memberScreenName: "alice",
+        memberIdentity: "user:alice",
+        present: true,
+        source: "x-seed",
+        addedAt: T0,
+        lastSeenAt: T0 + 5,
+      }),
+    );
+
+    // With no observedAt the reported lastSeenAt must fall back to the row's own.
+    await expect(
+      t.query(api.membership.listsContaining, {
+        deviceKey: DEVICE_KEY,
+        memberIdentity: "user:alice",
+      }),
+    ).resolves.toEqual([
+      { listId: "L1", ownerUserId: owner.userId, present: true, lastSeenAt: T0 + 5 },
     ]);
   });
 

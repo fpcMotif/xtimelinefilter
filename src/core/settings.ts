@@ -227,6 +227,7 @@ export function createSettings(
   };
   const withStoredMirrorIdentity = (settings: LassoSettings): LassoSettings => {
     if (!mirrorConfigured(settings)) {
+      /* v8 ignore next 3 -- normalizeSettings strips a stored id whenever credentials are incomplete, so an unconfigured `settings` here always has mirrorConfigId undefined */
       return settings.mirrorConfigId === undefined
         ? settings
         : { ...settings, mirrorConfigId: undefined };
@@ -255,6 +256,7 @@ export function createSettings(
     if (!current.mirrorConfigId) {
       return { ...current, mirrorConfigId: freshMirrorConfigId() };
     }
+    /* v8 ignore next 6 -- onExternalChange computes the identical reuse condition and quarantines it (stripping the id) before calling in, so the branch above already handled this case */
     if (
       !sameMirrorCredentials(previous, current) &&
       current.mirrorConfigId === previous.mirrorConfigId

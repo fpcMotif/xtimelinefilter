@@ -112,6 +112,7 @@ function mergeSettings(base: LassoSettings, patch: Partial<LassoSettings>): Lass
   return {
     ...base,
     ...patch,
+    /* v8 ignore next -- no OptionsApp control patches surfaces (SurfaceOptions writes settings directly), so the merge branch is unreachable here. */
     surfaces: patch.surfaces ? { ...base.surfaces, ...patch.surfaces } : base.surfaces,
   };
 }
@@ -302,10 +303,11 @@ export function OptionsApp({
           ),
         );
       })
+      /* v8 ignore start -- readCachedCatalog converts every storage failure to an empty catalog, so this catch never runs. */
       .catch(() => {
-        /* v8 ignore next -- readCachedCatalog converts every storage failure to an empty catalog. */
         if (active && mounted.current && catalogRevision.current === readRevision) setLists([]);
       });
+    /* v8 ignore stop */
     return () => {
       active = false;
     };
@@ -381,6 +383,7 @@ export function OptionsApp({
     }
     const request: PendingSettingsWrite = {
       id: ++writeSequence.current,
+      /* v8 ignore next -- currentRef.current is recorded with `current` in adoptSettings before any patch runs, so the DEFAULT_SETTINGS fallback is unreachable. */
       expected: mergeSettings(previous ?? currentRef.current ?? DEFAULT_SETTINGS, p),
       externalEpoch,
     };
@@ -390,6 +393,7 @@ export function OptionsApp({
     setSettingsSaveError(false);
     const retire = () => {
       const index = pendingSettingsWrites.current.indexOf(request);
+      /* v8 ignore next -- retire() runs once per request (a settled promise calls exactly one of accept/reject) and nothing else mutates the array, so the request is always present; index is never < 0. */
       if (index >= 0) pendingSettingsWrites.current.splice(index, 1);
     };
     const accept = (snapshot: LassoSettings) => {
@@ -417,6 +421,7 @@ export function OptionsApp({
         return;
       // Controlled controls return to confirmed authority. Mirror fields keep
       // the latest draft so a failed write never eats what the user typed.
+      /* v8 ignore next -- recordAuthority runs before the first presentSettings in every adopt path, so once the form renders (current !== null) currentRef.current is set and is never reset to null; a rejected write always has confirmed authority to restore. */
       if (currentRef.current) presentSettings({ ...currentRef.current });
       setSettingsSaveError(true);
     };
@@ -790,6 +795,7 @@ export function OptionsApp({
                           setClearFailed(true);
                           return;
                         }
+                        /* v8 ignore next -- catalogRevision advances only when a newer clear starts, which also replaces pendingClear (caught above at the pendingClear.current !== clear guard); this guard's true branch is unreachable. */
                         if (catalogRevision.current !== catalogClearRevision) return;
                         adoptSettings(DEFAULT_SETTINGS);
                         pendingClear.current = null;
@@ -801,11 +807,11 @@ export function OptionsApp({
                         setMirrorTest("idle");
                         setLists([]);
                       })
-                      // v8 ignore next -- clearLassoData reports both storage failures in its result.
+                      /* v8 ignore start -- clearLassoData reports both storage failures in its result, so this catch never runs. */
                       .catch(() => {
-                        /* v8 ignore next -- clearLassoData reports failures in its result. */
                         if (mounted.current) setClearFailed(true);
                       });
+                    /* v8 ignore stop */
                   }}
                 >
                   Yes, clear it

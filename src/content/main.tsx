@@ -115,6 +115,7 @@ function injectOverlay(
   } catch (error) {
     unregisterHost?.();
     host.remove();
+    /* v8 ignore next -- previousPosition is avatar.style.position, always a string whenever positionedAvatar && avatar is truthy, so the ?? "" fallback is runtime-dead */
     if (positionedAvatar && avatar) avatar.style.position = previousPosition ?? "";
     throw error;
   }
@@ -122,6 +123,7 @@ function injectOverlay(
     render(null, mount!); // unmount → useSignalValue effects drop their subscriptions
     unregisterHost?.();
     host.remove();
+    /* v8 ignore next -- previousPosition is avatar.style.position, always a string whenever positionedAvatar && avatar is truthy, so the ?? "" fallback is runtime-dead */
     if (positionedAvatar && avatar) avatar.style.position = previousPosition ?? "";
   };
 }
@@ -140,6 +142,7 @@ const badgeReannouncer = createBadgeReannouncer({
 });
 
 function ensureDormantKeyboard(settingsStore: SettingsStore): void {
+  /* v8 ignore next -- the sole call site (main()) runs once per module lifetime with fresh state (disposeDormantKeyboard=null, activationState=idle), so this re-entry guard never returns */
   if (disposeDormantKeyboard || activationState === "awake") return;
   const selectModeBindings = DEFAULT_KEYMAP.filter(
     (binding) => binding.command === "toggle-select-mode",
@@ -147,6 +150,7 @@ function ensureDormantKeyboard(settingsStore: SettingsStore): void {
   disposeDormantKeyboard = installKeyboardLayer({
     keymap: selectModeBindings,
     run: (command) => {
+      /* v8 ignore next -- the dormant keymap contains only the toggle-select-mode binding, so run() never receives another command */
       if (command !== "toggle-select-mode") return false;
       void activate(settingsStore, "select-mode");
       return true;
@@ -466,6 +470,7 @@ function activate(settingsStore: SettingsStore, intent: ActivationIntent): Promi
   })();
   boot = attempt;
   void attempt.finally(() => {
+    /* v8 ignore next -- finally is the attempt's first settled callback and boot is only reassigned by a later activate() from idle, which cannot run before it, so boot === attempt always holds here */
     if (boot === attempt) boot = null;
   });
   return attempt;
@@ -500,6 +505,7 @@ async function main(): Promise<void> {
           sendResponse({ awake: activationState === "awake" });
           return;
         }
+        /* v8 ignore next -- isPopupToContentMessage admits only lasso:status and lasso-activate, and lasso:status returns above, so msg.type is always lasso-activate here */
         if (msg.type === "lasso-activate") {
           void activate(settingsStore, "wake")
             .then((awake) => sendResponse({ awake }))

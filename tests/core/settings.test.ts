@@ -197,6 +197,15 @@ describe("createSettings", () => {
     expect(getSpy).toHaveBeenCalledTimes(2); // migration probe + the single hydrate
   });
 
+  it("skips the legacy migration probe when no legacy sync area is provided", async () => {
+    const area = fakeStorage();
+    const getSpy = vi.spyOn(area, "get");
+    const s = createSettings(area, () => "default-id", null);
+    await s.get();
+    await s.get();
+    expect(getSpy).toHaveBeenCalledTimes(1); // no migration probe — only the single hydrate
+  });
+
   it("normalizes corrupted stored values and strips unknown fields", async () => {
     const s = createSettings(
       fakeStorage({
@@ -499,6 +508,29 @@ describe("createSettings", () => {
       expect(createId).toHaveBeenCalledOnce();
     });
 
+    it("notifies the credential-stripped snapshot when a fresh Mirror id cannot be minted", async () => {
+      bridge = installOnChanged();
+      const a = normalizeSettings({
+        convexUrl: "https://a.convex.cloud",
+        convexDeviceKey: "key-a",
+        mirrorConfigId: "mirror-a",
+      });
+      const area = fakeStorage({ [KEY]: a });
+      const set = vi.spyOn(area, "set");
+      const s = createSettings(area, () => ""); // id factory yields an empty identity
+      await s.get();
+      const cb = vi.fn();
+      s.subscribe(cb);
+
+      const staleB = { ...a, convexUrl: "https://b.convex.cloud" };
+      bridge.emit(staleB, "local", a);
+
+      // The mint failure is caught: subscribers still see a truthful, id-less snapshot…
+      expect(cb).toHaveBeenCalledWith({ ...staleB, mirrorConfigId: undefined });
+      // …and no repair write is attempted.
+      expect(set).not.toHaveBeenCalled();
+    });
+
     it("does not let a queued stale repair overwrite newer external settings", async () => {
       bridge = installOnChanged();
       const a = normalizeSettings({
@@ -560,6 +592,52 @@ describe("createSettings", () => {
 
       expect(await s.get()).toEqual({ ...staleB, mirrorConfigId: "repair-b-retry" });
       expect(set).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops a failed stale-id repair's notify once newer external settings have already won", async () => {
+      bridge = installOnChanged();
+      const a = normalizeSettings({
+        convexUrl: "https://a.convex.cloud",
+        convexDeviceKey: "key-a",
+        mirrorConfigId: "mirror-a",
+      });
+      // The repair write's set() stays in flight until we reject it by hand, so a
+      // newer external value can win the authority race meanwhile.
+      const repairSet = deferred<void>();
+      const set = vi.fn(() => repairSet.promise);
+      const area: StorageLike = {
+        get: async () => ({ [KEY]: a }),
+        set,
+      };
+      const createId = vi.fn(() => "repair-b");
+      const s = createSettings(area, createId);
+      await s.get();
+      const cb = vi.fn();
+      s.subscribe(cb);
+
+      // An external writer reuses the prior Mirror id → quarantine + repair write.
+      const staleB = { ...a, convexUrl: "https://b.convex.cloud" };
+      bridge.emit(staleB, "local", a);
+      await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+
+      // A newer, self-consistent external value wins before the repair settles;
+      // syncedStore confirms it as the new authority.
+      const freshC = { ...a, convexUrl: "https://c.convex.cloud", mirrorConfigId: "mirror-c" };
+      bridge.emit(freshC, "local", staleB);
+
+      // Now the repair fails. Its recovered authority is freshC, which no longer
+      // matches the stale `current` it was repairing, so the failure notify is
+      // skipped — the stale, id-stripped snapshot must never reach subscribers.
+      repairSet.reject(new Error("sync unavailable"));
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+      expect(cb.mock.calls.map(([snapshot]) => snapshot)).toEqual([
+        { ...staleB, mirrorConfigId: "repair-b" },
+        freshC,
+      ]);
+      expect(await s.get()).toEqual(freshC);
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(createId).toHaveBeenCalledOnce();
     });
 
     it("retries quarantine instead of exposing a stale id on an unrelated external edit", async () => {

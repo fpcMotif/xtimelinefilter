@@ -254,6 +254,130 @@ describe("SurfaceOptions", () => {
     expect(r.queryByRole("alert")).toBeNull();
   });
 
+  it("ignores an external snapshot that arrives after unmount", async () => {
+    let emit!: (snapshot: LassoSettings) => void;
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: vi.fn(async () => DEFAULT_SETTINGS),
+      subscribe(cb) {
+        emit = cb;
+        return () => {};
+      },
+    };
+    const r = render(<SurfaceOptions settings={settings} />);
+    await waitFor(() => r.getByLabelText(/command palette/i));
+    r.unmount();
+
+    expect(() => emit({ ...DEFAULT_SETTINGS, paletteHotkey: "alt+p" })).not.toThrow();
+  });
+
+  it("ignores a subscription confirmation for a save older than the latest confirmed", async () => {
+    const first = deferred<LassoSettings>();
+    const second = deferred<LassoSettings>();
+    const saves = [first, second];
+    let emit!: (snapshot: LassoSettings) => void;
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: vi.fn(() => saves.shift()!.promise),
+      subscribe(cb) {
+        emit = cb;
+        return () => {};
+      },
+    };
+    const r = render(<SurfaceOptions settings={settings} />);
+    const field = (await waitFor(() => r.getByLabelText(/palette hotkey/i))) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "mod+k" } }); // revision 1 (older save)
+    fireEvent.change(field, { target: { value: "ctrl+shift+k" } }); // revision 2 (newer save)
+
+    // The newer save confirms first, lifting latestConfirmedSave to revision 2.
+    second.resolve({ ...DEFAULT_SETTINGS, paletteHotkey: "ctrl+shift+k" });
+    await waitFor(() => expect(field.value).toBe("ctrl+shift+k"));
+
+    // A late subscription confirmation for the OLDER save (revision 1) must be dropped.
+    emit({ ...DEFAULT_SETTINGS, paletteHotkey: "mod+k" });
+    await Promise.resolve();
+
+    expect(field.value).toBe("ctrl+shift+k");
+    expect(r.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not clobber a newer local edit when an older save is confirmed", async () => {
+    const first = deferred<LassoSettings>();
+    const second = deferred<LassoSettings>();
+    const saves = [first, second];
+    let emit!: (snapshot: LassoSettings) => void;
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: vi.fn(() => saves.shift()!.promise),
+      subscribe(cb) {
+        emit = cb;
+        return () => {};
+      },
+    };
+    const r = render(<SurfaceOptions settings={settings} />);
+    const field = (await waitFor(() => r.getByLabelText(/palette hotkey/i))) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "mod+k" } }); // revision 1 (older save)
+    fireEvent.change(field, { target: { value: "ctrl+shift+k" } }); // revision 2 (live draft)
+
+    // The older save is confirmed by subscription while the live draft sits at revision 2.
+    emit({ ...DEFAULT_SETTINGS, paletteHotkey: "mod+k" });
+    await Promise.resolve();
+
+    // The confirmed-but-stale snapshot must not overwrite the newer local edit.
+    expect(field.value).toBe("ctrl+shift+k");
+    expect(r.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not show a load error when a superseded initial read fails", async () => {
+    const read = deferred<LassoSettings>();
+    let emit!: (snapshot: LassoSettings) => void;
+    const settings: SettingsStore = {
+      get: () => read.promise,
+      set: async () => DEFAULT_SETTINGS,
+      subscribe(cb) {
+        emit = cb;
+        return () => {};
+      },
+    };
+    const r = render(<SurfaceOptions settings={settings} />);
+    // A distinct external snapshot advances the draft revision before the read settles.
+    emit({ ...DEFAULT_SETTINGS, paletteHotkey: "alt+p" });
+    read.reject(new Error("read failed"));
+
+    const field = (await waitFor(() => r.getByLabelText(/palette hotkey/i))) as HTMLInputElement;
+    expect(field.value).toBe("alt+p");
+    expect(r.queryByRole("alert")).toBeNull();
+  });
+
+  it("ignores a pending save that settles after the settings prop changes", async () => {
+    const save = deferred<LassoSettings>();
+    const first: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: vi.fn(() => save.promise),
+      subscribe: () => () => {},
+    };
+    const second: SettingsStore = {
+      get: async () => ({ ...DEFAULT_SETTINGS, paletteHotkey: "alt+p" }),
+      set: vi.fn(async () => DEFAULT_SETTINGS),
+      subscribe: () => () => {},
+    };
+    const r = render(<SurfaceOptions settings={first} />);
+    const palette = (await waitFor(() => r.getByLabelText(/command palette/i))) as HTMLInputElement;
+    fireEvent.change(palette, { target: { checked: true } }); // queues a pending save on `first`
+
+    r.rerender(<SurfaceOptions settings={second} />);
+    const field = (await waitFor(() => r.getByLabelText(/palette hotkey/i))) as HTMLInputElement;
+    await waitFor(() => expect(field.value).toBe("alt+p"));
+
+    // The stale save resolves after the store swap: cleanup finds no matching request.
+    save.resolve({ ...DEFAULT_SETTINGS, surfaces: { pill: true, palette: true } });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(field.value).toBe("alt+p");
+    expect(r.queryByRole("alert")).toBeNull();
+  });
+
   it("toggling Command palette persists surfaces.palette = true", async () => {
     const settings = createSettings(memoryArea());
     const r = render(<SurfaceOptions settings={settings} />);

@@ -355,6 +355,33 @@ describe("FunnelPill", () => {
     expect(onPositionChange).not.toHaveBeenCalled();
   });
 
+  it("ignores a non-arrow keydown on the pill: no move, default not prevented", () => {
+    const onPositionChange = vi.fn();
+    const { r, pill } = setup({ position: { x: 100, y: 100 }, onPositionChange });
+
+    // A non-arrow key: `direction` is undefined, so onKeyDown returns before
+    // preventing default, stopping propagation, or moving the pill.
+    expect(fireEvent.keyDown(pill, { key: "a" })).toBe(true);
+
+    const root = r.container.querySelector("[data-funnel-pill-root]") as HTMLElement;
+    const style = root.getAttribute("style") ?? "";
+    expect(style).toContain("left: 100px");
+    expect(style).toContain("top: 100px");
+    expect(onPositionChange).not.toHaveBeenCalled();
+  });
+
+  it("ignores a non-arrow keyup and never commits a pending move", () => {
+    const onPositionChange = vi.fn();
+    const { pill } = setup({ position: { x: 100, y: 100 }, onPositionChange });
+
+    // Start a keyboard move so a commit is pending.
+    fireEvent.keyDown(pill, { key: "ArrowLeft" });
+    // Releasing a non-arrow key: onKeyUp returns early, so the pending move is
+    // not committed and the event is not intercepted.
+    expect(fireEvent.keyUp(pill, { key: "a" })).toBe(true);
+    expect(onPositionChange).not.toHaveBeenCalled();
+  });
+
   it("persists once on blur and Arrow movement never opens the popover", () => {
     const onPositionChange = vi.fn();
     const { r, pill } = setup({

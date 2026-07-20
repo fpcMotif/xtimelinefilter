@@ -109,6 +109,7 @@ export function SurfaceOptions({ settings }: { settings: SettingsStore }) {
 
   const patch = (change: Partial<LassoSettings>, requestRevision = ++revision.current) => {
     const base = latest.current;
+    /* v8 ignore next -- patch is bound only to handlers that render iff current!=null, and show() sets current and latest.current together, so base is never null here. */
     if (!base) return;
 
     const requestGeneration = generation.current;
@@ -165,6 +166,7 @@ export function SurfaceOptions({ settings }: { settings: SettingsStore }) {
         return;
       }
 
+      /* v8 ignore next -- reject() runs only from patch(), which returns early unless latest.current is set; current turns non-null only via a show() that also assigns confirmed.current (initial load or a distinct external snapshot), and confirmed is never cleared while current stays set, so confirmed.current is always truthy here. */
       if (confirmed.current) show(confirmed.current);
       setSaveError("Could not save surface settings.");
     };

@@ -212,6 +212,32 @@ describe("removeAuthorsFromList — undo under the same policy", () => {
     expect(res[1]).toMatchObject({ outcome: "failed", message: "remove boom" });
   });
 
+  it("stringifies non-Error throws in the remove result message", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async (au) => {
+      if (au.screenName === "y") throw "string boom";
+    };
+    const res = await removeAuthorsFromList([a("x"), a("y")], LIST, api, noSleep);
+    expect(res[1]).toMatchObject({ outcome: "failed", message: "string boom" });
+  });
+
+  it("uses the default sleep between removes", async () => {
+    const api = new FakeApi();
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const timeout = vi.spyOn(globalThis, "setTimeout").mockImplementation((cb) => {
+      if (typeof cb === "function") cb();
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    });
+
+    await removeAuthorsFromList([a("x"), a("y")], LIST, api, { delayMs: 0 });
+
+    expect(api.removed).toEqual(["x", "y"]);
+    expect(random).toHaveBeenCalled();
+    expect(timeout).toHaveBeenCalled();
+    random.mockRestore();
+    timeout.mockRestore();
+  });
+
   it("shouldStop during pacing prevents the next remove", async () => {
     const api = new FakeApi();
     let stop = false;

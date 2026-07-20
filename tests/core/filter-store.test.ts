@@ -186,6 +186,27 @@ describe("createFilterStore", () => {
     }
   });
 
+  it("ends reveal for an external link rule that changes only its destination", () => {
+    const bridge = installOnChanged();
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      // Seed state.value so the incoming change shares its host — this forces
+      // selectionChanged past the host comparison into the destination check.
+      s.setLinkRules([{ host: "example.com", dest: "reddit" }]);
+      s.setRevealed(true);
+      const before = s.state.value;
+      bridge.emit(
+        STORAGE_KEYS.filter,
+        { ...before, linkRules: [{ host: "example.com", dest: "hn" }] },
+        "sync",
+        before,
+      );
+      expect(s.revealed.value).toBe(false);
+    } finally {
+      bridge.restore();
+    }
+  });
+
   it("saves, applies, renames, and deletes presets", () => {
     const s = createFilterStore({ navLanguages: ["en"] });
     s.cycle("kind:video"); // only

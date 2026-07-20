@@ -1240,4 +1240,118 @@ describe("content boot (main.tsx)", () => {
     expect(dormant.dispose).toHaveBeenCalledTimes(1);
     err.mockRestore();
   });
+
+  it("consults Filter for palette state when no app modal is open", async () => {
+    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    H.config.onboarded = true; // welcomeOpen stays closed → appState.modalOpen() is false
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+
+    // With no app modal open, the `appState.modalOpen() || …` short-circuit falls
+    // through to Filter: each surface delegates to filter.isPaletteOpen() /
+    // filter.togglePalette() (the previously-uncovered right-hand arm).
+    expect(H.cap.keyboardSurfaces!.modalOpen()).toBe(false);
+    expect(H.fake.filter.isPaletteOpen).toHaveBeenCalled();
+    expect(H.cap.keyboardSurfaces!.togglePalette()).toBe(false);
+    expect(H.fake.filter.togglePalette).toHaveBeenCalled();
+  });
+
+  it("records a mid-boot select-mode intent onto the in-flight boot", async () => {
+    let resolveFeature!: () => void;
+    H.fake.installFilter.mockImplementationOnce(
+      () =>
+        new Promise<typeof H.fake.filter>((resolve) => {
+          resolveFeature = () => resolve(H.fake.filter);
+        }),
+    );
+    await importMain();
+
+    // A toolbar wake starts the boot; while it is still booting the dormant
+    // hotkey fires, queuing a select-mode intent onto the same in-flight boot.
+    H.cap.onMessage!({ type: "lasso-activate" }, {}, vi.fn());
+    await vi.waitFor(() => expect(H.fake.installFilter).toHaveBeenCalledTimes(1));
+    H.cap.keyboardLayers![0]!.run("toggle-select-mode");
+
+    resolveFeature();
+    await vi.waitFor(() => expect(H.fake.controller.trySelectMode).toHaveBeenCalledTimes(1));
+    expect(H.fake.controller.wake).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs an init failure when the module-load boot rejects", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {
+      throw new Error("console gone");
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await importMain();
+
+    // main()'s first statement throws before any try/catch, so the module-level
+    // `main().catch(...)` defensive handler is what logs the rejection.
+    await vi.waitFor(() =>
+      expect(err).toHaveBeenCalledWith("[Lasso] init failed", expect.any(Error)),
+    );
+    info.mockRestore();
+    err.mockRestore();
+  });
+
+  it("does not re-announce asleep when a wake commits before the manual read resolves", async () => {
+    let resolveInitial!: (settings: unknown) => void;
+    const initial = new Promise<unknown>((resolve) => {
+      resolveInitial = resolve;
+    });
+    H.config.settings = { backend: "rest", activation: "manual", highContrast: false };
+    H.fake.settings.get.mockClear();
+    H.fake.settings.get.mockImplementationOnce(() => initial); // main()'s own read hangs
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.settings.get).toHaveBeenCalledTimes(1));
+
+    // A toolbar wake commits awake (its install() reads the resolved store copy)
+    // while main()'s dormant settings read is still pending.
+    H.cap.onMessage!({ type: "lasso-activate" }, {}, vi.fn());
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+    const before = sendMessage.mock.calls.length;
+
+    // main()'s read now resolves with activationState already "awake": the
+    // else-if guard sees the committed state and leaves the badge untouched.
+    resolveInitial(H.config.settings);
+    await initial;
+    await Promise.resolve();
+    expect(sendMessage.mock.calls.slice(before)).not.toContainEqual([
+      { type: "lasso:state", state: "asleep" },
+    ]);
+  });
+
+  it("does not announce asleep while a boot is still in flight as the manual read resolves", async () => {
+    let resolveInitial!: (settings: unknown) => void;
+    let resolveFeature!: () => void;
+    const initial = new Promise<unknown>((resolve) => {
+      resolveInitial = resolve;
+    });
+    H.config.settings = { backend: "rest", activation: "manual", highContrast: false };
+    H.fake.settings.get.mockClear();
+    H.fake.settings.get.mockImplementationOnce(() => initial); // main()'s own read hangs
+    H.fake.installFilter.mockImplementationOnce(
+      () =>
+        new Promise<typeof H.fake.filter>((resolve) => {
+          resolveFeature = () => resolve(H.fake.filter);
+        }),
+    );
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.settings.get).toHaveBeenCalledTimes(1));
+
+    // A toolbar wake starts a boot that stalls inside installFilter, so
+    // activationState is "booting" (neither awake nor idle) when main() resumes.
+    H.cap.onMessage!({ type: "lasso-activate" }, {}, vi.fn());
+    await vi.waitFor(() => expect(H.fake.installFilter).toHaveBeenCalledTimes(1));
+    const before = sendMessage.mock.calls.length;
+
+    resolveInitial(H.config.settings);
+    await initial;
+    await Promise.resolve();
+    expect(sendMessage.mock.calls.slice(before)).not.toContainEqual([
+      { type: "lasso:state", state: "asleep" },
+    ]);
+
+    resolveFeature();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+  });
 });

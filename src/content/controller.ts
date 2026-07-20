@@ -237,6 +237,9 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       }
       toasts.show({ kind: "info", title: removedLine(n, list.name) });
     } finally {
+      // activeUndo is set atomically right after the entry guard, so a second
+      // undo returns before claiming it; the mismatch arm is unreachable here.
+      /* v8 ignore next */
       if (activeUndo === undoRun) activeUndo = null;
     }
   }
@@ -260,6 +263,8 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       if (actingOwner && deps.usage)
         fireAndForget(() => deps.usage!.record(actingOwner.userId, list.id));
 
+      // activeAssignment is claimed atomically after the entry guard, so no other
+      /* v8 ignore next -- run can supersede it mid-flight; the mismatch arm is dead */
       if (activeAssignment === assignment) {
         app.running.value = {
           current: 0,
@@ -271,6 +276,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         ...deps.assignOpts,
         now,
         onProgress: (current, total) => {
+          /* v8 ignore next -- the lock is held for this whole run, so the mismatch arm is dead */
           if (activeAssignment === assignment)
             app.running.value = { current, total, listName: list.name };
         },
@@ -337,6 +343,8 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         toasts.show({ kind: "info", title: POST_ASSIGN_TIP });
       }
     } finally {
+      // Only this run holds activeAssignment until it clears it here, so the
+      /* v8 ignore next -- mismatch arm is unreachable defensive code */
       if (activeAssignment === assignment) {
         app.running.value = null;
         activeAssignment = null;

@@ -119,6 +119,8 @@ function SelectionBar(props: ActionBarProps) {
   useEffect(() => {
     if (props.reviewOpen) {
       focusWithoutScroll(
+        // reviewOpen ⇒ the dialog is rendered with a focusable remove button,
+        /* v8 ignore next -- so the reviewDialogRef?. / ?? null fallback is a dead type guard */
         reviewDialogRef.current?.querySelector<HTMLButtonElement>("button") ?? null,
       );
     } else if (wasReviewOpen.current) {
@@ -131,10 +133,15 @@ function SelectionBar(props: ActionBarProps) {
     const requestedIndex = pendingReviewFocusIndex.current;
     if (requestedIndex === null) return;
     pendingReviewFocusIndex.current = null;
+    // Defensive refocus guards: SelectionBar unmounts at zero authors and review
+    // stays open through single removals, so once a refocus is pending, reviewOpen
+    // is still true and the rendered popover always has buttons in range.
+    /* v8 ignore start */
     if (!props.reviewOpen) return;
     const buttons = reviewDialogRef.current?.querySelectorAll<HTMLButtonElement>("button");
     if (!buttons?.length) return;
     focusWithoutScroll(buttons[Math.min(requestedIndex, buttons.length - 1)] ?? null);
+    /* v8 ignore stop */
   }, [props.authors, props.reviewOpen]);
 
   function removeFromReview(screenName: string, index: number): void {

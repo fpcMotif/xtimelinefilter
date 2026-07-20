@@ -52,8 +52,11 @@ export function ListPicker({ picker, onEffect, onCancel, onCreateList }: ListPic
     if (view.status === "loading") focusWithoutScroll(dialogRef.current);
     else if (view.status === "ready" || view.status === "empty")
       focusWithoutScroll(inputRef.current);
-    else if (view.status === "error")
+    /* v8 ignore start -- view.status is exhaustively loading|ready|empty|error, so this
+       last arm always matches when reached; its false branch and the dialogRef?. / ?? null
+       fallback are dead. */ else if (view.status === "error")
       focusWithoutScroll(dialogRef.current?.querySelector<HTMLElement>("button") ?? null);
+    /* v8 ignore stop */
   }, [view.status]);
 
   // Do not use scrollIntoView: it may move X's timeline. Only the option scroller
@@ -62,6 +65,7 @@ export function ListPicker({ picker, onEffect, onCancel, onCreateList }: ListPic
     if (!activeRow) return;
     scrollIntoViewWithin(
       listboxRef.current,
+      /* v8 ignore next 2 -- the active row is always rendered with aria-selected="true", so the ?? fallback is unreachable */
       listboxRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]') ??
         null,
     );

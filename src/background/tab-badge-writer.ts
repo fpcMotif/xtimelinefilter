@@ -50,11 +50,10 @@ export class TabBadgeWriter {
   }
 
   #enqueue(tabId: number, work: () => Promise<void>): void {
+    // Stored tails always end in a swallowing .catch, and Promise.resolve() never
+    // rejects, so `previous` always fulfils — no recovery catch is needed before work.
     const previous = this.#tails.get(tabId) ?? Promise.resolve();
-    const next = previous
-      .catch(() => {})
-      .then(work)
-      .catch(() => {});
+    const next = previous.then(work).catch(() => {});
     this.#tails.set(tabId, next);
     void next.finally(() => {
       if (this.#tails.get(tabId) === next) this.#tails.delete(tabId);

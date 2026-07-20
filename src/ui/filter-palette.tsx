@@ -19,6 +19,7 @@ function activeOption(
   item: PaletteItem | undefined,
 ): HTMLElement | null {
   if (!listbox || !item) return null;
+  /* v8 ignore next 5 -- unreachable: matches[active] always renders an option li, so find() never misses */
   return (
     [...listbox.querySelectorAll<HTMLElement>('[role="option"]')].find(
       (option) => option.id === optionId(item),

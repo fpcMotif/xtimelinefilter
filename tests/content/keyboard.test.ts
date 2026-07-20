@@ -9,6 +9,7 @@ import {
   isTypingTarget,
   type KeyBinding,
   installKeyboardLayer,
+  matchesCombo,
   validatePaletteHotkey,
 } from "@/content/keyboard";
 import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
@@ -427,6 +428,49 @@ describe("installKeyboardLayer", () => {
     expect(run).toHaveBeenCalledWith("help");
     expect(togglePalette).not.toHaveBeenCalled();
   });
+
+  it("leaves an unbound key that misses the palette hotkey for X", () => {
+    const run = vi.fn();
+    const togglePalette = vi.fn(() => true);
+    dispose = installKeyboardLayer({
+      keymap,
+      run,
+      doc: document,
+      surfaces: {
+        paletteHotkey: () => "Mod+Shift+p",
+        togglePalette,
+        modalOpen: () => false,
+      },
+    });
+    const e = new KeyboardEvent("keydown", { key: "y", cancelable: true });
+    document.dispatchEvent(e);
+    expect(run).not.toHaveBeenCalled();
+    expect(togglePalette).not.toHaveBeenCalled(); // wrong key never reaches the palette
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("leaves the palette hotkey for X when togglePalette declines (nothing to toggle)", () => {
+    const togglePalette = vi.fn(() => false);
+    dispose = installKeyboardLayer({
+      keymap,
+      run: vi.fn(),
+      doc: document,
+      surfaces: {
+        paletteHotkey: () => "Mod+Shift+p",
+        togglePalette,
+        modalOpen: () => false,
+      },
+    });
+    const e = new KeyboardEvent("keydown", {
+      key: "p",
+      ctrlKey: true,
+      shiftKey: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(e);
+    expect(togglePalette).toHaveBeenCalledTimes(1);
+    expect(e.defaultPrevented).toBe(false); // declined → event stays X's
+  });
 });
 
 describe("palette hotkey validation", () => {
@@ -445,6 +489,24 @@ describe("palette hotkey validation", () => {
   it("rejects malformed modifiers and unsupported named keys", () => {
     expect(validatePaletteHotkey("Alt+Hyper+p")).toMatch(/Use a key plus modifiers/);
     expect(validatePaletteHotkey("Alt+F13")).toMatch(/Use a key plus modifiers/);
+  });
+
+  it("rejects empty, duplicated, and self-contradicting combos", () => {
+    expect(validatePaletteHotkey("")).toMatch(/Use a key plus modifiers/); // no parts at all
+    expect(validatePaletteHotkey("Alt+Alt+p")).toMatch(/Use a key plus modifiers/); // duplicate modifier
+    expect(validatePaletteHotkey("Mod+Ctrl+p")).toMatch(/Use a key plus modifiers/); // Mod already means Ctrl/Meta
+  });
+});
+
+describe("matchesCombo", () => {
+  it("rejects an unparseable combo outright", () => {
+    expect(matchesCombo(new KeyboardEvent("keydown", { key: "p", ctrlKey: true }), "")).toBe(false);
+  });
+
+  it("rejects when the pressed key is not the combo's key", () => {
+    expect(matchesCombo(new KeyboardEvent("keydown", { key: "q", altKey: true }), "Alt+p")).toBe(
+      false,
+    );
   });
 });
 

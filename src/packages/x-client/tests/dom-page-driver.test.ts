@@ -224,6 +224,20 @@ describe("createDomPageDriver (synthetic x.com)", () => {
     expect(await d.isChecked(list("Research", "2"))).toBe(true);
   });
 
+  it("harvests no id from a row link that is not an /i/lists URL", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.innerHTML = `
+      <div role="menuitem"><a href="/jack">Research</a><div role="checkbox" aria-checked="true"></div></div>`;
+
+    // /jack is not an /i/lists/<id> path, so the regex misses and no id is added.
+    // With no id identity, the row can only be resolved by its visible name; had
+    // a spurious id been harvested, rowFor would reject the name match as "not found".
+    expect(await d.isChecked(RESEARCH)).toBe(true);
+  });
+
   it("throws instead of choosing the first duplicate name", async () => {
     setupSyntheticX(document);
     const d = driver();
@@ -232,6 +246,19 @@ describe("createDomPageDriver (synthetic x.com)", () => {
     dialog.innerHTML = `
       <div role="menuitem"><span>Research</span></div>
       <div role="menuitem"><span>Research</span></div>`;
+
+    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/ambiguous/);
+    await expect(d.toggleList(RESEARCH)).rejects.toThrow(/ambiguous/);
+  });
+
+  it("throws when two rows share the target List id", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.innerHTML = `
+      <div role="menuitem" data-list-id="1"><span>Research</span></div>
+      <div role="menuitem" data-list-id="1"><span>Research copy</span></div>`;
 
     await expect(d.isChecked(RESEARCH)).rejects.toThrow(/ambiguous/);
     await expect(d.toggleList(RESEARCH)).rejects.toThrow(/ambiguous/);

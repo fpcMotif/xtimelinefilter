@@ -104,6 +104,28 @@ describe("PopupApp — the toolbar remote", () => {
     await act(async () => resolveWake(true));
   });
 
+  it("does not revive an unmounted popup after wake rejects", async () => {
+    let rejectWake!: (reason: unknown) => void;
+    const r = render(
+      <PopupApp
+        queryState={async () => "asleep"}
+        wake={() =>
+          new Promise((_resolve, reject) => {
+            rejectWake = reject;
+          })
+        }
+        openOptions={() => {}}
+      />,
+    );
+    fireEvent.click(await waitFor(() => r.getByText("Asleep — click to wake")));
+    r.unmount();
+    // The rejection lands after teardown: lifecycle.current is false, so the
+    // catch arm must skip its setState("asleep") rather than poke a dead tree.
+    await act(async () => {
+      rejectWake(new Error("message port closed"));
+    });
+  });
+
   it("off-x tabs show the Off X badge and the open-x.com hint", async () => {
     const r = render(
       <PopupApp queryState={async () => "off-x"} wake={async () => {}} openOptions={() => {}} />,
@@ -121,6 +143,64 @@ describe("PopupApp — the toolbar remote", () => {
       />,
     );
     await waitFor(() => expect(r.getByText("Off X")).toBeTruthy());
+  });
+
+  it("ignores a superseded tab-state read that resolves late", async () => {
+    let resolveStale!: (s: "off-x") => void;
+    const stale = () =>
+      new Promise<"off-x">((resolve) => {
+        resolveStale = resolve;
+      });
+    const filter = createFilterStore({ storage: fakeStorage() });
+    const r = render(
+      <PopupApp queryState={stale} wake={async () => {}} openOptions={() => {}} filter={filter} />,
+    );
+    // Swapping queryState tears down the first reader's effect (its mounted flag
+    // flips false) and starts a fresh reader that wins with "active".
+    r.rerender(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        filter={filter}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+
+    // The stale read now settles; its guarded then-arm must drop the result
+    // instead of clobbering the live "active" state with "off-x".
+    await act(async () => resolveStale("off-x"));
+    expect(r.getByText("Active")).toBeTruthy();
+    expect(r.queryByText("Off X")).toBeNull();
+  });
+
+  it("ignores a superseded tab-state read that rejects late", async () => {
+    let rejectStale!: (reason: unknown) => void;
+    const stale = () =>
+      new Promise<"off-x">((_resolve, reject) => {
+        rejectStale = reject;
+      });
+    const filter = createFilterStore({ storage: fakeStorage() });
+    const r = render(
+      <PopupApp queryState={stale} wake={async () => {}} openOptions={() => {}} filter={filter} />,
+    );
+    r.rerender(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        filter={filter}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+
+    // The stale read rejects after being superseded; the guarded catch-arm must
+    // not settle the torn-down reader to "off-x".
+    await act(async () => {
+      rejectStale(new Error("tabs unavailable"));
+    });
+    expect(r.getByText("Active")).toBeTruthy();
+    expect(r.queryByText("Off X")).toBeNull();
   });
 
   it("shows the loading dot and ellipsis before the tab state resolves", async () => {
@@ -353,6 +433,51 @@ describe("PopupApp — the toolbar remote", () => {
     emit(false);
     expect(document.documentElement.hasAttribute("data-hc")).toBe(false);
   });
+
+  it("leaves the contrast attribute untouched when the settings read rejects", async () => {
+    const { settings } = configuredSettings();
+    settings.get = vi.fn(async () => Promise.reject(new Error("settings unavailable")));
+    const r = render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        settings={settings}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+    await waitFor(() => expect(settings.get).toHaveBeenCalledTimes(1));
+    expect(document.documentElement.hasAttribute("data-hc")).toBe(false);
+  });
+
+  it("ignores a high-contrast emit that arrives after the popup unmounts", async () => {
+    const { settings } = configuredSettings();
+    let notify!: (next: LassoSettings) => void;
+    // A leaky teardown: the watcher keeps a live handle after the popup is gone.
+    settings.subscribe = (listener) => {
+      notify = listener;
+      return () => {};
+    };
+    const r = render(
+      <PopupApp
+        queryState={async () => "active"}
+        wake={async () => {}}
+        openOptions={() => {}}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        settings={settings}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+    expect(document.documentElement.hasAttribute("data-hc")).toBe(false);
+
+    const snapshot = await settings.get();
+    r.unmount();
+    // mounted is now false for the settings effect; the guard must drop this
+    // emit so the torn-down popup never re-toggles the shared page attribute.
+    act(() => notify({ ...snapshot, highContrast: true }));
+    expect(document.documentElement.hasAttribute("data-hc")).toBe(false);
+  });
 });
 
 describe("Mirror status row — instant sync observability (ADR-0009)", () => {
@@ -492,6 +617,40 @@ describe("Mirror status row — instant sync observability (ADR-0009)", () => {
     });
     expect(r.queryByText(/Last Mirror write succeeded/)).toBeNull();
     expect(r.getByText("Last Mirror write failed — open settings")).toBeTruthy();
+  });
+
+  it("fences a stale mirror watcher after its subscription is superseded", async () => {
+    const { settings } = configuredSettings();
+    const readOk = vi.fn(async () => ({ ok: true as const, at: Date.now(), configId: "mirror-1" }));
+    let staleEmit!: (status: { ok: boolean; at: number; configId: string }) => void;
+    const props = {
+      ...base,
+      filter: createFilterStore({ storage: fakeStorage() }),
+      settings,
+      mirrorStatus: readOk,
+    };
+    const r = render(
+      <PopupApp
+        {...props}
+        subscribeMirrorStatus={(listener) => {
+          staleEmit = listener;
+          return () => {};
+        }}
+      />,
+    );
+    await waitFor(() => expect(r.getByText(/Last Mirror write succeeded/)).toBeTruthy());
+
+    // Swapping the watcher tears down the first subscription's effect (its
+    // mounted flag flips false), but the leaky unsubscribe leaves staleEmit
+    // wired to the dead closure.
+    r.rerender(<PopupApp {...props} subscribeMirrorStatus={() => () => {}} />);
+    await waitFor(() => expect(r.getByText(/Last Mirror write succeeded/)).toBeTruthy());
+
+    // The fenced watcher emits a failure; the guard must drop it so the live
+    // "succeeded" row survives instead of flipping to "failed".
+    act(() => staleEmit({ ok: false, at: Date.now(), configId: "mirror-1" }));
+    expect(r.queryByText("Last Mirror write failed — open settings")).toBeNull();
+    expect(r.getByText(/Last Mirror write succeeded/)).toBeTruthy();
   });
 
   it("renders no Mirror row when the status is null or the reader is absent", async () => {

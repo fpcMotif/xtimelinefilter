@@ -315,4 +315,42 @@ describe("PickerController generations", () => {
     expect(controller.view.value.flat.map((row) => row.key)).toEqual(["2:200:B"]);
     expect(controller.view.value.flat[0]?.access.kind).toBe("writable");
   });
+
+  it("re-opens when the Owner switches after the catalog commits but before reconcile", async () => {
+    let owner: Owner = OWNER;
+    const OTHER: Owner = { userId: "200", screenName: "bob" };
+    let flipped = false;
+    const replaceCatalog = vi.fn(async () => {
+      if (!flipped) {
+        flipped = true;
+        owner = OTHER;
+      }
+    });
+    const cache: ListCache = {
+      cached: async () => null,
+      // Resolve on a macrotask so the enhancements read fully settles (and passes
+      // its own owner check) before the catalog commit switches the owner.
+      refresh: () => new Promise<XList[]>((resolve) => setTimeout(() => resolve(LISTS), 0)),
+    };
+    const controller = createPickerController({
+      cache,
+      currentOwner: () => owner,
+      membershipStore: {
+        recordAssign: async () => {},
+        reconcileAuthor: async () => {},
+        replaceCatalog,
+        observe: () => () => {},
+      },
+    });
+
+    await controller.open([{ screenName: "jane" }]);
+
+    expect(replaceCatalog).toHaveBeenCalledTimes(2);
+    expect(controller.view.value.status).toBe("ready");
+    expect(controller.view.value.flat.map((row) => row.key)).toEqual([
+      "2:200:1",
+      "2:200:2",
+      "2:200:3",
+    ]);
+  });
 });

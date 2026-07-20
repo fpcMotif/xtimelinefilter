@@ -136,11 +136,14 @@ export function FunnelPill({
     };
     let disposed = false;
     const dispose = () => {
+      /* v8 ignore next -- re-entrancy guard: each dispose removes all pointer listeners and clears disposeDrag.current, so the same closure is never invoked twice */
       if (disposed) return;
       disposed = true;
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", onCancel);
+      // A new drag disposes the prior one before claiming disposeDrag, so this
+      /* v8 ignore next -- closure always owns disposeDrag when it runs; mismatch arm is dead */
       if (disposeDrag.current === dispose) disposeDrag.current = null;
     };
     const onUp = () => {

@@ -58,6 +58,12 @@ describe("useFocusTrap", () => {
     button.remove();
   });
 
+  it("does nothing when there is no element to focus", () => {
+    const before = document.activeElement;
+    expect(() => focusWithoutScroll(null)).not.toThrow();
+    expect(document.activeElement).toBe(before);
+  });
+
   it("moves focus to the first focusable element on mount", () => {
     const { getByText } = render(<Dialog />);
     expect(document.activeElement).toBe(getByText("First"));
@@ -229,6 +235,25 @@ describe("useFocusTrap", () => {
 
     expect(scroller.scrollTop).toBe(70);
     expect(document.documentElement.scrollTop).toBe(40);
+    scroller.remove();
+  });
+
+  it("scrolls its own container up when the target sits above the viewport", () => {
+    const scroller = document.createElement("div");
+    const option = document.createElement("div");
+    scroller.appendChild(option);
+    document.body.appendChild(scroller);
+    Object.defineProperty(scroller, "scrollTop", { value: 70, writable: true });
+    Object.defineProperty(scroller, "getBoundingClientRect", {
+      value: () => new DOMRect(0, 100, 100, 100),
+    });
+    Object.defineProperty(option, "getBoundingClientRect", {
+      value: () => new DOMRect(0, 50, 100, 20),
+    });
+
+    scrollIntoViewWithin(scroller, option);
+
+    expect(scroller.scrollTop).toBe(20);
     scroller.remove();
   });
 });
