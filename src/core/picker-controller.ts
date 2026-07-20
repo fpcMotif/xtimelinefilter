@@ -335,6 +335,9 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
       return { membershipSnapshot: null };
     }
     if (recentsResult.status === "fulfilled") recents.value = recentsResult.value;
+    if (membershipsResult.status === "rejected") {
+      console.error("[Picker] Memberships retrieval failed:", membershipsResult.reason);
+    }
     const membershipSnapshot =
       membershipsResult.status === "fulfilled" ? membershipsResult.value : null;
     if (membershipSnapshot) xMemberships.value = new Set(membershipSnapshot.listIds);
