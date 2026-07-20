@@ -1061,6 +1061,40 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     ]);
   });
 
+  it("a partial undo still gets reported with the real count", async () => {
+    const { store, calls } = recordingStore();
+    const h = harness({ membershipStore: store, currentOwner: () => owner });
+    h.selection.add({ screenName: "a", userId: "9" });
+    h.selection.add({ screenName: "b", userId: "10" });
+    await h.assign(LISTS[0] as XList);
+    h.backend.removeMember = async (_list, author) => {
+      if (author.screenName === "b") throw new Error("remove failed");
+      h.backend.removed.push(author.screenName);
+    };
+    h.controller.command("undo");
+    await flush();
+    expect(titles(h)).toContain("Removed 1 from Design Folks");
+    const removal = calls.find((c) => c.changes[0]?.action === "remove");
+    expect(removal?.changes).toEqual([
+      {
+        screenName: "a",
+        userId: "9",
+        identity: "user:9",
+        action: "remove",
+        outcome: "removed",
+        observedAt: Date.UTC(2026, 5, 10),
+      },
+      {
+        screenName: "b",
+        userId: "10",
+        identity: "user:10",
+        action: "remove",
+        outcome: "failed",
+        observedAt: Date.UTC(2026, 5, 10),
+      },
+    ]);
+  });
+
   it("a rate-limited mid-undo stops and keeps un-attempted authors out of the Mirror", async () => {
     const { store, calls } = recordingStore();
     const h = harness({ membershipStore: store, currentOwner: () => owner });
