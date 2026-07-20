@@ -2,17 +2,16 @@ import { computed, type ReadonlySignal, signal } from "@preact/signals-core";
 
 import { fuzzyRank } from "@/core/fuzzy";
 import type { ListCache } from "@/core/list-cache";
-import { membershipIdentityOf } from "@/core/membership-store/identity";
-import { NullMembershipStore } from "@/core/membership-store/null";
+import type { TweetAuthor } from "@/core/selection-store";
+import { XApiError, type XList } from "@/core/x-client/types";
+import { membershipIdentityOf, NullMembershipStore } from "@/packages/membership-store";
 import type {
   MembershipHit,
   MembershipStore,
   ObservedMembershipSnapshot,
   Owner,
   OwnerCatalog,
-} from "@/core/membership-store/types";
-import type { TweetAuthor } from "@/core/selection-store";
-import { XApiError, type XList } from "@/core/x-client/types";
+} from "@/packages/membership-store/types";
 
 export type PickerStatus = "loading" | "ready" | "empty" | "error";
 export type PickerErrorKind = "auth" | "rate-limited" | "unknown";

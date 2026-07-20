@@ -1,6 +1,6 @@
 import type { XList } from "@/core/x-client/types";
 
-import type { MembershipIdentity } from "./identity";
+import type { MembershipIdentity } from "./lib/identity";
 
 /** One of *your own* X accounts, captured at action time (ADR-0009). The operator
  *  / list owner — distinct from Account/Author (the member). */

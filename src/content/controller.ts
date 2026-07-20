@@ -10,9 +10,6 @@ import type { Coach } from "@/core/coach";
 import type { FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
 import type { ListUsage } from "@/core/list-usage";
-import { membershipIdentityOf } from "@/core/membership-store/identity";
-import { NullMembershipStore } from "@/core/membership-store/null";
-import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
 import type { MirrorStatus } from "@/core/mirror-status";
 import type { PickerController, PickerEffect } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
@@ -38,6 +35,8 @@ import {
 import type { ToastAction, ToastSpec, ToastStore } from "@/core/toast-store";
 import { UNDO_WINDOW_MS, type UndoRegistry } from "@/core/undo";
 import type { XList, XListApi } from "@/core/x-client/types";
+import { membershipIdentityOf, NullMembershipStore } from "@/packages/membership-store";
+import type { MembershipChange, MembershipStore, Owner } from "@/packages/membership-store/types";
 
 export { UNDO_WINDOW_MS };
 

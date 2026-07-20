@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { membershipIdentityOf } from "@/core/membership-store/identity";
+import { membershipIdentityOf } from "@/packages/membership-store";
 
 describe("membershipIdentityOf", () => {
   it("prefers the stable X user id across handle and post changes", () => {

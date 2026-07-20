@@ -23,8 +23,6 @@ import { createFilterStore } from "@/core/filter-store";
 import { detectPlatform } from "@/core/keycaps";
 import { createListCache } from "@/core/list-cache";
 import { createListUsage } from "@/core/list-usage";
-import { createMembershipStore } from "@/core/membership-store/factory";
-import { createLiveMembershipStore } from "@/core/membership-store/live";
 import { createMirrorStatusStore } from "@/core/mirror-status";
 import { createPickerController } from "@/core/picker-controller";
 import {
@@ -46,6 +44,8 @@ import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
 import { createXListApi } from "@/core/x-client/factory";
 import { fetchMembershipListIds, fetchOwnedLists } from "@/core/x-client/lists-provider";
 import { blockUser, muteUser, unmuteUser } from "@/core/x-client/rest-api";
+import { createMembershipStore } from "@/packages/membership-store/factory";
+import { createLiveMembershipStore } from "@/packages/membership-store/live";
 import * as tweetRead from "@/packages/tweet-read";
 import { attachShadowRoot, createUiRoot } from "@/ui/mount";
 
@@ -213,7 +213,7 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
       createMembershipStore(
         config,
         async () =>
-          (await import("@/core/membership-store/convex-client")).buildConvexMembershipStore,
+          (await import("@/packages/membership-store/convex-client")).buildConvexMembershipStore,
       ),
     );
     own(membershipStore.dispose);

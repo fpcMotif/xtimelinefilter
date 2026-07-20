@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { LassoSettings, SettingsStore } from "@/core/settings";
 import {
   createLiveMembershipStore,
   MirrorUnavailableError,
   type MirrorConfig,
-} from "@/core/membership-store/live";
+} from "@/packages/membership-store/live";
 import type {
   MembershipStore,
   MembershipSubject,
   MirrorSnapshot,
-} from "@/core/membership-store/types";
-import type { LassoSettings, SettingsStore } from "@/core/settings";
+} from "@/packages/membership-store/types";
 
 const owner = { userId: "1", screenName: "operator" };
 const list = { id: "L1", name: "Research" };

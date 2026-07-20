@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createCoach } from "@/core/coach";
 import { createFilterStore } from "@/core/filter-store";
-import type { MembershipStoreProbe } from "@/core/membership-store/types";
 import {
   DEFAULT_SETTINGS,
   createSettings,
@@ -21,6 +20,7 @@ import {
   isValidConvexUrl,
   OptionsApp,
 } from "@/options/OptionsApp";
+import type { MembershipStoreProbe } from "@/packages/membership-store/types";
 
 import { createMemoryArea as memoryArea } from "../helpers/chrome-fake";
 

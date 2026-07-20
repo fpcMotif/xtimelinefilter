@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import type { XList } from "@/core/x-client/types";
+import { NullMembershipStore } from "@/packages/membership-store";
 import {
   type ConvexCalls,
   ConvexMembershipStore,
   type MembershipApiRefs,
-} from "@/core/membership-store/convex";
-import { NullMembershipStore } from "@/core/membership-store/null";
+} from "@/packages/membership-store/convex";
 import type {
   MembershipHit,
   MembershipStore,
   Owner,
   OwnerCatalog,
-} from "@/core/membership-store/types";
-import type { XList } from "@/core/x-client/types";
+} from "@/packages/membership-store/types";
 
 /**
  * The seam's *universal* success-path contract: invariants every MembershipStore

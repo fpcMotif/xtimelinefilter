@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createListCache, readCachedCatalog } from "@/core/list-cache";
-import type { Owner } from "@/core/membership-store/types";
 import type { StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import type { XList } from "@/core/x-client/types";
+import type { Owner } from "@/packages/membership-store/types";
 
 const A: Owner = { userId: "100", screenName: "alice" };
 const B: Owner = { userId: "200", screenName: "bob" };

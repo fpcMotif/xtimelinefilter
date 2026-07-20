@@ -1,4 +1,4 @@
-import { NullMembershipStore } from "./null";
+import { NullMembershipStore } from "./lib/null";
 import type { MembershipStore, MembershipStoreProbe } from "./types";
 
 export interface MembershipStoreConfig {

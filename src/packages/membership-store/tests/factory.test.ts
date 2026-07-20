@@ -2,16 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 
 const convex = vi.hoisted(() => ({ probe: vi.fn(async () => {}) }));
 
-vi.mock("@/core/membership-store/convex-client", () => ({
+vi.mock("@/packages/membership-store/convex-client", () => ({
   testConvexConnection: convex.probe,
 }));
 
+import { NullMembershipStore } from "@/packages/membership-store";
 import {
   createMembershipStore,
   createMembershipStoreProbe,
   defaultMembershipStoreProbe,
-} from "@/core/membership-store/factory";
-import { NullMembershipStore } from "@/core/membership-store/null";
+} from "@/packages/membership-store/factory";
 
 describe("createMembershipStore", () => {
   it("returns the Null store and never loads Convex when unconfigured", async () => {

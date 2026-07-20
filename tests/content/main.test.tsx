@@ -244,10 +244,10 @@ vi.mock("@/core/list-cache", () => ({
 vi.mock("@/core/list-usage", () => ({
   createListUsage: () => H.fake.listUsage,
 }));
-vi.mock("@/core/membership-store/convex-client", () => ({
+vi.mock("@/packages/membership-store/convex-client", () => ({
   buildConvexMembershipStore: H.spy.buildConvex,
 }));
-vi.mock("@/core/membership-store/factory", () => ({
+vi.mock("@/packages/membership-store/factory", () => ({
   createMembershipStore: (cfg: unknown, builder: unknown) => {
     H.cap.membershipArgs = [cfg, builder];
     return H.fake.membership;

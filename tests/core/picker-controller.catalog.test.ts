@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ListCache } from "@/core/list-cache";
+import { createPickerController } from "@/core/picker-controller";
+import type { XList } from "@/core/x-client/types";
 import type {
   CompleteCatalogSnapshot,
   MembershipPerson,
   MembershipStore,
   ObservedMembershipSnapshot,
   Owner,
-} from "@/core/membership-store/types";
-import { createPickerController } from "@/core/picker-controller";
-import type { XList } from "@/core/x-client/types";
+} from "@/packages/membership-store/types";
 
 const ACTIVE: Owner = { userId: "100", screenName: "me" };
 const FOREIGN: Owner = { userId: "200", screenName: "alt" };

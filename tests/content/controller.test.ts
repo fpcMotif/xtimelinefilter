@@ -5,7 +5,6 @@ import { createLassoController, UNDO_WINDOW_MS } from "@/content/controller";
 import { createCoach } from "@/core/coach";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
-import type { MembershipChange, MembershipStore, Owner } from "@/core/membership-store/types";
 import type { MirrorStatus } from "@/core/mirror-status";
 import { createPickerController } from "@/core/picker-controller";
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
@@ -13,6 +12,7 @@ import { createSettings } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
 import { createUndoRegistry } from "@/core/undo";
 import { XApiError, type XList, type XListApi } from "@/core/x-client/types";
+import type { MembershipChange, MembershipStore, Owner } from "@/packages/membership-store/types";
 
 const LISTS: XList[] = [
   { id: "L1", name: "Design Folks" },

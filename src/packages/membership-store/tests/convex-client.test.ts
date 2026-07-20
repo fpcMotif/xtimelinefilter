@@ -47,9 +47,9 @@ vi.mock("convex/browser", () => ({
 import {
   buildConvexMembershipStore,
   testConvexConnection,
-} from "@/core/membership-store/convex-client";
+} from "@/packages/membership-store/convex-client";
 
-import { api } from "../../../convex/_generated/api";
+import { api } from "../../../../convex/_generated/api";
 
 describe("buildConvexMembershipStore", () => {
   it("constructs a ConvexHttpClient at the configured url", () => {

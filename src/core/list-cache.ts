@@ -1,7 +1,7 @@
-import type { Owner, OwnerCatalog } from "@/core/membership-store/types";
 import { localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import type { XList } from "@/core/x-client/types";
+import type { Owner, OwnerCatalog } from "@/packages/membership-store/types";
 
 export const LIST_CACHE_PREFIX = `${STORAGE_KEYS.lists}:`;
 

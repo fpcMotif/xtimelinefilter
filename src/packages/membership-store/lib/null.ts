@@ -1,4 +1,4 @@
-import type { MembershipStore, MirrorSnapshot } from "./types";
+import type { MembershipStore, MirrorSnapshot } from "../types";
 
 /**
  * The Mirror disabled: every write is a no-op, every read is empty. This is what

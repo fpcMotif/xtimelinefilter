@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ListCache } from "@/core/list-cache";
-import type { MembershipStore, Owner } from "@/core/membership-store/types";
 import { createPickerController } from "@/core/picker-controller";
 import { XApiError, type XList } from "@/core/x-client/types";
+import type { MembershipStore, Owner } from "@/packages/membership-store/types";
 
 const OWNER: Owner = { userId: "100", screenName: "me" };
 const LISTS: XList[] = [

@@ -6,8 +6,6 @@ import { type Coach, createCoach } from "@/core/coach";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import { detectPlatform, keycaps, type Platform } from "@/core/keycaps";
 import { readCachedCatalog } from "@/core/list-cache";
-import { defaultMembershipStoreProbe } from "@/core/membership-store/factory";
-import type { MembershipStoreProbe } from "@/core/membership-store/types";
 import {
   type BackendStrategy,
   createSettings,
@@ -20,6 +18,8 @@ import { clearLassoData } from "@/core/storage-keys";
 import { PRIVACY_LINE } from "@/core/strings";
 import { LinkRulesEditor, MyLanguagesEditor } from "@/options/FilterOptions";
 import { PresetManager, SurfaceOptions } from "@/options/SurfaceOptions";
+import { defaultMembershipStoreProbe } from "@/packages/membership-store/factory";
+import type { MembershipStoreProbe } from "@/packages/membership-store/types";
 import {
   Badge,
   Button,

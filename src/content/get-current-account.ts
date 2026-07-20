@@ -1,5 +1,5 @@
 import { Selectors } from "@/content/selectors";
-import type { Owner } from "@/core/membership-store/types";
+import type { Owner } from "@/packages/membership-store/types";
 
 export interface CurrentAccountDeps {
   /** Defaults to document.cookie. */
