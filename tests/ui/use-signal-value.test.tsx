@@ -1,10 +1,10 @@
-import { signal } from "@preact/signals-core";
+import { type ReadonlySignal, signal } from "@preact/signals-core";
 import { act, render } from "@testing-library/preact";
 import { describe, expect, it } from "vitest";
 
 import { useSignalValue } from "@/ui/use-signal-value";
 
-function TestComponent({ sig }: { sig: any }) {
+function TestComponent({ sig }: { sig: ReadonlySignal<number> }) {
   const value = useSignalValue(sig);
   return <div data-testid="value">{value}</div>;
 }
@@ -53,7 +53,7 @@ describe("useSignalValue", () => {
     const count = signal(0);
     let renderCount = 0;
 
-    function CountingComponent({ sig }: { sig: any }) {
+    function CountingComponent({ sig }: { sig: ReadonlySignal<number> }) {
       useSignalValue(sig);
       renderCount++;
       return null;
