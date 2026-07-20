@@ -123,4 +123,24 @@ describe("clearLassoData", () => {
     expect(local.remove).toHaveBeenCalledWith(LOCAL_KEYS);
     expect(sync.remove).toHaveBeenCalledWith(SYNC_KEYS);
   });
+
+  it("reports failure when fallback set(undefined) throws an error", async () => {
+    const local: StorageLike = {
+      get: vi.fn(async () => ({})),
+      set: vi.fn(() => Promise.reject(new Error("local set unavailable"))),
+    };
+    const sync: StorageLike = {
+      get: vi.fn(),
+      set: vi.fn(() => Promise.reject(new Error("sync set unavailable"))),
+    };
+
+    await expect(clearLassoData(local, sync)).resolves.toEqual({
+      localCleared: false,
+      syncCleared: false,
+    });
+    expect(local.set).toHaveBeenCalledWith(
+      Object.fromEntries(LOCAL_KEYS.map((k) => [k, undefined])),
+    );
+    expect(sync.set).toHaveBeenCalledWith(Object.fromEntries(SYNC_KEYS.map((k) => [k, undefined])));
+  });
 });
