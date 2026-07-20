@@ -5,7 +5,7 @@ import {
   SYNTHETIC_EVENT_FLAG,
 } from "@/content/selectors";
 import type { TweetAuthor } from "@/core/selection-store";
-import * as tweetRead from "@/core/tweet-read";
+import * as tweetRead from "@/packages/tweet-read";
 
 import type { PageDriver } from "./page-driver";
 import type { XList } from "./types";

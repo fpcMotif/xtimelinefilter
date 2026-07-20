@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { facets } from "@/core/tweet-read";
+import { facets } from "../index";
 
 /**
  * Fixtures model our ASSUMED x.com structure (FacetSelectors). They are confirmed

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { author, getTweetType } from "@/core/tweet-read";
+import { author, getTweetType } from "../index";
 
 function mount(html: string): HTMLElement {
   const host = document.createElement("div");

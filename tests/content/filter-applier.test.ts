@@ -4,11 +4,11 @@ import { createFilterApplier } from "@/content/filter-applier";
 import { FilterAttributes } from "@/content/filter-attributes";
 import { FacetSelectors, Selectors } from "@/content/selectors";
 import { createFilterStore } from "@/core/filter-store";
-import * as tweetRead from "@/core/tweet-read";
+import * as tweetRead from "@/packages/tweet-read";
 
 // Real implementations, recorded calls — lets the fast-path test prove the
 // per-cell facet DOM reads are skipped without changing any behavior.
-vi.mock("@/core/tweet-read", { spy: true });
+vi.mock("@/packages/tweet-read", { spy: true });
 
 /** Raw testid values pulled out of the single ADR-0004 selectors table, so no
  * fixture here can silently fork from `src/content/selectors.ts`. */

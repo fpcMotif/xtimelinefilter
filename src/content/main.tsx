@@ -39,7 +39,6 @@ import {
 } from "@/core/selection-store";
 import { createSettings, type SettingsStore } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
-import * as tweetRead from "@/core/tweet-read";
 import { createUndoRegistry } from "@/core/undo";
 import { createDocumentAuth } from "@/core/x-client/auth";
 import { createCaretActions } from "@/core/x-client/caret-actions";
@@ -47,6 +46,7 @@ import { createDomPageDriver } from "@/core/x-client/dom-page-driver";
 import { createXListApi } from "@/core/x-client/factory";
 import { fetchMembershipListIds, fetchOwnedLists } from "@/core/x-client/lists-provider";
 import { blockUser, muteUser, unmuteUser } from "@/core/x-client/rest-api";
+import * as tweetRead from "@/packages/tweet-read";
 import { attachShadowRoot, createUiRoot } from "@/ui/mount";
 
 const OVERLAY_FLAG = "data-lasso-overlay";

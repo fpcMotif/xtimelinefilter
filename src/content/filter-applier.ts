@@ -5,7 +5,7 @@ import { FacetSelectors, Selectors } from "@/content/selectors";
 import { activeCriteriaCount } from "@/core/filter-projection";
 import type { FilterStore } from "@/core/filter-store";
 import { decide } from "@/core/timeline-filter";
-import * as tweetRead from "@/core/tweet-read";
+import * as tweetRead from "@/packages/tweet-read";
 
 const { FILTERED, STUB, COMPACT } = FilterAttributes;
 /**

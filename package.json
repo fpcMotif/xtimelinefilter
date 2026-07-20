@@ -14,7 +14,7 @@
     "test:watch": "vitest",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "lint:boundaries": "depcruise --config .dependency-cruiser.cjs src",
+    "lint:boundaries": "depcruise --config .dependency-cruiser.cjs src tests",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "e2e": "playwright test",

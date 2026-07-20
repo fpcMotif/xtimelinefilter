@@ -263,7 +263,7 @@ vi.mock("@/core/picker-controller", () => ({
   },
 }));
 vi.mock("@/core/settings", () => ({ createSettings: () => H.fake.settings }));
-vi.mock("@/core/tweet-read", () => ({ author: H.spy.extractAuthor }));
+vi.mock("@/packages/tweet-read", () => ({ author: H.spy.extractAuthor }));
 vi.mock("@/core/x-client/auth", () => ({
   createDocumentAuth: () => H.fake.auth,
 }));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { identity } from "@/core/tweet-read";
+import { identity } from "../index";
 
 function article(innerHTML: string): Element {
   const wrap = document.createElement("div");
