@@ -27,7 +27,7 @@ Concretely, the user can, in one pass: keep only posts in their languages, hide 
 ## 3. Scope
 
 **In scope (v1):**
-- **Timelines:** Home (`/home`, both For You and Following tabs), List timelines (`/i/lists/<id>`), and profile timelines (`/<handle>` and its post sub-tabs — promoted from fast-follow 2026-06-20, see Update below). Detected by URL; the Filter UI and applier are inert elsewhere.
+- **Timelines:** Home (`/home`, both For You and Following tabs), List timelines (`/i/lists/<id>`), Bookmarks (`/i/bookmarks` and bookmark folders `/i/bookmarks/<folderId>` — promoted 2026-07-20, see Update below), and profile timelines (`/<handle>` and its post sub-tabs — promoted from fast-follow 2026-06-20, see Update below). Detected by URL; the Filter UI and applier are inert elsewhere.
 - **Facets (the "green-dot core"):**
   - **Media kind:** `text` (no media/card/quote), `photo`, `video`, `quote`, `link` (has an external link card). A media kind is read from the post's *displayed* content and is **independent of `role`**: X renders a repost's original media inline, so a **repost of a video** reads as `video` *and* `repost`. Hence `kind:video=only` surfaces **both** fresh videos and reposted ones (the kind family and the role family are orthogonal — only a `role:repost=hide` would, by hide-wins, drop a reposted video).
   - **Link destination** (sub-facet of `link`, by outbound host): `arxiv`, `hn`, `reddit`, `youtube`, `github`; any other external host → generic **Article/Blog**. The host→destination table is **user-extensible in v1** via Link rules (Options); user rules win over defaults.
@@ -37,9 +37,11 @@ Concretely, the user can, in one pass: keep only posts in their languages, hide 
 **Deferred to v2 (amber — heuristic or extra plumbing):**
 GIF, poll, reply, thread, pinned; author `verified` / `org`; **"in one of my Lists"** (reuses Lasso's membership knowledge — attractive, but needs the Mirror/REST membership path wired in); blog/news destination heuristics; per-language only/hide chips. Each is listed in §11.
 
-**Out of scope:** Search, notifications, bookmarks timelines; any action against X; server-side or cross-device filter sync.
+**Out of scope:** Search, notifications; any action against X; server-side or cross-device filter sync.
 
 **Update (2026-06-20): profile timelines promoted from fast-follow to in scope.** Profile pages use the same virtualized `cellInnerDiv` / `article[data-testid="tweet"]` structure as Home/List (research 03 §1), so the applier and facets work unchanged — the route gate (`content/route.ts isInScope`) was the only thing keeping them out. `isInScope` now also matches `/<handle>` and known profile post sub-tabs (`with_replies`, `media`, `likes`, …), guarded by a reserved-route deny-list so X's own nav routes (`/explore`, `/messages`, `/i/*`, …) stay out. Live-DOM confirmation of the visible filter behaviour on a real profile is still pending (same `verify-*-dom.md` discipline as the rest of §3).
+
+**Update (2026-07-20): Bookmarks promoted to in scope.** The Bookmarks timeline uses the same virtualized `cellInnerDiv` / `article[data-testid="tweet"]` structure as Home/List (already observed live in `verify-filter-dom.md` — the Liked facet was verified on `/i/bookmarks`), so the applier and facets work unchanged; the route gate was again the only thing keeping them out. `isInScope` now also matches `/i/bookmarks` (All Bookmarks) and numeric bookmark folders `/i/bookmarks/<folderId>` via a positive clause — `i` and `bookmarks` remain reserved roots (the deny-list is untouched, keeping bare `/<handle>` profile detection honest); non-numeric slugs (`/i/bookmarks/all`) and deeper sub-paths stay out. No applier/surface/selector change was needed. Live-DOM confirmation of the visible filter behaviour on a real Bookmarks page and folder is still pending (same `verify-*-dom.md` discipline). Note: on Bookmarks most cells render the `unlike` state (saved posts are usually also liked), so a future `engagement:liked=hide` criterion would collapse most of the page — relevant only if/when that deferred criterion ships.
 
 ## 4. Filter model & semantics
 

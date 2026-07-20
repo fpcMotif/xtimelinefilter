@@ -1,13 +1,20 @@
 /**
- * Where the Filter is allowed to run (spec §3): Home, List, and profile
- * timelines. A profile uses the same virtualized `cellInnerDiv` /
- * `article[data-testid="tweet"]` structure as Home/List (research 03 §1), so the
- * applier and facet extraction work unchanged — the route was the only gate.
+ * Where the Filter is allowed to run (spec §3): Home, List, Bookmarks, and
+ * profile timelines. Each uses the same virtualized `cellInnerDiv` /
+ * `article[data-testid="tweet"]` structure (research 03 §1), so the applier and
+ * facet extraction work unchanged — the route was the only gate. The Bookmarks
+ * clause is a positive match, not a deny-list edit: `i` and `bookmarks` must
+ * stay reserved roots so bare `/<handle>` profile detection keeps rejecting
+ * them. Unlike the List regex, it end-anchors (bookmark folders have no
+ * sub-tabs), so a deeper `/i/bookmarks/<id>/…` path stays out.
  * x.com is a SPA, so callers re-evaluate on route change, not just page load.
  */
 export function isInScope(pathname: string): boolean {
   return (
-    pathname === "/home" || /^\/i\/lists\/\d+(?:\/|$)/.test(pathname) || isProfileTimeline(pathname)
+    pathname === "/home" ||
+    /^\/i\/lists\/\d+(?:\/|$)/.test(pathname) ||
+    /^\/i\/bookmarks(?:\/\d+)?\/?$/.test(pathname) ||
+    isProfileTimeline(pathname)
   );
 }
 

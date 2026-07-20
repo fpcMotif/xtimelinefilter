@@ -9,6 +9,13 @@ describe("isInScope", () => {
     expect(isInScope("/i/lists/123/members")).toBe(true);
   });
 
+  it("is in scope on the Bookmarks timeline and its folders", () => {
+    expect(isInScope("/i/bookmarks")).toBe(true); // All Bookmarks timeline
+    expect(isInScope("/i/bookmarks/")).toBe(true); // trailing slash
+    expect(isInScope("/i/bookmarks/1234567890123456789")).toBe(true); // numeric folder
+    expect(isInScope("/i/bookmarks/123/")).toBe(true); // folder, trailing slash
+  });
+
   it("is in scope on a profile and its post sub-tabs", () => {
     expect(isInScope("/jack")).toBe(true);
     expect(isInScope("/mhdhh_archives")).toBe(true);
@@ -28,8 +35,14 @@ describe("isInScope", () => {
     expect(isInScope("/messages")).toBe(false);
     expect(isInScope("/messages/123")).toBe(false);
     expect(isInScope("/settings/profile")).toBe(false);
-    expect(isInScope("/i/bookmarks")).toBe(false);
     expect(isInScope("/hashtag/foo")).toBe(false);
+    expect(isInScope("/bookmarks")).toBe(false); // legacy top-level, not a timeline route
+  });
+
+  it("is out of scope on bookmarks sub-paths that aren't a folder timeline", () => {
+    expect(isInScope("/i/bookmarks/all")).toBe(false); // non-numeric slug is not a folder
+    expect(isInScope("/i/bookmarks/abc")).toBe(false);
+    expect(isInScope("/i/bookmarks/123/extra")).toBe(false); // deeper than a folder
   });
 
   it("is out of scope on profile pages that aren't timelines", () => {
