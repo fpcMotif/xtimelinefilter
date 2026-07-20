@@ -183,7 +183,7 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
     for (const catalog of mirrorCatalog.value) {
       if (catalog.owner.userId !== owner?.userId) catalogs.set(catalog.owner.userId, catalog);
     }
-    const ordered: ProjectedCatalog[] = [...catalogs.values()].toSorted((a, b) =>
+    const ordered: ProjectedCatalog[] = [...catalogs.values()].sort((a, b) =>
       a.owner.screenName.localeCompare(b.owner.screenName),
     );
     if (active) ordered.unshift({ owner: active.owner, lists: active.lists });

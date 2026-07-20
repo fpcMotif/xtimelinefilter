@@ -91,7 +91,7 @@ window.addEventListener("message", (event) => {
         requestId: data.requestId,
         type: PAGE_ACTIVATE_RESPONSE,
       },
-      window.location.origin,
+      "*",
     );
     return;
   }
@@ -105,6 +105,6 @@ window.addEventListener("message", (event) => {
       requestId: data.requestId,
       type: PAGE_ACTIVATE_RESPONSE,
     },
-    window.location.origin,
+    "*",
   );
 });

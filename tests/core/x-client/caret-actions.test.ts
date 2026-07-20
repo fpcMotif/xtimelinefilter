@@ -344,7 +344,7 @@ describe("createCaretActions", () => {
           requestId: data.requestId,
           type: "activated",
         },
-        window.location.origin,
+        "*",
       );
     });
 
@@ -745,8 +745,8 @@ describe("createCaretActions", () => {
         if (target.getAttribute("role") === "menuitem") clicked.push("bridge");
         target.closest('[role="menu"]')?.remove();
       }
-      window.postMessage(reply, window.location.origin);
-      window.postMessage(reply, window.location.origin); // duplicate — exercises the done-guard
+      window.postMessage(reply, "*");
+      window.postMessage(reply, "*"); // duplicate — exercises the done-guard
     });
 
     document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
@@ -791,7 +791,7 @@ describe("createCaretActions", () => {
             requestId: (event.data as { requestId?: string }).requestId,
             type: "activated",
           },
-          window.location.origin,
+          "*",
         );
       });
       document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;

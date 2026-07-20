@@ -63,7 +63,7 @@ export function createListUsage(
             (entry): entry is { listId: string; lastPickedAt: UsageEntry["lastPickedAt"] } =>
               entry.listId !== null,
           )
-          .toSorted((a, b) => b.lastPickedAt - a.lastPickedAt)
+          .sort((a, b) => b.lastPickedAt - a.lastPickedAt)
           .slice(0, limit)
           .map(({ listId }) => listId);
       } catch {
