@@ -1,255 +1,849 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Open-PR forensic review — 2026-07-20</title>
-<style>
-  :root{
-    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --ink:#e6edf3; --mut:#8b98a9;
-    --line:#2b3442; --acc:#4aa3ff; --good:#3fb950; --warn:#d29922; --bad:#f85149;
-    --sig:#a371f7; --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  .wrap{max-width:1060px;margin:0 auto;padding:40px 22px 80px}
-  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
-  h2{font-size:22px;margin:44px 0 12px;padding-top:14px;border-top:1px solid var(--line);letter-spacing:-.01em}
-  h3{font-size:17px;margin:26px 0 8px}
-  .sub{color:var(--mut);margin:0 0 26px}
-  a{color:var(--acc);text-decoration:none} a:hover{text-decoration:underline}
-  code{font-family:var(--mono);font-size:.88em;background:#22272e;padding:1px 5px;border-radius:5px;color:#d6dee8}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:16px 0}
-  .tldr{background:linear-gradient(180deg,#151c2b,#12161f);border-color:#2a3550}
-  .tldr .q{font-weight:650;color:#cfe0f5;margin:0 0 2px}
-  .tldr p{margin:4px 0 16px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  @media(max-width:760px){.grid{grid-template-columns:1fr}}
-  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
-  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
-  tr:hover td{background:#12171f}
-  .pr{font-family:var(--mono);font-weight:700}
-  .badge{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;font-weight:700;white-space:nowrap}
-  .b-sig{background:rgba(163,113,247,.16);color:#c9a6ff;border:1px solid #4b357a}
-  .b-marg{background:rgba(210,153,34,.14);color:#e3b341;border:1px solid #5a4a1e}
-  .b-cos{background:rgba(139,152,169,.14);color:#aab6c6;border:1px solid #39424f}
-  .b-none{background:rgba(248,81,73,.14);color:#ff9a92;border:1px solid #5c2a29}
-  .a-merge{background:rgba(63,185,80,.14);color:#56d364;border:1px solid #23502b}
-  .a-close{background:rgba(248,81,73,.14);color:#ff9a92;border:1px solid #5c2a29}
-  .a-hold{background:rgba(210,153,34,.14);color:#e3b341;border:1px solid #5a4a1e}
-  .a-park{background:rgba(74,163,255,.12);color:#79c0ff;border:1px solid #23405c}
-  .a-rec{background:rgba(139,152,169,.12);color:#aab6c6;border:1px solid #39424f}
-  .mermaid{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0;text-align:center}
-  ol,ul{padding-left:22px} li{margin:4px 0}
-  .lede{color:var(--mut);font-size:13px}
-  .pill{display:inline-block;font-size:12px;color:var(--mut);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin:2px 4px 2px 0}
-  .foot{color:var(--mut);font-size:12.5px;margin-top:30px;border-top:1px solid var(--line);padding-top:16px}
-  strong{color:#f0f4f9}
-</style>
-</head>
-<body>
-<div class="wrap">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open-PR forensic review — 2026-07-20</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --panel2: #1c2230;
+        --ink: #e6edf3;
+        --mut: #8b98a9;
+        --line: #2b3442;
+        --acc: #4aa3ff;
+        --good: #3fb950;
+        --warn: #d29922;
+        --bad: #f85149;
+        --sig: #a371f7;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          15px/1.6 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+      }
+      .wrap {
+        max-width: 1060px;
+        margin: 0 auto;
+        padding: 40px 22px 80px;
+      }
+      h1 {
+        font-size: 30px;
+        margin: 0 0 6px;
+        letter-spacing: -0.02em;
+      }
+      h2 {
+        font-size: 22px;
+        margin: 44px 0 12px;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+        letter-spacing: -0.01em;
+      }
+      h3 {
+        font-size: 17px;
+        margin: 26px 0 8px;
+      }
+      .sub {
+        color: var(--mut);
+        margin: 0 0 26px;
+      }
+      a {
+        color: var(--acc);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.88em;
+        background: #22272e;
+        padding: 1px 5px;
+        border-radius: 5px;
+        color: #d6dee8;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 18px 20px;
+        margin: 16px 0;
+      }
+      .tldr {
+        background: linear-gradient(180deg, #151c2b, #12161f);
+        border-color: #2a3550;
+      }
+      .tldr .q {
+        font-weight: 650;
+        color: #cfe0f5;
+        margin: 0 0 2px;
+      }
+      .tldr p {
+        margin: 4px 0 16px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 14px 0;
+        font-size: 13.5px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        color: var(--mut);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      tr:hover td {
+        background: #12171f;
+      }
+      .pr {
+        font-family: var(--mono);
+        font-weight: 700;
+      }
+      .badge {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 20px;
+        font-size: 11.5px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .b-sig {
+        background: rgba(163, 113, 247, 0.16);
+        color: #c9a6ff;
+        border: 1px solid #4b357a;
+      }
+      .b-marg {
+        background: rgba(210, 153, 34, 0.14);
+        color: #e3b341;
+        border: 1px solid #5a4a1e;
+      }
+      .b-cos {
+        background: rgba(139, 152, 169, 0.14);
+        color: #aab6c6;
+        border: 1px solid #39424f;
+      }
+      .b-none {
+        background: rgba(248, 81, 73, 0.14);
+        color: #ff9a92;
+        border: 1px solid #5c2a29;
+      }
+      .a-merge {
+        background: rgba(63, 185, 80, 0.14);
+        color: #56d364;
+        border: 1px solid #23502b;
+      }
+      .a-close {
+        background: rgba(248, 81, 73, 0.14);
+        color: #ff9a92;
+        border: 1px solid #5c2a29;
+      }
+      .a-hold {
+        background: rgba(210, 153, 34, 0.14);
+        color: #e3b341;
+        border: 1px solid #5a4a1e;
+      }
+      .a-park {
+        background: rgba(74, 163, 255, 0.12);
+        color: #79c0ff;
+        border: 1px solid #23405c;
+      }
+      .a-rec {
+        background: rgba(139, 152, 169, 0.12);
+        color: #aab6c6;
+        border: 1px solid #39424f;
+      }
+      .mermaid {
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        margin: 12px 0;
+        text-align: center;
+      }
+      ol,
+      ul {
+        padding-left: 22px;
+      }
+      li {
+        margin: 4px 0;
+      }
+      .lede {
+        color: var(--mut);
+        font-size: 13px;
+      }
+      .pill {
+        display: inline-block;
+        font-size: 12px;
+        color: var(--mut);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 2px 10px;
+        margin: 2px 4px 2px 0;
+      }
+      .foot {
+        color: var(--mut);
+        font-size: 12.5px;
+        margin-top: 30px;
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+      }
+      strong {
+        color: #f0f4f9;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Open-PR forensic review</h1>
+      <p class="sub">
+        18 open PRs · 2026-07-20 · Chrome extension (<em>xtimelinefilter / Lasso</em>) · produced by
+        a 24-agent review workflow
+      </p>
 
-  <h1>Open-PR forensic review</h1>
-  <p class="sub">18 open PRs · 2026-07-20 · Chrome extension (<em>xtimelinefilter / Lasso</em>) · produced by a 24-agent review workflow</p>
+      <div class="card tldr">
+        <p class="q">Do these refactors significantly improve code quality?</p>
+        <p>
+          <strong>No</strong> — and Update 2 makes this stronger. Real main
+          <strong>already has</strong> these improvements: the honest seam (<span class="pr"
+            >#14</span
+          >), the factory owning its backends (<span class="pr">#9</span>), paced undo (<span
+            class="pr"
+            >#11</span
+          >), and the quote-tweet fix (<span class="pr">#12</span>) all shipped on main by other
+          routes. The remaining open PRs are
+          <strong>marginal, cosmetic, superseded, or churn</strong>. The only genuinely-unmerged
+          change is <span class="pr">#17</span>, and it's cosmetic. Your instinct holds — main works
+          <em>because it already absorbed this work.</em>
+        </p>
+        <p class="q">Why are so many PRs unmerged?</p>
+        <p>
+          Not hard review — <strong>noise</strong>. A bot (Jules) opened many same-day PRs from the
+          same findings, several duplicating each other and work already on main; older PRs branched
+          weeks ago and now <strong>conflict</strong>; a five-PR stack is
+          <strong>parked</strong> behind an unmerged branch; and main's CI gate is
+          <strong>not green</strong>, so nothing auto-merges.
+        </p>
+      </div>
 
-  <div class="card tldr">
-    <p class="q">Do these refactors significantly improve code quality?</p>
-    <p><strong>No</strong> — and Update 2 makes this stronger. Real main <strong>already has</strong> these improvements: the honest seam (<span class="pr">#14</span>), the factory owning its backends (<span class="pr">#9</span>), paced undo (<span class="pr">#11</span>), and the quote-tweet fix (<span class="pr">#12</span>) all shipped on main by other routes. The remaining open PRs are <strong>marginal, cosmetic, superseded, or churn</strong>. The only genuinely-unmerged change is <span class="pr">#17</span>, and it's cosmetic. Your instinct holds — main works <em>because it already absorbed this work.</em></p>
-    <p class="q">Why are so many PRs unmerged?</p>
-    <p>Not hard review — <strong>noise</strong>. A bot (Jules) opened many same-day PRs from the same findings, several duplicating each other and work already on main; older PRs branched weeks ago and now <strong>conflict</strong>; a five-PR stack is <strong>parked</strong> behind an unmerged branch; and main's CI gate is <strong>not green</strong>, so nothing auto-merges.</p>
-  </div>
+      <div
+        class="card"
+        style="border-color: #5a4a1e; background: linear-gradient(180deg, #211a0f, #171307)"
+      >
+        <p class="q" style="color: #e3b341">
+          ⚠️ Correction — three findings re-verified against the real main tip
+          (<code>e9d107e</code>)
+        </p>
+        <p>
+          This environment's local <code>origin/main</code> was
+          <strong>~63 commits stale</strong> (SSH-fetch hang). The Opus passes on the architectural
+          PRs (#14, #23, #24, #11, #9) used <code>gh api</code> and <strong>stand</strong>. Three
+          cheaper per-PR <em>test</em> verdicts read the stale checkout and were
+          <strong>wrong</strong>:
+        </p>
+        <ul>
+          <li>
+            <strong>clearLassoData "wipes settings" bug → already fixed on main.</strong>
+            <code>LOCAL_KEYS</code> includes <code>settings</code> at <code>e9d107e</code>; plan 900
+            is done. (The 2026-07-17 audit that wrote plan 900 measured the same stale tree.)
+          </li>
+          <li>
+            <strong><code>useSignalValue</code> subscription leak → not a bug.</strong> The effect
+            returns <code>sig.subscribe(...)</code>'s unsubscribe as cleanup; #22's tests pass.
+          </li>
+          <li>
+            <strong>#18's test → valid, not broken.</strong> It targets the real
+            <code>{localCleared, syncCleared}</code> API and covers an uncovered branch.
+            <strong>I wrongly closed #18; it's reopened.</strong>
+          </li>
+        </ul>
+        <p class="lede">
+          <strong>Actions taken:</strong> closed #5, #4, #3 (all still valid); reopened #18;
+          corrected the #3/#18 notes. Lesson:
+          <strong>trust <code>gh</code>, not the local checkout.</strong>
+        </p>
+      </div>
 
-  <div class="card" style="border-color:#5a4a1e;background:linear-gradient(180deg,#211a0f,#171307)">
-    <p class="q" style="color:#e3b341">⚠️ Correction — three findings re-verified against the real main tip (<code>e9d107e</code>)</p>
-    <p>This environment's local <code>origin/main</code> was <strong>~63 commits stale</strong> (SSH-fetch hang). The Opus passes on the architectural PRs (#14, #23, #24, #11, #9) used <code>gh api</code> and <strong>stand</strong>. Three cheaper per-PR <em>test</em> verdicts read the stale checkout and were <strong>wrong</strong>:</p>
-    <ul>
-      <li><strong>clearLassoData "wipes settings" bug → already fixed on main.</strong> <code>LOCAL_KEYS</code> includes <code>settings</code> at <code>e9d107e</code>; plan 900 is done. (The 2026-07-17 audit that wrote plan 900 measured the same stale tree.)</li>
-      <li><strong><code>useSignalValue</code> subscription leak → not a bug.</strong> The effect returns <code>sig.subscribe(...)</code>'s unsubscribe as cleanup; #22's tests pass.</li>
-      <li><strong>#18's test → valid, not broken.</strong> It targets the real <code>{localCleared, syncCleared}</code> API and covers an uncovered branch. <strong>I wrongly closed #18; it's reopened.</strong></li>
-    </ul>
-    <p class="lede"><strong>Actions taken:</strong> closed #5, #4, #3 (all still valid); reopened #18; corrected the #3/#18 notes. Lesson: <strong>trust <code>gh</code>, not the local checkout.</strong></p>
-  </div>
+      <div
+        class="card"
+        style="border-color: #5c2a29; background: linear-gradient(180deg, #231212, #170a0a)"
+      >
+        <p class="q" style="color: #ff9a92">
+          ⚠️⚠️ Update 2 — re-verified #9–#17 against real main; it overturns the headline
+        </p>
+        <p>
+          The convex-mirror branch (base of #9–#13) <strong>already merged to main</strong> (PR #2,
+          MERGED) — so those PRs are <strong>orphaned stragglers</strong>, not "parked behind an
+          unmerged branch." And real main (<code>e9d107e</code>) has
+          <strong>independently implemented nearly all of this work</strong>:
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>PR</th>
+              <th>I'd said</th>
+              <th>Reality on real main</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="pr">#14</td>
+              <td>marquee <span class="badge b-sig">SIGNIFICANT</span></td>
+              <td>
+                <strong>Superseded</strong> — ADR-0008 exists + <code>XListApi</code> is already
+                mutation-only (<code>addMember</code>/<code>removeMember</code>). Honest seam
+                already shipped.
+              </td>
+            </tr>
+            <tr>
+              <td class="pr">#12</td>
+              <td><span class="badge b-sig">SIGNIFICANT</span>, stranded</td>
+              <td>
+                <strong>Superseded</strong> — <code>outermostTweet</code> wired into select-click
+                (<code>main.tsx:202,307</code>). Fix is live.
+              </td>
+            </tr>
+            <tr>
+              <td class="pr">#9</td>
+              <td>marginal, defer</td>
+              <td>
+                <strong>Superseded</strong> — factory builds
+                <code>new RestXListApi(...)</code> directly.
+              </td>
+            </tr>
+            <tr>
+              <td class="pr">#11</td>
+              <td>marginal, carry</td>
+              <td>
+                <strong>Superseded</strong> — <code>removeAuthorsFromList</code> paces +
+                <code>break</code>s on rate-limited.
+              </td>
+            </tr>
+            <tr>
+              <td class="pr">#10 #13</td>
+              <td>marginal, carry</td>
+              <td>Base merged; #10 mostly moot, #13 test-only (one possible straggler).</td>
+            </tr>
+            <tr>
+              <td class="pr">#17</td>
+              <td>merge, cosmetic</td>
+              <td>
+                ✅ <strong>Correct</strong> — <code>ahead 1, behind 0</code>; the only
+                genuinely-open change.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="lede">
+          <strong>Corrected bottom line:</strong> none of the open refactors add quality main
+          doesn't already have. Only #17 is genuinely unmerged, and it's cosmetic. Sections below
+          that rate #14/#12 as pending value are superseded by this table — they measured a fork 63
+          commits behind real main.
+        </p>
+        <p class="lede">
+          <strong>Final actions (2026-07-20):</strong> closed <strong>17</strong> of 18.
+          Superseded/dup/junk — #3 #4 #5 #9 #10 #11 #12 #13 #14 #15 #19 #21 #23. A high-bar deep
+          review of the 5 clean survivors closed 4 more — #17 (cosmetic, real N≈1), #24 (log only,
+          worsens the gate), #22 (hook already covered), #18 (correct but redundant).
+          <strong>No merges</strong>; no bug left to fix. <strong>One keeper: #20</strong> — it
+          fixes 4 genuinely-failing <code>settings.test.ts</code> tests on real main (CI green on
+          all 1335 tests). The residual red is a separate 100% coverage gate on uncovered code
+          across keyboard.ts/main.tsx/controller.ts/membership.ts/schema.ts (plan-000 infra work).
+        </p>
+      </div>
 
-  <div class="card" style="border-color:#5c2a29;background:linear-gradient(180deg,#231212,#170a0a)">
-    <p class="q" style="color:#ff9a92">⚠️⚠️ Update 2 — re-verified #9–#17 against real main; it overturns the headline</p>
-    <p>The convex-mirror branch (base of #9–#13) <strong>already merged to main</strong> (PR #2, MERGED) — so those PRs are <strong>orphaned stragglers</strong>, not "parked behind an unmerged branch." And real main (<code>e9d107e</code>) has <strong>independently implemented nearly all of this work</strong>:</p>
-    <table>
-      <thead><tr><th>PR</th><th>I'd said</th><th>Reality on real main</th></tr></thead>
-      <tbody>
-        <tr><td class="pr">#14</td><td>marquee <span class="badge b-sig">SIGNIFICANT</span></td><td><strong>Superseded</strong> — ADR-0008 exists + <code>XListApi</code> is already mutation-only (<code>addMember</code>/<code>removeMember</code>). Honest seam already shipped.</td></tr>
-        <tr><td class="pr">#12</td><td><span class="badge b-sig">SIGNIFICANT</span>, stranded</td><td><strong>Superseded</strong> — <code>outermostTweet</code> wired into select-click (<code>main.tsx:202,307</code>). Fix is live.</td></tr>
-        <tr><td class="pr">#9</td><td>marginal, defer</td><td><strong>Superseded</strong> — factory builds <code>new RestXListApi(...)</code> directly.</td></tr>
-        <tr><td class="pr">#11</td><td>marginal, carry</td><td><strong>Superseded</strong> — <code>removeAuthorsFromList</code> paces + <code>break</code>s on rate-limited.</td></tr>
-        <tr><td class="pr">#10 #13</td><td>marginal, carry</td><td>Base merged; #10 mostly moot, #13 test-only (one possible straggler).</td></tr>
-        <tr><td class="pr">#17</td><td>merge, cosmetic</td><td>✅ <strong>Correct</strong> — <code>ahead 1, behind 0</code>; the only genuinely-open change.</td></tr>
-      </tbody>
-    </table>
-    <p class="lede"><strong>Corrected bottom line:</strong> none of the open refactors add quality main doesn't already have. Only #17 is genuinely unmerged, and it's cosmetic. Sections below that rate #14/#12 as pending value are superseded by this table — they measured a fork 63 commits behind real main.</p>
-    <p class="lede"><strong>Final actions (2026-07-20):</strong> closed <strong>17</strong> of 18. Superseded/dup/junk — #3 #4 #5 #9 #10 #11 #12 #13 #14 #15 #19 #21 #23. A high-bar deep review of the 5 clean survivors closed 4 more — #17 (cosmetic, real N≈1), #24 (log only, worsens the gate), #22 (hook already covered), #18 (correct but redundant). <strong>No merges</strong>; no bug left to fix. <strong>One keeper: #20</strong> — it fixes 4 genuinely-failing <code>settings.test.ts</code> tests on real main (CI green on all 1335 tests). The residual red is a separate 100% coverage gate on uncovered code across keyboard.ts/main.tsx/controller.ts/membership.ts/schema.ts (plan-000 infra work).</p>
-  </div>
+      <h2>Why 18 PRs are unmerged</h2>
+      <div class="mermaid">
+        flowchart TD Q["18 PRs sitting open"] Q --> C1["Bot-PR spam — Jules opened many<br />same-day
+        PRs from the same findings"] Q --> C2["Duplicates — 4 findings,<br />each with 2 competing
+        PRs"] Q --> C3["Stale bases — main moved on<br />(settings.ts + background-test rewrites)<br />→
+        7 PRs now CONFLICTING"] Q --> C4["Parked branch — claude/convex-mirror<br />holds a 5-PR
+        stack (#9–#13)"] Q --> C5["Red / flaky gate on main —<br />100% coverage gate + a timing
+        flake;<br />bots chase test expectations, bundle junk"] Q --> C6["Already landed direct —
+        plans 001–009<br />committed straight to main; PRs redundant"]
+      </div>
+      <p class="lede">
+        Two reframing facts: (1) the local clone's <code>origin/main</code> is ~63 commits stale
+        (SSH-fetch hang), so local "conflict" reads are partly artifact — GitHub's own flags are
+        authoritative. (2) Main's CI enforces <strong>100% coverage</strong> and is currently red on
+        a <code>settings.test.ts</code> mismatch + a flaky timing test, so the gate is unstable
+        regardless of any PR.
+      </p>
 
-  <h2>Why 18 PRs are unmerged</h2>
-  <div class="mermaid">
-flowchart TD
-  Q["18 PRs sitting open"]
-  Q --> C1["Bot-PR spam — Jules opened many<br/>same-day PRs from the same findings"]
-  Q --> C2["Duplicates — 4 findings,<br/>each with 2 competing PRs"]
-  Q --> C3["Stale bases — main moved on<br/>(settings.ts + background-test rewrites)<br/>→ 7 PRs now CONFLICTING"]
-  Q --> C4["Parked branch — claude/convex-mirror<br/>holds a 5-PR stack (#9–#13)"]
-  Q --> C5["Red / flaky gate on main —<br/>100% coverage gate + a timing flake;<br/>bots chase test expectations, bundle junk"]
-  Q --> C6["Already landed direct — plans 001–009<br/>committed straight to main; PRs redundant"]
-  </div>
-  <p class="lede">Two reframing facts: (1) the local clone's <code>origin/main</code> is ~63 commits stale (SSH-fetch hang), so local "conflict" reads are partly artifact — GitHub's own flags are authoritative. (2) Main's CI enforces <strong>100% coverage</strong> and is currently red on a <code>settings.test.ts</code> mismatch + a flaky timing test, so the gate is unstable regardless of any PR.</p>
+      <h2>Triage — all 18</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>PR</th>
+            <th>What it is</th>
+            <th>Base</th>
+            <th>Quality</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="pr">#14</td>
+            <td>List discovery honest seam</td>
+            <td>main</td>
+            <td><span class="badge b-sig">SIGNIFICANT</span></td>
+            <td><span class="badge a-merge">REBASE → MERGE</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#12</td>
+            <td>Quote-tweet taps toggle outer author</td>
+            <td>convex-mirror</td>
+            <td><span class="badge b-sig">SIGNIFICANT · fix</span></td>
+            <td><span class="badge a-merge">FIX ON MAIN (plan 013)</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#24</td>
+            <td>Log swallowed memberships error</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-merge">MERGE</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#20</td>
+            <td>Test: undoAdds partial failure</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-merge">MERGE</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#17</td>
+            <td>O(1) activate-target lookup</td>
+            <td>main</td>
+            <td><span class="badge b-cos">cosmetic</span></td>
+            <td><span class="badge a-merge">MERGE</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#13</td>
+            <td>Deflake scanner batch test</td>
+            <td>convex-mirror</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-park">WITH BRANCH</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#23</td>
+            <td>postMessage → same-origin</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-hold">REAPPLY 4 LINES</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#21</td>
+            <td>Test: GraphQL parse-error</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-hold">CHERRY-PICK TEST</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#22</td>
+            <td>Tests: useSignalValue hook</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-hold">KEEP — FIX HOOK 1ST</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#10</td>
+            <td>SST cleanups (5 tiny)</td>
+            <td>convex-mirror</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-park">WITH BRANCH</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#11</td>
+            <td>Undo under ADR-0005 policy</td>
+            <td>convex-mirror</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-park">WITH BRANCH</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#9</td>
+            <td>Factory owns concrete backends</td>
+            <td>convex-mirror</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-hold">DEFER — dir. conflict</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#19</td>
+            <td>Log popup wake error</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-hold">HOLD — fails gate</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#5</td>
+            <td>Tests: useSignalValue (older)</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-close">CLOSE — dup #22</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#3</td>
+            <td>Tests: clearLassoData (older)</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-close">CLOSE — dup #18</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#18</td>
+            <td>Test: clearLassoData error path</td>
+            <td>main</td>
+            <td><span class="badge b-marg">marginal</span></td>
+            <td><span class="badge a-merge">MERGE — reopened, valid</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#4</td>
+            <td>GraphQL <code>Set</code> O(1)</td>
+            <td>main</td>
+            <td><span class="badge b-cos">cosmetic</span></td>
+            <td><span class="badge a-close">CLOSE — churn+junk</span></td>
+          </tr>
+          <tr>
+            <td class="pr">#15</td>
+            <td>Advisor-plans WIP snapshot</td>
+            <td>main</td>
+            <td><span class="badge b-cos">n/a</span></td>
+            <td><span class="badge a-rec">RECORD-ONLY</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        <span class="pill">4 merge now: #24 #20 #17 #18</span>
+        <span class="pill">1 marquee: #14</span>
+        <span class="pill">3 reapply: #23 #21 #19</span>
+        <span class="pill">3 closed ✓: #5 #3 #4</span>
+        <span class="pill">1 keep: #22</span>
+        <span class="pill">5 parked: #9–#13</span>
+        <span class="pill">1 record: #15</span>
+      </p>
 
-  <h2>Triage — all 18</h2>
-  <table>
-    <thead><tr><th>PR</th><th>What it is</th><th>Base</th><th>Quality</th><th>Action</th></tr></thead>
-    <tbody>
-      <tr><td class="pr">#14</td><td>List discovery honest seam</td><td>main</td><td><span class="badge b-sig">SIGNIFICANT</span></td><td><span class="badge a-merge">REBASE → MERGE</span></td></tr>
-      <tr><td class="pr">#12</td><td>Quote-tweet taps toggle outer author</td><td>convex-mirror</td><td><span class="badge b-sig">SIGNIFICANT · fix</span></td><td><span class="badge a-merge">FIX ON MAIN (plan 013)</span></td></tr>
-      <tr><td class="pr">#24</td><td>Log swallowed memberships error</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-merge">MERGE</span></td></tr>
-      <tr><td class="pr">#20</td><td>Test: undoAdds partial failure</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-merge">MERGE</span></td></tr>
-      <tr><td class="pr">#17</td><td>O(1) activate-target lookup</td><td>main</td><td><span class="badge b-cos">cosmetic</span></td><td><span class="badge a-merge">MERGE</span></td></tr>
-      <tr><td class="pr">#13</td><td>Deflake scanner batch test</td><td>convex-mirror</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-park">WITH BRANCH</span></td></tr>
-      <tr><td class="pr">#23</td><td>postMessage → same-origin</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-hold">REAPPLY 4 LINES</span></td></tr>
-      <tr><td class="pr">#21</td><td>Test: GraphQL parse-error</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-hold">CHERRY-PICK TEST</span></td></tr>
-      <tr><td class="pr">#22</td><td>Tests: useSignalValue hook</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-hold">KEEP — FIX HOOK 1ST</span></td></tr>
-      <tr><td class="pr">#10</td><td>SST cleanups (5 tiny)</td><td>convex-mirror</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-park">WITH BRANCH</span></td></tr>
-      <tr><td class="pr">#11</td><td>Undo under ADR-0005 policy</td><td>convex-mirror</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-park">WITH BRANCH</span></td></tr>
-      <tr><td class="pr">#9</td><td>Factory owns concrete backends</td><td>convex-mirror</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-hold">DEFER — dir. conflict</span></td></tr>
-      <tr><td class="pr">#19</td><td>Log popup wake error</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-hold">HOLD — fails gate</span></td></tr>
-      <tr><td class="pr">#5</td><td>Tests: useSignalValue (older)</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-close">CLOSE — dup #22</span></td></tr>
-      <tr><td class="pr">#3</td><td>Tests: clearLassoData (older)</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-close">CLOSE — dup #18</span></td></tr>
-      <tr><td class="pr">#18</td><td>Test: clearLassoData error path</td><td>main</td><td><span class="badge b-marg">marginal</span></td><td><span class="badge a-merge">MERGE — reopened, valid</span></td></tr>
-      <tr><td class="pr">#4</td><td>GraphQL <code>Set</code> O(1)</td><td>main</td><td><span class="badge b-cos">cosmetic</span></td><td><span class="badge a-close">CLOSE — churn+junk</span></td></tr>
-      <tr><td class="pr">#15</td><td>Advisor-plans WIP snapshot</td><td>main</td><td><span class="badge b-cos">n/a</span></td><td><span class="badge a-rec">RECORD-ONLY</span></td></tr>
-    </tbody>
-  </table>
-  <p>
-    <span class="pill">4 merge now: #24 #20 #17 #18</span>
-    <span class="pill">1 marquee: #14</span>
-    <span class="pill">3 reapply: #23 #21 #19</span>
-    <span class="pill">3 closed ✓: #5 #3 #4</span>
-    <span class="pill">1 keep: #22</span>
-    <span class="pill">5 parked: #9–#13</span>
-    <span class="pill">1 record: #15</span>
-  </p>
+      <h2>The refactors, illustrated</h2>
 
-  <h2>The refactors, illustrated</h2>
+      <h3>
+        <span class="pr">#14</span> — Make List discovery an honest seam
+        <span class="badge b-sig">SIGNIFICANT</span>
+      </h3>
+      <p>
+        The <code>XListApi</code> interface <strong>lied</strong>: it promised discovery
+        (<code>getLists</code>) that only 1 of 3 backends kept — <code>DomXListApi</code> faked the
+        id from the List name, <code>GraphqlXListApi</code> threw <em>NotImplemented</em>. And
+        production bypassed the seam entirely, loading Lists directly via v1.1 REST.
+      </p>
+      <div class="mermaid">
+        flowchart LR subgraph BEFORE["Before — the seam lies"] m1["content/main.tsx"] -. "bypasses
+        seam" .-> lp1["fetchOwnedLists()<br />v1.1 REST"] m1 --> if1["XListApi<br />getLists ·
+        resolveUserId<br />addMember · removeMember"] if1 --> r1["RestXListApi ✓"] if1 -->
+        d1["DomXListApi.getLists<br />fakes id = name ✗"] if1 --> g1["GraphqlXListApi.getLists<br />throws
+        ✗"] end subgraph AFTER["After — mutation-only seam + honest discovery"]
+        m2["content/main.tsx"] --> ld["ListDiscovery<br />load · cache · refresh · membership<br />always
+        v1.1 REST · ADR-0008"] m2 --> if2["XListApi<br />addMember · removeMember"] if2 -->
+        r2["RestXListApi ✓"] if2 --> d2["DomXListApi ✓"] if2 --> g2["GraphqlXListApi ✓"] end
+      </div>
+      <p>
+        <strong>Improves after merge:</strong> type stops lying (Liskov); ~2 fake/throwing methods
+        deleted; contract test now covers the shipped REST default across <code>addMember</code> +
+        <code>removeMember</code>; a latent storage bug (spurious "Couldn't load your Lists") is
+        fixed. <strong>Risk — medium:</strong> 25 files, CONFLICTING (needs rebase), adds a 2nd
+        error taxonomy. <strong>Honest caveat:</strong> users see zero change — the lie was already
+        dead code.
+      </p>
 
-  <h3><span class="pr">#14</span> — Make List discovery an honest seam <span class="badge b-sig">SIGNIFICANT</span></h3>
-  <p>The <code>XListApi</code> interface <strong>lied</strong>: it promised discovery (<code>getLists</code>) that only 1 of 3 backends kept — <code>DomXListApi</code> faked the id from the List name, <code>GraphqlXListApi</code> threw <em>NotImplemented</em>. And production bypassed the seam entirely, loading Lists directly via v1.1 REST.</p>
-  <div class="mermaid">
-flowchart LR
-  subgraph BEFORE["Before — the seam lies"]
-    m1["content/main.tsx"] -. "bypasses seam" .-> lp1["fetchOwnedLists()<br/>v1.1 REST"]
-    m1 --> if1["XListApi<br/>getLists · resolveUserId<br/>addMember · removeMember"]
-    if1 --> r1["RestXListApi ✓"]
-    if1 --> d1["DomXListApi.getLists<br/>fakes id = name ✗"]
-    if1 --> g1["GraphqlXListApi.getLists<br/>throws ✗"]
-  end
-  subgraph AFTER["After — mutation-only seam + honest discovery"]
-    m2["content/main.tsx"] --> ld["ListDiscovery<br/>load · cache · refresh · membership<br/>always v1.1 REST · ADR-0008"]
-    m2 --> if2["XListApi<br/>addMember · removeMember"]
-    if2 --> r2["RestXListApi ✓"]
-    if2 --> d2["DomXListApi ✓"]
-    if2 --> g2["GraphqlXListApi ✓"]
-  end
-  </div>
-  <p><strong>Improves after merge:</strong> type stops lying (Liskov); ~2 fake/throwing methods deleted; contract test now covers the shipped REST default across <code>addMember</code> + <code>removeMember</code>; a latent storage bug (spurious "Couldn't load your Lists") is fixed. <strong>Risk — medium:</strong> 25 files, CONFLICTING (needs rebase), adds a 2nd error taxonomy. <strong>Honest caveat:</strong> users see zero change — the lie was already dead code.</p>
+      <h3>
+        <span class="pr">#9</span> — Factory owns concrete backends
+        <span class="badge b-marg">MARGINAL</span>
+      </h3>
+      <p>
+        Moves backend construction from the boot file into the factory. Nothing is
+        <em>deleted</em> — 5 imports + 3 constructors just <em>move</em>, so coupling is conserved.
+        And it points the <strong>opposite way</strong> from #14.
+      </p>
+      <div class="mermaid">
+        flowchart TD seam["The XListApi seam"] seam --> p14["#14 (main): NARROW it<br />discovery
+        leaves the seam"] seam --> p9["#9 (convex-mirror): DEEPEN it<br />factory absorbs all
+        backend knowledge"] p14 -. "opposite directions · settle one first<br />merging both = a
+        later revert" .-> p9
+      </div>
+      <p>
+        <strong>Action:</strong> pick #14's narrowing (removes a real lie); #9 becomes redundant or
+        a small follow-up.
+      </p>
 
-  <h3><span class="pr">#9</span> — Factory owns concrete backends <span class="badge b-marg">MARGINAL</span></h3>
-  <p>Moves backend construction from the boot file into the factory. Nothing is <em>deleted</em> — 5 imports + 3 constructors just <em>move</em>, so coupling is conserved. And it points the <strong>opposite way</strong> from #14.</p>
-  <div class="mermaid">
-flowchart TD
-  seam["The XListApi seam"]
-  seam --> p14["#14 (main): NARROW it<br/>discovery leaves the seam"]
-  seam --> p9["#9 (convex-mirror): DEEPEN it<br/>factory absorbs all backend knowledge"]
-  p14 -. "opposite directions · settle one first<br/>merging both = a later revert" .-> p9
-  </div>
-  <p><strong>Action:</strong> pick #14's narrowing (removes a real lie); #9 becomes redundant or a small follow-up.</p>
+      <h3>
+        <span class="pr">#11</span> — Undo runs under ADR-0005 policy
+        <span class="badge b-marg">MARGINAL</span>
+      </h3>
+      <p>
+        The add path paces requests and STOPs on a 429; undo didn't — a bare loop with
+        <code>catch {}</code> flattened a 429 to "failed" and kept hammering a throttled API. This
+        gives undo parity.
+      </p>
+      <div class="mermaid">
+        flowchart TD subgraph OLD["Before — undo ignores the throttle"] o1["for each author"] -->
+        o2["removeMember (no pacing)"] o2 --> o3["catch {} → 'failed', keep looping"] o3 -->|"429?
+        loop anyway"| o1 end subgraph NEW["After — undo obeys ADR-0005"] n1["for each author"] -->
+        n2["pace + jitter (~0.7s)"] n2 --> n3["removeMember"] n3 --> n4{outcome} n4
+        -->|"rate-limited"| n5["STOP · remainder stay members<br />toast + Mirror report true
+        count"] n4 -->|"ok / failed"| n1 end
+      </div>
+      <p>
+        <strong>Improves after merge:</strong> closes a real safety bug; reports the true partial
+        count. <strong>Trade:</strong> ~0.7s × (N−1) common-case latency, and a 2nd paced loop to
+        keep in sync by hand. Reaches users only if convex-mirror lands.
+      </p>
 
-  <h3><span class="pr">#11</span> — Undo runs under ADR-0005 policy <span class="badge b-marg">MARGINAL</span></h3>
-  <p>The add path paces requests and STOPs on a 429; undo didn't — a bare loop with <code>catch {}</code> flattened a 429 to "failed" and kept hammering a throttled API. This gives undo parity.</p>
-  <div class="mermaid">
-flowchart TD
-  subgraph OLD["Before — undo ignores the throttle"]
-    o1["for each author"] --> o2["removeMember (no pacing)"]
-    o2 --> o3["catch {} → 'failed', keep looping"]
-    o3 -->|"429? loop anyway"| o1
-  end
-  subgraph NEW["After — undo obeys ADR-0005"]
-    n1["for each author"] --> n2["pace + jitter (~0.7s)"]
-    n2 --> n3["removeMember"]
-    n3 --> n4{outcome}
-    n4 -->|"rate-limited"| n5["STOP · remainder stay members<br/>toast + Mirror report true count"]
-    n4 -->|"ok / failed"| n1
-  end
-  </div>
-  <p><strong>Improves after merge:</strong> closes a real safety bug; reports the true partial count. <strong>Trade:</strong> ~0.7s × (N−1) common-case latency, and a 2nd paced loop to keep in sync by hand. Reaches users only if convex-mirror lands.</p>
+      <h2>Duplicate clusters — pick one, close the other</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Finding</th>
+            <th>PRs</th>
+            <th>Keep</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>useSignalValue tests</td>
+            <td>#22 vs #5</td>
+            <td class="pr">#22</td>
+            <td>
+              no such test on real main; hook is correct (effect returns the unsubscribe), so #22's
+              tests pass — <strong>merge #22</strong>
+            </td>
+          </tr>
+          <tr>
+            <td>clearLassoData tests</td>
+            <td>#18 vs #3</td>
+            <td class="pr">#18</td>
+            <td>
+              vs real main, #18 targets the real <code>{localCleared,syncCleared}</code> API +
+              covers the <code>set()</code>-throws branch; #3 is CONFLICTING and tests the
+              pre-rewrite signature
+            </td>
+          </tr>
+          <tr>
+            <td>GraphQL sniffer O(1)</td>
+            <td>#21 vs #4</td>
+            <td class="pr">#21 test only</td>
+            <td>
+              #4 commits <code>.orig</code>/<code>.patch</code> + downgrades <code>bun.lock</code>;
+              take #21's parse-error test, skip the <code>Set</code> swap
+            </td>
+          </tr>
+          <tr>
+            <td>O(1) micro-opts</td>
+            <td>#17, #4</td>
+            <td class="pr">#17</td>
+            <td>different files; #17 is a correct 1-liner, #4 is junk</td>
+          </tr>
+        </tbody>
+      </table>
 
-  <h2>Duplicate clusters — pick one, close the other</h2>
-  <table>
-    <thead><tr><th>Finding</th><th>PRs</th><th>Keep</th><th>Why</th></tr></thead>
-    <tbody>
-      <tr><td>useSignalValue tests</td><td>#22 vs #5</td><td class="pr">#22</td><td>no such test on real main; hook is correct (effect returns the unsubscribe), so #22's tests pass — <strong>merge #22</strong></td></tr>
-      <tr><td>clearLassoData tests</td><td>#18 vs #3</td><td class="pr">#18</td><td>vs real main, #18 targets the real <code>{localCleared,syncCleared}</code> API + covers the <code>set()</code>-throws branch; #3 is CONFLICTING and tests the pre-rewrite signature</td></tr>
-      <tr><td>GraphQL sniffer O(1)</td><td>#21 vs #4</td><td class="pr">#21 test only</td><td>#4 commits <code>.orig</code>/<code>.patch</code> + downgrades <code>bun.lock</code>; take #21's parse-error test, skip the <code>Set</code> swap</td></tr>
-      <tr><td>O(1) micro-opts</td><td>#17, #4</td><td class="pr">#17</td><td>different files; #17 is a correct 1-liner, #4 is junk</td></tr>
-    </tbody>
-  </table>
+      <h2>Real bugs this review surfaced</h2>
+      <p class="lede">
+        Two of the four bugs I first listed were <strong>stale-tree false positives</strong> (see
+        the ⚠️ correction above) and are withdrawn: clearLassoData is already fixed on
+        <code>e9d107e</code>, and useSignalValue is correct. Two genuine ones remain — both from the
+        Opus passes reading the actual branch code:
+      </p>
+      <div class="grid">
+        <div class="card">
+          <strong>1 · Spurious "Couldn't load your Lists"</strong>
+          <span class="badge b-marg">fixed in #14</span><br /><span class="lede"
+            >A <code>storage.local</code> hiccup surfaced as a load failure —
+            <code>list-cache.ts</code> did <code>set()</code> outside its <code>try</code> and read
+            <code>get</code> un-narrowed. PATCH 2/3 of #14 wraps read+write; tests fail against the
+            pre-fix shape.</span
+          >
+        </div>
+        <div class="card">
+          <strong>2 · Undo retry-spams a throttled API</strong>
+          <span class="badge b-marg">fixed in #11</span><br /><span class="lede"
+            >The remove path had no pacing and a <code>catch {}</code> that flattened a 429 to
+            "failed" and kept looping. Real safety defect — convex-mirror only.</span
+          >
+        </div>
+        <div class="card" style="opacity: 0.6">
+          <strong>✗ Withdrawn · clearLassoData leaves settings behind</strong><br /><span
+            class="lede"
+            ><code>LOCAL_KEYS</code> already includes <code>settings</code> on real main. Artifact
+            of the stale local checkout.</span
+          >
+        </div>
+        <div class="card" style="opacity: 0.6">
+          <strong>✗ Withdrawn · useSignalValue leaks subscriptions</strong><br /><span class="lede"
+            >The effect returns <code>sig.subscribe(...)</code>'s unsubscribe as cleanup. Not a
+            bug.</span
+          >
+        </div>
+      </div>
 
-  <h2>Real bugs this review surfaced</h2>
-  <p class="lede">Two of the four bugs I first listed were <strong>stale-tree false positives</strong> (see the ⚠️ correction above) and are withdrawn: clearLassoData is already fixed on <code>e9d107e</code>, and useSignalValue is correct. Two genuine ones remain — both from the Opus passes reading the actual branch code:</p>
-  <div class="grid">
-    <div class="card"><strong>1 · Spurious "Couldn't load your Lists"</strong> <span class="badge b-marg">fixed in #14</span><br/><span class="lede">A <code>storage.local</code> hiccup surfaced as a load failure — <code>list-cache.ts</code> did <code>set()</code> outside its <code>try</code> and read <code>get</code> un-narrowed. PATCH 2/3 of #14 wraps read+write; tests fail against the pre-fix shape.</span></div>
-    <div class="card"><strong>2 · Undo retry-spams a throttled API</strong> <span class="badge b-marg">fixed in #11</span><br/><span class="lede">The remove path had no pacing and a <code>catch {}</code> that flattened a 429 to "failed" and kept looping. Real safety defect — convex-mirror only.</span></div>
-    <div class="card" style="opacity:.6"><strong>✗ Withdrawn · clearLassoData leaves settings behind</strong><br/><span class="lede"><code>LOCAL_KEYS</code> already includes <code>settings</code> on real main. Artifact of the stale local checkout.</span></div>
-    <div class="card" style="opacity:.6"><strong>✗ Withdrawn · useSignalValue leaks subscriptions</strong><br/><span class="lede">The effect returns <code>sig.subscribe(...)</code>'s unsubscribe as cleanup. Not a bug.</span></div>
-  </div>
+      <h2>Recommended sequence</h2>
+      <ol>
+        <li>
+          <strong>Green the gate first</strong> — land
+          <code>plans/review/000</code> (harness/flake). Nothing merges cleanly on a red
+          100%-coverage gate.
+        </li>
+        <li>
+          <strong>Merge the clean small ones:</strong> #24, #20, #17, and #18 (reopened — valid
+          coverage add).
+        </li>
+        <li>
+          <strong>Reapply, don't merge:</strong> re-type #23's 4-line same-origin fix and #21's test
+          onto fresh main; drop the bot branches' drift.
+        </li>
+        <li>
+          <strong>Close the noise:</strong> ✅ done — #5, #3, #4 closed. Leave #19 open until pared
+          to one line + a covering test.
+        </li>
+        <li>
+          <strong>Merge #22</strong> (useSignalValue — hook is correct on real main). Plan 900 needs
+          no action (already landed).
+        </li>
+        <li>
+          <strong>Land the marquee:</strong> rebase #14, run the full suite, merge. Then settle
+          #9-vs-#14 direction.
+        </li>
+        <li>
+          <strong>Decide convex-mirror's fate.</strong> Its stack (#9–#13) — incl. the good #12 fix
+          — is stranded. Alive → land it; dead → port #12 to main via plan 013 anyway.
+        </li>
+      </ol>
 
-  <h2>Recommended sequence</h2>
-  <ol>
-    <li><strong>Green the gate first</strong> — land <code>plans/review/000</code> (harness/flake). Nothing merges cleanly on a red 100%-coverage gate.</li>
-    <li><strong>Merge the clean small ones:</strong> #24, #20, #17, and #18 (reopened — valid coverage add).</li>
-    <li><strong>Reapply, don't merge:</strong> re-type #23's 4-line same-origin fix and #21's test onto fresh main; drop the bot branches' drift.</li>
-    <li><strong>Close the noise:</strong> ✅ done — #5, #3, #4 closed. Leave #19 open until pared to one line + a covering test.</li>
-    <li><strong>Merge #22</strong> (useSignalValue — hook is correct on real main). Plan 900 needs no action (already landed).</li>
-    <li><strong>Land the marquee:</strong> rebase #14, run the full suite, merge. Then settle #9-vs-#14 direction.</li>
-    <li><strong>Decide convex-mirror's fate.</strong> Its stack (#9–#13) — incl. the good #12 fix — is stranded. Alive → land it; dead → port #12 to main via plan 013 anyway.</li>
-  </ol>
+      <h2>Risk register</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Risk</th>
+            <th>Where</th>
+            <th>Severity</th>
+            <th>Mitigation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Coverage/flake gate red on main</td>
+            <td>repo-wide</td>
+            <td><span class="badge b-none">High</span></td>
+            <td>Land plan 000 before any merge</td>
+          </tr>
+          <tr>
+            <td>
+              Bot diffs import junk (lockfile downgrades, <code>.orig</code>/<code>.patch</code>,
+              drifted tests)
+            </td>
+            <td>#4 #5 #19 #23 #3</td>
+            <td><span class="badge b-marg">Medium</span></td>
+            <td>Reapply the change, discard the branch</td>
+          </tr>
+          <tr>
+            <td>#14 rebase touches core wiring</td>
+            <td>#14</td>
+            <td><span class="badge b-marg">Medium</span></td>
+            <td>Run contract + list-discovery + controller suites</td>
+          </tr>
+          <tr>
+            <td>Two seam directions merged (#14 vs #9)</td>
+            <td>#14/#9</td>
+            <td><span class="badge b-marg">Medium</span></td>
+            <td>Pick #14; #9 as follow-up or drop</td>
+          </tr>
+          <tr>
+            <td>convex-mirror never lands → #11/#12 stranded</td>
+            <td>#9–#13</td>
+            <td><span class="badge b-marg">Medium</span></td>
+            <td>Port #12 to main via plan 013 now</td>
+          </tr>
+          <tr>
+            <td>Cheap agents read the stale local tree</td>
+            <td>test-PR verdicts (#18 #22 #3 #21)</td>
+            <td><span class="badge b-marg">Medium</span></td>
+            <td>Re-verify vs the real tip via <code>gh</code> — done for #18 #22 #3</td>
+          </tr>
+          <tr>
+            <td>#10 <code>isTweet</code> tightening regresses a non-article caller</td>
+            <td>#10</td>
+            <td><span class="badge b-cos">Low</span></td>
+            <td>Re-run fixture sweep</td>
+          </tr>
+          <tr>
+            <td>#11 adds undo latency + a 2nd paced loop</td>
+            <td>#11</td>
+            <td><span class="badge b-cos">Low</span></td>
+            <td>Accept, or extract a shared runner</td>
+          </tr>
+        </tbody>
+      </table>
 
-  <h2>Risk register</h2>
-  <table>
-    <thead><tr><th>Risk</th><th>Where</th><th>Severity</th><th>Mitigation</th></tr></thead>
-    <tbody>
-      <tr><td>Coverage/flake gate red on main</td><td>repo-wide</td><td><span class="badge b-none">High</span></td><td>Land plan 000 before any merge</td></tr>
-      <tr><td>Bot diffs import junk (lockfile downgrades, <code>.orig</code>/<code>.patch</code>, drifted tests)</td><td>#4 #5 #19 #23 #3</td><td><span class="badge b-marg">Medium</span></td><td>Reapply the change, discard the branch</td></tr>
-      <tr><td>#14 rebase touches core wiring</td><td>#14</td><td><span class="badge b-marg">Medium</span></td><td>Run contract + list-discovery + controller suites</td></tr>
-      <tr><td>Two seam directions merged (#14 vs #9)</td><td>#14/#9</td><td><span class="badge b-marg">Medium</span></td><td>Pick #14; #9 as follow-up or drop</td></tr>
-      <tr><td>convex-mirror never lands → #11/#12 stranded</td><td>#9–#13</td><td><span class="badge b-marg">Medium</span></td><td>Port #12 to main via plan 013 now</td></tr>
-      <tr><td>Cheap agents read the stale local tree</td><td>test-PR verdicts (#18 #22 #3 #21)</td><td><span class="badge b-marg">Medium</span></td><td>Re-verify vs the real tip via <code>gh</code> — done for #18 #22 #3</td></tr>
-      <tr><td>#10 <code>isTweet</code> tightening regresses a non-article caller</td><td>#10</td><td><span class="badge b-cos">Low</span></td><td>Re-run fixture sweep</td></tr>
-      <tr><td>#11 adds undo latency + a 2nd paced loop</td><td>#11</td><td><span class="badge b-cos">Low</span></td><td>Accept, or extract a shared runner</td></tr>
-    </tbody>
-  </table>
-
-  <div class="foot">
-    <strong>Method.</strong> 18 forensic agents (one per PR) → 6 adversarial skeptic passes. 24 agents, ~1.3M tokens, ~10 min. Models: Haiku for pure test PRs, Sonnet for fixes/perf/security, Opus for the architectural refactors and every skeptic pass. The Opus passes read the real <code>gh pr diff</code> and checked the true tip via <code>gh api</code> — reliable; they caught #19's coverage-gate failure and #23's undisclosed drift. #17 was verified by hand (the one agent that hit a schema retry cap).
-    <br/><br/>
-    <strong>What went wrong &amp; caveat.</strong> The cheaper test-PR agents sometimes judged "already-in-main / correctness" off the <strong>stale local checkout</strong> (<code>origin/main</code> ~63 commits behind, SSH hang), producing three false verdicts — corrected in the ⚠️ block above after re-checking <code>e9d107e</code>. Source of truth is <code>gh</code>, not the local tree; GitHub's own CONFLICTING/UNSTABLE flags are authoritative. Skeptic passes were told to take "main works fine" seriously and reject vague "cleaner/more maintainable" claims; only #14 survived as SIGNIFICANT, #4 was downgraded to CHURN, the rest to MARGINAL.
-  </div>
-
-</div>
-<script type="module">
-  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-  mermaid.initialize({
-    startOnLoad:true, theme:"dark",
-    themeVariables:{ fontSize:"13px", primaryColor:"#1c2230", primaryBorderColor:"#39424f",
-      primaryTextColor:"#e6edf3", lineColor:"#5a6675", clusterBkg:"#12161f", clusterBorder:"#2b3442" }
-  });
-</script>
-</body>
+      <div class="foot">
+        <strong>Method.</strong> 18 forensic agents (one per PR) → 6 adversarial skeptic passes. 24
+        agents, ~1.3M tokens, ~10 min. Models: Haiku for pure test PRs, Sonnet for
+        fixes/perf/security, Opus for the architectural refactors and every skeptic pass. The Opus
+        passes read the real <code>gh pr diff</code> and checked the true tip via
+        <code>gh api</code> — reliable; they caught #19's coverage-gate failure and #23's
+        undisclosed drift. #17 was verified by hand (the one agent that hit a schema retry cap).
+        <br /><br />
+        <strong>What went wrong &amp; caveat.</strong> The cheaper test-PR agents sometimes judged
+        "already-in-main / correctness" off the <strong>stale local checkout</strong> (<code
+          >origin/main</code
+        >
+        ~63 commits behind, SSH hang), producing three false verdicts — corrected in the ⚠️ block
+        above after re-checking <code>e9d107e</code>. Source of truth is <code>gh</code>, not the
+        local tree; GitHub's own CONFLICTING/UNSTABLE flags are authoritative. Skeptic passes were
+        told to take "main works fine" seriously and reject vague "cleaner/more maintainable"
+        claims; only #14 survived as SIGNIFICANT, #4 was downgraded to CHURN, the rest to MARGINAL.
+      </div>
+    </div>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: "dark",
+        themeVariables: {
+          fontSize: "13px",
+          primaryColor: "#1c2230",
+          primaryBorderColor: "#39424f",
+          primaryTextColor: "#e6edf3",
+          lineColor: "#5a6675",
+          clusterBkg: "#12161f",
+          clusterBorder: "#2b3442",
+        },
+      });
+    </script>
+  </body>
 </html>
