@@ -125,7 +125,7 @@ describe("createSettings", () => {
       ...DEFAULT_SETTINGS,
       defaultList: undefined,
       defaultListId: undefined,
-      mirrorConfigId: "default-id",
+      mirrorConfigId: undefined,
     });
   });
 
@@ -134,7 +134,7 @@ describe("createSettings", () => {
       ...DEFAULT_SETTINGS,
       defaultList: undefined,
       defaultListId: undefined,
-      mirrorConfigId: "default-id",
+      mirrorConfigId: undefined,
     });
   });
 
@@ -231,7 +231,7 @@ describe("createSettings", () => {
       ...DEFAULT_SETTINGS,
       defaultList: undefined,
       defaultListId: undefined,
-      mirrorConfigId: "recovered-id",
+      mirrorConfigId: undefined,
       surfaces: { pill: false, palette: DEFAULT_SETTINGS.surfaces.palette },
     });
   });
@@ -472,7 +472,7 @@ describe("createSettings", () => {
         ...DEFAULT_SETTINGS,
         defaultList: undefined,
         defaultListId: undefined,
-        mirrorConfigId: "default-id",
+        mirrorConfigId: undefined,
       });
     });
 
