@@ -42,9 +42,12 @@ and a changed-scope React Doctor run before landing here.
 - Full suite: 1,431 tests passed; 100% statements, branches, functions, and lines.
 - Typecheck, lint, deep-module boundaries, format, production build, and
   `git diff --check` passed.
+- Playwright: 4 end-to-end tests passed against the production bundle.
 - Convex functions compiled and pushed to a fresh local deployment.
 - Final full React Doctor run: 287 warnings, down from 300; score 68, up from 65.
 - Final changed-scope run reports only the documented sequential Convex audit write.
+- GitHub Actions CI passed after supplying deterministic test-only Mirror defaults
+  and matching the shipped overlay accessible name.
 
 ## Evidence
 
