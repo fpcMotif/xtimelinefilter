@@ -68,6 +68,15 @@ export function FilterPalette({
   onClose,
   conduct,
 }: FilterPaletteProps): preact.JSX.Element | null {
+  if (!open) return null;
+  return <OpenFilterPalette store={store} onClose={onClose} conduct={conduct} />;
+}
+
+function OpenFilterPalette({
+  store,
+  onClose,
+  conduct,
+}: Omit<FilterPaletteProps, "open">): preact.JSX.Element {
   const cmd = conduct ?? ((exec: (s: FilterStore) => void) => exec(store));
   const state = useSignalValue(store.state);
   const [query, setQuery] = useState("");
@@ -75,33 +84,24 @@ export function FilterPalette({
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
-  useFocusTrap(dialogRef, open);
+  useFocusTrap(dialogRef);
 
   const matches = useMemo(
     () => buildPaletteItems(state).filter((item) => fuzzyMatch(query, item.label)),
     [state, query],
   );
+  const activeIndex = matches.length === 0 ? 0 : Math.min(active, matches.length - 1);
 
-  // Reset the query/highlight each time the palette opens; focus the input.
+  // The open-only component remounts with an empty query and top highlight.
   useEffect(() => {
-    if (!open) return;
-    setQuery("");
-    setActive(0);
     focusWithoutScroll(inputRef.current);
-  }, [open]);
-
-  // Keep the highlight within the (shrinking) match list.
-  useEffect(() => {
-    setActive((a) => (matches.length === 0 ? 0 : Math.min(a, matches.length - 1)));
-  }, [matches.length]);
+  }, []);
 
   // Keep the highlighted command visible without scrolling the host timeline.
   useEffect(() => {
-    const item = matches[active];
+    const item = matches[activeIndex];
     scrollIntoViewWithin(listboxRef.current, activeOption(listboxRef.current, item));
-  }, [active, matches]);
-
-  if (!open) return null;
+  }, [activeIndex, matches]);
 
   function run(item: PaletteItem | undefined) {
     if (!item) return;
@@ -119,19 +119,19 @@ export function FilterPalette({
     if (e.key === "ArrowDown") {
       e.preventDefault();
       e.stopPropagation();
-      setActive((a) => (matches.length === 0 ? 0 : (a + 1) % matches.length));
+      setActive(matches.length === 0 ? 0 : (activeIndex + 1) % matches.length);
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
       e.stopPropagation();
-      setActive((a) => (matches.length === 0 ? 0 : (a - 1 + matches.length) % matches.length));
+      setActive(matches.length === 0 ? 0 : (activeIndex - 1 + matches.length) % matches.length);
       return;
     }
     if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      run(matches[active]);
+      run(matches[activeIndex]);
     }
   }
 
@@ -162,7 +162,7 @@ export function FilterPalette({
           aria-autocomplete="list"
           aria-controls={LISTBOX_ID}
           aria-expanded={true}
-          aria-activedescendant={matches[active] ? optionId(matches[active]!) : undefined}
+          aria-activedescendant={matches[activeIndex] ? optionId(matches[activeIndex]!) : undefined}
           placeholder="Filter timeline… (e.g. only video, reading, show all)"
           value={query}
           onInput={(e) => {
@@ -188,8 +188,8 @@ export function FilterPalette({
               id={optionId(item)}
               role="option"
               tabindex={-1}
-              aria-selected={i === active}
-              data-active={i === active}
+              aria-selected={i === activeIndex}
+              data-active={i === activeIndex}
               onMouseEnter={() => setActive(i)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => run(item)}
@@ -200,7 +200,7 @@ export function FilterPalette({
                 run(item);
               }}
               class={`text-compact cursor-pointer px-4 py-2 ${
-                i === active ? "bg-primary text-primary-foreground" : "text-foreground"
+                i === activeIndex ? "bg-primary text-primary-foreground" : "text-foreground"
               }`}
             >
               {item.label}
