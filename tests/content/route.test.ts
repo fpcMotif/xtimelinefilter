@@ -1,7 +1,89 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { isInScope, onRouteChange } from "@/content/route";
+import { isInScope, onRouteChange, resolveScope } from "@/content/route";
 
+/**
+ * The Filter's scope identity (spec #31): which timeline a path is, not merely
+ * whether the Filter may run there. Home, a List, and a profile are bindable —
+ * they can carry their own preset. Bookmarks stays in Filter scope but is
+ * deliberately not bindable yet, so it resolves to a scope with no key.
+ */
+describe("resolveScope", () => {
+  it("resolves Home", () => {
+    expect(resolveScope("/home")).toEqual({ kind: "home" });
+  });
+
+  it("resolves a List by its id, with or without a sub-tab", () => {
+    expect(resolveScope("/i/lists/123")).toEqual({ kind: "list", listId: "123" });
+    expect(resolveScope("/i/lists/123/members")).toEqual({ kind: "list", listId: "123" });
+    expect(resolveScope("/i/lists/1234567890123456789")).toEqual({
+      kind: "list",
+      listId: "1234567890123456789",
+    });
+  });
+
+  it("resolves Bookmarks and its folders as one non-bindable scope", () => {
+    expect(resolveScope("/i/bookmarks")).toEqual({ kind: "bookmarks" });
+    expect(resolveScope("/i/bookmarks/")).toEqual({ kind: "bookmarks" });
+    expect(resolveScope("/i/bookmarks/123")).toEqual({ kind: "bookmarks" });
+  });
+
+  it("resolves a profile by handle, case-folded so @Jack and @jack are one scope", () => {
+    expect(resolveScope("/jack")).toEqual({ kind: "profile", handle: "jack" });
+    expect(resolveScope("/Jack")).toEqual({ kind: "profile", handle: "jack" });
+    expect(resolveScope("/jack/")).toEqual({ kind: "profile", handle: "jack" });
+    expect(resolveScope("/mhdhh_archives")).toEqual({ kind: "profile", handle: "mhdhh_archives" });
+  });
+
+  it("resolves a profile's post sub-tabs to the same scope as the bare profile", () => {
+    for (const tab of ["with_replies", "media", "likes", "highlights"]) {
+      expect(resolveScope(`/jack/${tab}`)).toEqual({ kind: "profile", handle: "jack" });
+    }
+  });
+
+  /**
+   * A reserved root must never resolve to a profile — the handle is folded
+   * before the reserved-root lookup, so a case-varied nav route (`/Explore`)
+   * has to be rejected just as firmly as the lowercase one. `/Home` is the
+   * sharpest case: it misses the exact `/home` check, then must be caught as a
+   * reserved root rather than falling through to a profile named "Home".
+   */
+  it("resolves reserved top-level routes to no scope, whatever their case", () => {
+    for (const path of [
+      "/explore",
+      "/search",
+      "/notifications",
+      "/messages",
+      "/messages/123",
+      "/settings/profile",
+      "/hashtag/foo",
+      "/bookmarks", // legacy top-level, not the /i/bookmarks timeline
+      "/i/lists", // no list id
+      "/Explore",
+      "/Home",
+      "/Bookmarks",
+    ]) {
+      expect(resolveScope(path)).toBeNull();
+    }
+  });
+
+  it("resolves out-of-scope paths to no scope", () => {
+    expect(resolveScope("/i/bookmarks/abc")).toBeNull();
+    expect(resolveScope("/i/bookmarks/123/extra")).toBeNull();
+    expect(resolveScope("/jack/status/123")).toBeNull();
+    expect(resolveScope("/jack/photo")).toBeNull();
+    expect(resolveScope("/")).toBeNull();
+    expect(resolveScope("")).toBeNull();
+    expect(resolveScope("/this_handle_is_way_too_long")).toBeNull();
+    expect(resolveScope("/has-a-dash")).toBeNull();
+  });
+});
+
+/**
+ * This table is the behavior-neutrality guard for the resolver prefactor: the
+ * boolean is now derived from resolveScope, and every case below must still
+ * answer exactly as it did before.
+ */
 describe("isInScope", () => {
   it("is in scope on Home and List timelines", () => {
     expect(isInScope("/home")).toBe(true);

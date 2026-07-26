@@ -88,3 +88,24 @@ export interface FilterState {
 }
 
 export type FilterVerdict = "show" | "hide";
+
+/**
+ * Which timeline the user is on, resolved from the path by `content/route.ts`.
+ * Distinct from the *Filter scope* of docs/CONTEXT.md, which names the whole set
+ * of timelines the Filter may run on; this is one member of that set, identified.
+ *
+ * Home, List, and profile are bindable — each can carry its own preset (spec
+ * #31). Bookmarks runs the Filter but cannot yet be bound, so it has no
+ * {@link FilterScopeKey}.
+ */
+export type FilterScope =
+  | { readonly kind: "home" }
+  | { readonly kind: "list"; readonly listId: string }
+  | { readonly kind: "bookmarks" }
+  | { readonly kind: "profile"; readonly handle: string };
+
+/**
+ * The stable string a scope's preset binding is stored under: `home`,
+ * `list:<listId>`, or `profile:<handle>` with the handle case-folded.
+ */
+export type FilterScopeKey = string;

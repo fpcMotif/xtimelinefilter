@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyFilterCommand,
+  bindingKey,
   defaultFilterState,
   isFilterCommand,
   isFilterState,
@@ -12,6 +13,32 @@ import {
   normalizeLangs,
   selectionChanged,
 } from "@/core/filter-domain";
+
+/**
+ * A scope's binding key (spec #31). Null is a policy answer, not a missing name:
+ * Bookmarks is a real Filter scope that cannot yet carry its own preset, so it
+ * must key to null rather than to a string a binding could be stored under.
+ */
+describe("bindingKey", () => {
+  it("keys the three bindable scopes", () => {
+    expect(bindingKey({ kind: "home" })).toBe("home");
+    expect(bindingKey({ kind: "list", listId: "1583920441" })).toBe("list:1583920441");
+    expect(bindingKey({ kind: "profile", handle: "jack" })).toBe("profile:jack");
+  });
+
+  it("refuses to key Bookmarks, so it cannot be bound", () => {
+    expect(bindingKey({ kind: "bookmarks" })).toBeNull();
+  });
+
+  it("keys each bindable scope distinctly, so bindings never collide", () => {
+    const keys = [
+      bindingKey({ kind: "home" }),
+      bindingKey({ kind: "list", listId: "1" }),
+      bindingKey({ kind: "profile", handle: "1" }),
+    ];
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
 
 describe("FilterCommand", () => {
   it("applies two cycles at authority, rather than replaying two stale snapshots", () => {

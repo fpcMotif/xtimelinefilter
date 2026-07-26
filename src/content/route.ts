@@ -1,21 +1,39 @@
+import type { FilterScope } from "@/core/filter-types";
+
+/** A List timeline; the capture is the `listId` a binding is keyed by. */
+const LIST_PATH = /^\/i\/lists\/(\d+)(?:\/|$)/;
+
 /**
- * Where the Filter is allowed to run (spec §3): Home, List, Bookmarks, and
- * profile timelines. Each uses the same virtualized `cellInnerDiv` /
- * `article[data-testid="tweet"]` structure (research 03 §1), so the applier and
- * facet extraction work unchanged — the route was the only gate. The Bookmarks
- * clause is a positive match, not a deny-list edit: `i` and `bookmarks` must
- * stay reserved roots so bare `/<handle>` profile detection keeps rejecting
- * them. Unlike the List regex, it end-anchors (bookmark folders have no
- * sub-tabs), so a deeper `/i/bookmarks/<id>/…` path stays out.
+ * Bookmarks and its folders. A positive match, not a deny-list edit: `i` and
+ * `bookmarks` must stay reserved roots so bare `/<handle>` profile detection
+ * keeps rejecting them. Unlike {@link LIST_PATH} it end-anchors (bookmark
+ * folders have no sub-tabs), so a deeper `/i/bookmarks/<id>/…` path stays out.
+ */
+const BOOKMARKS_PATH = /^\/i\/bookmarks(?:\/\d+)?\/?$/;
+
+/**
+ * Which timeline this path is, or null when the Filter must not run here — the
+ * timelines of spec §3: Home, a List, Bookmarks, or a profile. Each uses the
+ * same virtualized `cellInnerDiv` / `article[data-testid="tweet"]` structure
+ * (research 03 §1), so the applier and facet extraction work unchanged — the
+ * route is the only gate.
+ *
+ * Reading the path is content's job; what a scope *means* is the domain's, so
+ * {@link FilterScope} and its binding key live in `core/`.
  * x.com is a SPA, so callers re-evaluate on route change, not just page load.
  */
+export function resolveScope(pathname: string): FilterScope | null {
+  if (pathname === "/home") return { kind: "home" };
+  const list = LIST_PATH.exec(pathname);
+  if (list) return { kind: "list", listId: list[1]! };
+  if (BOOKMARKS_PATH.test(pathname)) return { kind: "bookmarks" };
+  const handle = profileHandle(pathname);
+  return handle === null ? null : { kind: "profile", handle };
+}
+
+/** Whether the Filter may run here at all — derived from {@link resolveScope}. */
 export function isInScope(pathname: string): boolean {
-  return (
-    pathname === "/home" ||
-    /^\/i\/lists\/\d+(?:\/|$)/.test(pathname) ||
-    /^\/i\/bookmarks(?:\/\d+)?\/?$/.test(pathname) ||
-    isProfileTimeline(pathname)
-  );
+  return resolveScope(pathname) !== null;
 }
 
 /**
@@ -78,15 +96,18 @@ const PROFILE_TABS = new Set([
 /**
  * A profile timeline is `/<handle>` or `/<handle>/<tab>`: handle is X's
  * `[A-Za-z0-9_]{1,15}` and not a reserved root; the optional 2nd segment must be
- * a known profile tab.
+ * a known profile tab. Returns the case-folded handle so `/Jack` and `/jack` are
+ * one scope, or null when the path is not a profile timeline.
  */
-function isProfileTimeline(pathname: string): boolean {
+function profileHandle(pathname: string): string | null {
   const segments = pathname.split("/").filter(Boolean);
-  if (segments.length === 0 || segments.length > 2) return false;
+  if (segments.length === 0 || segments.length > 2) return null;
   const handle = segments[0]!;
-  if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) return false;
-  if (RESERVED_ROOTS.has(handle.toLowerCase())) return false;
-  return segments.length === 1 || PROFILE_TABS.has(segments[1]!);
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) return null;
+  const folded = handle.toLowerCase();
+  if (RESERVED_ROOTS.has(folded)) return null;
+  if (segments.length === 2 && !PROFILE_TABS.has(segments[1]!)) return null;
+  return folded;
 }
 
 /**

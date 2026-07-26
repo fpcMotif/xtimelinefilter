@@ -3,6 +3,8 @@ import type {
   CriterionId,
   FilterMode,
   FilterPreset,
+  FilterScope,
+  FilterScopeKey,
   FilterState,
   LinkDest,
   LinkRule,
@@ -16,6 +18,24 @@ export const MAX_FILTER_NAME_LENGTH = 120;
 export const MAX_FILTER_ID_LENGTH = 128;
 
 const NEXT_MODE: Record<FilterMode, FilterMode> = { off: "only", only: "hide", hide: "off" };
+
+/**
+ * The key a scope's preset binding is stored under, or null when the scope
+ * cannot be bound. Null is a policy answer, not a missing name: Bookmarks is a
+ * real Filter scope that spec #31 deliberately leaves unbindable for now.
+ */
+export function bindingKey(scope: FilterScope): FilterScopeKey | null {
+  switch (scope.kind) {
+    case "home":
+      return "home";
+    case "list":
+      return `list:${scope.listId}`;
+    case "profile":
+      return `profile:${scope.handle}`;
+    case "bookmarks":
+      return null;
+  }
+}
 
 export type FilterCommand =
   | { type: "cycle"; id: CriterionId }
