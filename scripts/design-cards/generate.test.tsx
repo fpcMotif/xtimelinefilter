@@ -11,7 +11,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { fireEvent, render, waitFor } from "@testing-library/preact";
+import { render, waitFor } from "@testing-library/preact";
 import type { VNode } from "preact";
 import { describe, expect, it } from "vitest";
 
@@ -23,8 +23,8 @@ import type { ListCache } from "@/core/list-cache";
 import { createPickerController } from "@/core/picker-controller";
 import { createSettings, type StorageLike } from "@/core/settings";
 import type { ActiveToast } from "@/core/toast-store";
-import { XApiError, type XList } from "@/core/x-client/types";
 import { OptionsApp } from "@/options/OptionsApp";
+import { XApiError, type XList } from "@/packages/x-client/types";
 import { PopupApp } from "@/popup/PopupApp";
 import { ActionBar } from "@/ui/ActionBar";
 import {
@@ -470,12 +470,16 @@ describe("design-card generator", () => {
         minHeight: 520,
       },
       async () => {
+        // The pill is controlled: `open` comes from the parent, so both states
+        // are rendered by prop rather than by clicking it into one.
         const closed = await snap(
           <FunnelPill
             store={seededFilter()}
             hiddenCount={() => 7}
             position={{ x: 16, y: 16 }}
             onPositionChange={noop}
+            open={false}
+            onOpenChange={noop}
           />,
         );
         const r = render(
@@ -484,9 +488,10 @@ describe("design-card generator", () => {
             hiddenCount={() => 7}
             position={{ x: 16, y: 90 }}
             onPositionChange={noop}
+            open
+            onOpenChange={noop}
           />,
         );
-        fireEvent.click(r.getByRole("button", { name: "Timeline filter" }));
         await waitFor(() => r.getByRole("dialog"));
         freezeFormState(r.container);
         const open = r.container.innerHTML;
@@ -552,13 +557,20 @@ describe("design-card generator", () => {
         minHeight: 460,
       },
       async () => {
-        const ready = createPickerController({ cache: fakeCache({ cached: LISTS }) });
+        const ready = createPickerController({
+          cache: fakeCache({ cached: LISTS }),
+          currentOwner: () => null,
+        });
         await ready.open(AUTHORS.slice(0, 2));
         const loading = createPickerController({
           cache: fakeCache({ cached: null, fresh: () => new Promise<XList[]>(() => {}) }),
+          currentOwner: () => null,
         });
         void loading.open(AUTHORS.slice(0, 1));
-        const empty = createPickerController({ cache: fakeCache({ cached: null }) });
+        const empty = createPickerController({
+          cache: fakeCache({ cached: null }),
+          currentOwner: () => null,
+        });
         await empty.open(AUTHORS.slice(0, 1));
         const error = createPickerController({
           cache: fakeCache({
@@ -567,6 +579,7 @@ describe("design-card generator", () => {
               throw new XApiError("auth", "401");
             },
           }),
+          currentOwner: () => null,
         });
         await error.open(AUTHORS.slice(0, 1));
 
@@ -723,6 +736,92 @@ describe("design-card generator", () => {
         );
       },
     );
+
+    /* ── proposed: scope bindings (spec #31, ticket #34) ──────────────────
+       A DESIGN MOCKUP, not a shipping component. Ticket #34 is the review gate
+       that must clear before any of this lands as code (#36), so it composes the
+       real Lariat primitives and the real compiled CSS here rather than adding a
+       component under src/. The select reuses OptionsApp's SELECT class string
+       verbatim, so the reviewed design is what implementation will produce. */
+    {
+      // OptionsApp's SELECT verbatim minus `w-full`, so each use sets its own
+      // width — the row select must not crush the scope name beside it.
+      const SELECT =
+        "border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 rounded-lg border px-3 text-sm outline-none transition-[color,box-shadow,border-color] focus-visible:ring-2";
+
+      /** One bound scope: what it is, which preset it carries, and a way out. */
+      const bindingRow = (name: string, key: string, preset: string, presets: string[]) =>
+        `<li class="border-border flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm">
+  <span class="flex min-w-0 flex-1 flex-col">
+    <span class="font-medium">${name}</span>
+    <span class="text-faint text-compact font-mono">${key}</span>
+  </span>
+  <select aria-label="Preset for ${name}" class="${SELECT} w-44">
+    ${presets.map((p) => `<option${p === preset ? " selected" : ""}>${p}</option>`).join("")}
+  </select>
+  <button class="border-border text-muted-foreground hover:bg-secondary h-8 shrink-0 rounded-lg border px-3 text-sm" aria-label="Unbind ${name}">Unbind</button>
+</li>`;
+
+      const PRESETS = ["Links only", "Media only", "Text only"];
+      const intro = `<p class="text-muted-foreground text-compact mb-3">Give a timeline its own filter. Anything not listed here uses your shared filter.</p>`;
+
+      await card(
+        {
+          group: "Filter surfaces",
+          name: "Scope bindings — proposed (#31)",
+          file: "filter-scope-bindings.html",
+          minHeight: 460,
+        },
+        () =>
+          `${intro}
+<ul class="mb-5 flex flex-col gap-1.5">
+  ${bindingRow("Home", "home", "Links only", PRESETS)}
+  ${bindingRow("Tech News", "list:1583920441", "Media only", PRESETS)}
+  ${bindingRow("@jack", "profile:jack", "Text only", PRESETS)}
+</ul>
+${section(
+  "Bind another timeline",
+  `<div class="flex flex-col gap-2">
+  <div class="flex gap-2">
+    <select aria-label="Choose a List to bind" class="${SELECT} w-full flex-1">
+      <option>Choose one of your Lists…</option>
+      <option>Tech News</option>
+      <option>Photographers</option>
+    </select>
+    <button class="bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 shrink-0 rounded-lg px-4 text-sm font-medium">Bind</button>
+  </div>
+  <div class="flex gap-2">
+    <input aria-label="Profile handle to bind" placeholder="@handle" class="border-input bg-secondary text-foreground placeholder:text-faint h-9 flex-1 rounded-lg border px-3 text-sm outline-none" />
+    <button class="bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 shrink-0 rounded-lg px-4 text-sm font-medium">Bind</button>
+  </div>
+</div>`,
+)}`,
+      );
+
+      await card(
+        {
+          group: "Filter surfaces",
+          name: "Scope bindings — empty (#31)",
+          file: "filter-scope-bindings-empty.html",
+          minHeight: 260,
+        },
+        () =>
+          `${intro}
+<ul class="mb-5 flex flex-col gap-1.5">
+  <li class="text-faint text-compact">No scope filters yet — every timeline uses your shared filter.</li>
+</ul>
+${section(
+  "Bind a timeline",
+  `<div class="flex gap-2">
+  <select aria-label="Choose a List to bind" class="${SELECT} w-full flex-1">
+    <option>Choose one of your Lists…</option>
+    <option>Tech News</option>
+  </select>
+  <button class="bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 shrink-0 rounded-lg px-4 text-sm font-medium">Bind</button>
+</div>`,
+)}`,
+      );
+    }
 
     console.log(`cards written: ${made.length}\n${made.join("\n")}`);
     if (failures.length) console.log(`FAILED:\n${failures.join("\n")}`);
