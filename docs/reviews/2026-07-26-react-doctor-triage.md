@@ -29,12 +29,22 @@ Totals: 279 false positives, 18 confirmed, 3 needing design.
 
 ## Fix stack
 
-1. Remove the two proven-unused packages.
-2. Remount palette content on open; preserve focus and keyboard behavior.
-3. Replace repeated lookups and cache stable loop IDs.
+1. [x] Remove the two proven-unused packages.
+2. [x] Remount palette content on open; preserve focus and keyboard behavior.
+3. [x] Replace repeated lookups and cache stable loop IDs.
 
-Each batch must pass focused tests, typecheck, lint, boundaries, formatting,
-and a changed-scope React Doctor run before it lands here.
+Each batch passed focused tests, typecheck, lint, boundaries, formatting,
+and a changed-scope React Doctor run before landing here.
+
+## Validation
+
+- Focused batches: 24 palette tests and 148 loop/lookup tests passed.
+- Full suite: 1,431 tests passed; 100% statements, branches, functions, and lines.
+- Typecheck, lint, deep-module boundaries, format, production build, and
+  `git diff --check` passed.
+- Convex functions compiled and pushed to a fresh local deployment.
+- Final full React Doctor run: 287 warnings, down from 300; score 68, up from 65.
+- Final changed-scope run reports only the documented sequential Convex audit write.
 
 ## Evidence
 
