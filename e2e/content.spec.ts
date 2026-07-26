@@ -58,9 +58,129 @@ const CHROME_STUB = `(() => {
     set: async (i) => { d = { ...d, ...i }; },
     remove: async (ks) => { for (const k of [].concat(ks)) delete d[k]; },
   }; };
+  const storage = { local: mkArea(), sync: mkArea() };
+  let settings = {
+    backend: "rest",
+    activation: "auto",
+    highContrast: false,
+    surfaces: { pill: true, palette: false },
+    pillPosition: { x: 24, y: 96 },
+    paletteHotkey: "mod+shift+f",
+  };
+  const normalizeLanguages = (languages) => [...new Set(languages.map((language) =>
+    String(language).split("-")[0].trim().toLowerCase()).filter(Boolean))];
+  const filterDefaults = (languages) => ({
+    enabled: true,
+    criteria: {},
+    onlyMyLanguages: false,
+    myLanguages: normalizeLanguages(languages),
+    linkRules: [],
+    presets: [],
+    compactHidden: false,
+  });
+  const filterCommand = async (request) => {
+    const key = "lasso:filter";
+    let state = (await storage.sync.get(key))[key] || filterDefaults(request.defaultLanguages);
+    if (request.operation === "read") return { ok: true, state };
+    const command = request.command;
+    switch (command.type) {
+      case "cycle": {
+        const mode = state.criteria[command.id] || "off";
+        const next = { off: "only", only: "hide", hide: "off" }[mode];
+        if (next === "off") delete state.criteria[command.id];
+        else state.criteria = { ...state.criteria, [command.id]: next };
+        break;
+      }
+      case "set-mode":
+        if (command.mode === "off") delete state.criteria[command.id];
+        else state.criteria = { ...state.criteria, [command.id]: command.mode };
+        break;
+      case "set-enabled": state.enabled = command.on; break;
+      case "set-only-my-languages": state.onlyMyLanguages = command.on; break;
+      case "set-my-languages": state.myLanguages = normalizeLanguages(command.languages); break;
+      case "set-link-rules": state.linkRules = command.rules; break;
+      case "set-compact-hidden": state.compactHidden = command.on; break;
+      case "save-preset":
+        state.presets = [...state.presets, {
+          id: command.id, name: command.name, criteria: { ...state.criteria },
+          onlyMyLanguages: state.onlyMyLanguages, myLanguages: [...state.myLanguages],
+        }];
+        break;
+      case "apply-preset": {
+        const preset = state.presets.find((candidate) => candidate.id === command.id);
+        if (preset) state = { ...state, criteria: { ...preset.criteria },
+          onlyMyLanguages: preset.onlyMyLanguages,
+          ...(preset.myLanguages ? { myLanguages: [...preset.myLanguages] } : {}) };
+        break;
+      }
+      case "rename-preset":
+        state.presets = state.presets.map((preset) => preset.id === command.id ? { ...preset, name: command.name } : preset);
+        break;
+      case "delete-preset": state.presets = state.presets.filter((preset) => preset.id !== command.id); break;
+      case "restore": state = command.state; break;
+    }
+    await storage.sync.set({ [key]: state });
+    return { ok: true, state };
+  };
+  const coachCommand = async (command) => {
+    const key = "lasso:coach";
+    const raw = (await storage.local.get(key))[key] || {};
+    const state = {
+      onboarded: raw.onboarded === true,
+      installedAt: Number.isSafeInteger(raw.installedAt) && raw.installedAt >= 0 ? raw.installedAt : undefined,
+      assignCount: Number.isSafeInteger(raw.assignCount) && raw.assignCount >= 0 ? Math.min(raw.assignCount, 5) : 0,
+      tips: raw.tips && typeof raw.tips === "object" ? { ...raw.tips } : {},
+    };
+    const now = Date.now();
+    const active = (value) => value.installedAt !== undefined && value.assignCount < 5 && now - value.installedAt <= 604800000;
+    const stamp = (value) => value.installedAt === undefined ? { ...value, installedAt: now } : value;
+    let next = state;
+    let result;
+    switch (command?.kind) {
+      case "is-onboarded": result = { kind: "is-onboarded", onboarded: state.onboarded }; break;
+      case "mark-onboarded": next = { ...state, onboarded: true }; result = { kind: "ok" }; break;
+      case "record-assign": next = { ...state, assignCount: Math.min(state.assignCount + 1, 5) }; result = { kind: "ok" }; break;
+      case "hints-active": next = stamp(state); result = { kind: "hints-active", active: active(next) }; break;
+      case "try-show-tip": {
+        if (!["first-hover", "unit", "select-nudge", "post-assign"].includes(command.tip) || ![1, 2, 3].includes(command.max)) return { ok: false, error: "Invalid coach command" };
+        const eligible = stamp(state);
+        const shown = Number.isSafeInteger(eligible.tips[command.tip]) ? eligible.tips[command.tip] : 0;
+        if (!active(eligible) || shown >= command.max) result = { kind: "try-show-tip", show: false };
+        else { next = { ...eligible, tips: { ...eligible.tips, [command.tip]: shown + 1 } }; result = { kind: "try-show-tip", show: true }; }
+        break;
+      }
+      case "replay-intro": next = { onboarded: false, installedAt: now, assignCount: 0, tips: {} }; result = { kind: "ok" }; break;
+      default: return { ok: false, error: "Invalid coach command" };
+    }
+    if (JSON.stringify(next) !== JSON.stringify(state)) await storage.local.set({ [key]: next });
+    return { ok: true, result };
+  };
   window.chrome = {
-    storage: { local: mkArea(), sync: mkArea() },
-    runtime: { onMessage: { addListener() {} }, sendMessage: async () => {} },
+    storage,
+    runtime: {
+      onMessage: { addListener() {} },
+      sendMessage: async (request) => {
+        if (request?.type === "lasso:settings") {
+          if (request.operation === "patch") {
+            settings = { ...settings, ...request.patch,
+              surfaces: { ...settings.surfaces, ...request.patch.surfaces },
+              pillPosition: { ...settings.pillPosition, ...request.patch.pillPosition } };
+          }
+          return { ok: true, settings };
+        }
+        if (request?.type === "lasso:filter") return filterCommand(request);
+        if (request?.type === "lasso:coach") return coachCommand(request.command);
+        if (request?.type === "lasso:list-cache") {
+          if (request.operation === "all") return { ok: true, catalogs: [] };
+          if (request.operation === "begin") return { ok: true, token: { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 } };
+          return { ok: true, lists: request.operation === "commit" ? request.lists : null };
+        }
+        if (request?.type === "lasso:list-usage") return request.operation === "recent" ? { ok: true, listIds: [] } : { ok: true };
+        if (request?.type === "lasso:mirror-status") return request.operation === "read" ? { ok: true, status: null } : { ok: true };
+        if (request?.type === "lasso:graphql-catalog") return request.operation === "begin" ? { ok: true, token: { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 } } : { ok: true, entry: null };
+        return {};
+      },
+    },
   };
 })();`;
 
@@ -127,7 +247,7 @@ test.describe("content UI (real bundle, chrome stubbed)", () => {
     await expect(page.getByText("Lasso is ready")).toBeHidden();
 
     // Beat 4 — checks are hidden until hover; click selects the PERSON.
-    const overlay = page.getByRole("button", { name: /select this author/i });
+    const overlay = page.getByRole("button", { name: "Select @jack" });
     await page.hover("article");
     await expect(overlay).toBeVisible();
     await overlay.click();

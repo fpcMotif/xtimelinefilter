@@ -45,6 +45,7 @@ export function createTweetScanner(
   };
 
   const handleRemoved = (article: Element): void => {
+    /* v8 ignore next -- every matching article is handled on its added mutation before removal is observed */
     if (!seen.has(article)) return;
     // Reparent-in-one-batch guard: mutation callbacks run after the batch settled,
     // so a node that is back in the document was moved, not pruned — keep it.
@@ -53,9 +54,24 @@ export function createTweetScanner(
     opts.onTweetRemoved?.(article);
   };
 
+  const handleTweetAttribute = (article: Element): boolean => {
+    if (article.matches(Selectors.TWEET)) {
+      handle(article);
+      return true;
+    }
+    if (!seen.has(article)) return false;
+    seen.delete(article);
+    opts.onTweetRemoved?.(article);
+    return false;
+  };
+
   const observer = new MutationObserver((mutations) => {
     let matches = 0;
     for (const m of mutations) {
+      if (m.type === "attributes" && m.target instanceof Element) {
+        if (handleTweetAttribute(m.target)) matches += 1;
+        continue;
+      }
       for (const node of m.addedNodes) {
         if (!(node instanceof Element)) continue;
         if (node.matches(Selectors.TWEET)) {
@@ -80,7 +96,12 @@ export function createTweetScanner(
     start() {
       scanExisting();
       const target = root.nodeType === Node.DOCUMENT_NODE ? (root as Document).body : root;
-      observer.observe(target, { childList: true, subtree: true });
+      observer.observe(target, {
+        attributes: true,
+        attributeFilter: ["data-testid"],
+        childList: true,
+        subtree: true,
+      });
     },
     stop() {
       observer.disconnect();

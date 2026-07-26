@@ -40,6 +40,9 @@ export interface ErrorProfile {
   unknownFallback: string;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
 export const REST_PROFILE: ErrorProfile = {
   joinSeparator: "; ",
   rules: [
@@ -88,11 +91,17 @@ export async function ensureOk(res: Response, profile: ErrorProfile): Promise<un
   } catch {
     json = undefined;
   }
-  const errors = (json as { errors?: Array<{ code?: number; message?: string }> } | undefined)
-    ?.errors;
+  const envelope = isRecord(json) ? json : null;
+  const hasErrors = envelope !== null && Object.hasOwn(envelope, "errors");
+  const errors = hasErrors && envelope ? envelope.errors : undefined;
+  if (hasErrors && (!Array.isArray(errors) || !errors.every(isRecord))) {
+    throw new XApiError("unknown", profile.unknownFallback);
+  }
   if (Array.isArray(errors) && errors.length > 0) {
-    const message = errors.map((e) => e.message ?? "").join(profile.joinSeparator);
-    const codes = errors.map((e) => e.code);
+    const message = errors
+      .map((error) => (typeof error.message === "string" ? error.message : ""))
+      .join(profile.joinSeparator);
+    const codes = errors.map((error) => (typeof error.code === "number" ? error.code : undefined));
     for (const rule of profile.rules) {
       if (rule.kind === "already-member" && rule.messageMatch.test(message)) {
         throw new XApiError("already-member", message);

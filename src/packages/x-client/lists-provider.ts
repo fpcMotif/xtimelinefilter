@@ -14,14 +14,37 @@ const hasOwn = (value: Record<string, unknown>, key: string): boolean =>
 
 const malformedCatalog = (): XApiError => new XApiError("unknown", "Malformed List catalog");
 
-const isCursor = (value: string): boolean => /^(?:0|-?[1-9]\d*)$/.test(value);
+/**
+ * X documents at most 1,000 owned Lists and 25-character List names. Keep
+ * wider wire limits for older data, while bounding untrusted pagination.
+ */
+export const MAX_LIST_CATALOG_IDS = 1_000;
+export const MAX_LIST_CATALOG_PAGES = 20;
+export const MAX_LIST_ID_DIGITS = 64;
+export const MAX_LIST_NAME_CODE_POINTS = 100;
+export const MAX_LIST_CURSOR_DIGITS = 64;
+
+const isCursor = (value: string): boolean => {
+  const digits = value.startsWith("-") ? value.length - 1 : value.length;
+  return digits <= MAX_LIST_CURSOR_DIGITS && /^(?:0|-?[1-9]\d*)$/.test(value);
+};
+
+const hasAtMostCodePoints = (value: string, maximum: number): boolean => {
+  let count = 0;
+  for (const _ of value) {
+    count += 1;
+    if (count > maximum) return false;
+  }
+  return true;
+};
 
 /** X List ids are positive decimal snowflakes; never coerce an invalid wire value. */
 function listIdOf(value: unknown): string | null {
-  /* v8 ignore next -- parseOwnedList admits only records before delegating here. */
   if (!isRecord(value)) return null;
   if (hasOwn(value, "id_str")) {
-    return typeof value.id_str === "string" && /^[1-9]\d*$/.test(value.id_str)
+    return typeof value.id_str === "string" &&
+      value.id_str.length <= MAX_LIST_ID_DIGITS &&
+      /^[1-9]\d*$/.test(value.id_str)
       ? value.id_str
       : null;
   }
@@ -33,7 +56,14 @@ function listIdOf(value: unknown): string | null {
 function parseOwnedList(value: unknown): XList | null {
   if (!isRecord(value)) return null;
   const id = listIdOf(value);
-  if (!id || typeof value.name !== "string" || value.name.trim() === "") return null;
+  if (
+    !id ||
+    typeof value.name !== "string" ||
+    value.name.trim() === "" ||
+    !hasAtMostCodePoints(value.name, MAX_LIST_NAME_CODE_POINTS)
+  ) {
+    return null;
+  }
   const list: XList = { id, name: value.name };
   if (
     typeof value.member_count === "number" &&
@@ -87,8 +117,7 @@ export async function fetchOwnedLists(deps: ListsProviderDeps): Promise<XList[]>
   let cursor = "-1";
 
   while (true) {
-    /* v8 ignore next -- every successor is rejected below before it can loop back. */
-    if (seenCursors.has(cursor)) throw malformedCatalog();
+    if (seenCursors.size >= MAX_LIST_CATALOG_PAGES) throw malformedCatalog();
     seenCursors.add(cursor);
 
     const res = await deps.fetch(ownershipsUrl(cursor), {
@@ -102,6 +131,9 @@ export async function fetchOwnedLists(deps: ListsProviderDeps): Promise<XList[]>
     for (const rawList of json.lists) {
       const list = parseOwnedList(rawList);
       if (!list) throw malformedCatalog();
+      if (!listsById.has(list.id) && listsById.size >= MAX_LIST_CATALOG_IDS) {
+        throw malformedCatalog();
+      }
       if (!listsById.has(list.id)) listsById.set(list.id, list);
     }
 
@@ -128,8 +160,7 @@ export async function fetchMembershipListIds(
     let cursor = "-1";
 
     while (true) {
-      /* v8 ignore next -- every successor is rejected below before it can loop back. */
-      if (seenCursors.has(cursor)) return null;
+      if (seenCursors.size >= MAX_LIST_CATALOG_PAGES) return null;
       seenCursors.add(cursor);
 
       const res = await deps.fetch(membershipsUrl(screenName, cursor), {
@@ -144,6 +175,7 @@ export async function fetchMembershipListIds(
       for (const rawList of json.lists) {
         const id = listIdOf(rawList);
         if (!id) return null;
+        if (!ids.has(id) && ids.size >= MAX_LIST_CATALOG_IDS) return null;
         ids.add(id);
       }
 

@@ -1,11 +1,11 @@
-import { localArea, type StorageLike } from "@/core/storage-areas";
+import { requestMirrorStatus } from "@/core/protocol";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import { watchStorageKey } from "@/core/storage-sync";
 
 /**
  * The Mirror's observable heartbeat (ADR-0009 stays intact: never load-bearing).
- * The content script publishes the last recordAssign outcome to
- * chrome.storage.local under STORAGE_KEYS.mirrorStatus; the popup renders it so
+ * The content script reports the last recordAssign outcome to the worker; it
+ * persists STORAGE_KEYS.mirrorStatus and the popup renders it so
  * "is my Convex Mirror actually syncing?" is answered instantly instead of via a
  * once-only console.warn nobody sees.
  */
@@ -24,10 +24,11 @@ export function parseMirrorStatus(raw: unknown): MirrorStatus | null {
   if (
     typeof ok !== "boolean" ||
     typeof at !== "number" ||
-    !Number.isFinite(at) ||
+    !Number.isSafeInteger(at) ||
     at < 0 ||
     typeof configId !== "string" ||
-    configId.trim().length === 0
+    configId.trim().length === 0 ||
+    [...configId].length > 256
   )
     return null;
   return { ok, at, configId };
@@ -43,29 +44,59 @@ export function mirrorAgeLabel(at: number, now: number): string {
 
 export interface MirrorStatusStore {
   /** Publishes the last write outcome; fail-soft — never throws (ADR-0009: never load-bearing). */
-  publish(status: MirrorStatus): Promise<void>;
+  publish(outcome: { ok: boolean; configId: string }): Promise<void>;
   /** The last published status, or null when unset/unavailable/malformed. */
   read(): Promise<MirrorStatus | null>;
   /** Watch accepted local-storage status changes. */
   subscribe(cb: (status: MirrorStatus | null) => void): () => void;
 }
 
-export function createMirrorStatusStore(area: StorageLike = localArea()): MirrorStatusStore {
+/** Worker-owned Mirror operations. Fakes model status delivery, never storage. */
+export interface MirrorStatusPort {
+  report(outcome: { ok: boolean; configId: string }): Promise<void>;
+  read(): Promise<MirrorStatus | null>;
+  subscribe(cb: (status: MirrorStatus | null) => void): () => void;
+}
+
+export function createWorkerMirrorStatusPort(): MirrorStatusPort {
   const key = STORAGE_KEYS.mirrorStatus;
+  return {
+    async report(outcome) {
+      await requestMirrorStatus({
+        type: "lasso:mirror-status",
+        operation: "report",
+        ...outcome,
+      });
+    },
+    async read() {
+      const response = await requestMirrorStatus({
+        type: "lasso:mirror-status",
+        operation: "read",
+      });
+      return "status" in response && response.status !== undefined ? response.status : null;
+    },
+    subscribe(cb) {
+      return watchStorageKey("local", key, ({ newValue }) => cb(parseMirrorStatus(newValue)));
+    },
+  };
+}
+
+export function createMirrorStatusStore(
+  port: MirrorStatusPort = createWorkerMirrorStatusPort(),
+): MirrorStatusStore {
   const subscribers = new Set<(status: MirrorStatus | null) => void>();
   let stopWatching: (() => void) | undefined;
   return {
-    async publish(status) {
+    async publish(outcome) {
       try {
-        await area.set({ [key]: status });
+        await port.report(outcome);
       } catch {
         // extension context gone / storage unavailable — never load-bearing (ADR-0009)
       }
     },
     async read() {
       try {
-        const raw = await area.get(key);
-        return parseMirrorStatus(raw[key]);
+        return await port.read();
       } catch {
         return null; // storage unavailable — no Mirror row
       }
@@ -73,8 +104,7 @@ export function createMirrorStatusStore(area: StorageLike = localArea()): Mirror
     subscribe(cb) {
       let active = true;
       subscribers.add(cb);
-      stopWatching ??= watchStorageKey("local", key, ({ newValue }) => {
-        const status = parseMirrorStatus(newValue);
+      stopWatching ??= port.subscribe((status) => {
         for (const subscriber of subscribers) {
           try {
             subscriber(status);

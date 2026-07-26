@@ -5,7 +5,7 @@
 ## 1. Summary
 A Manifest V3 Chrome extension that lets a user, while browsing the x.com timeline / explore / search, select one or many tweets and assign their **authors** to one of the user's X **Lists** — without leaving the feed. Minimalist, extensible, swift. Built test-first in strict TypeScript.
 
-**Current implementation:** Chrome MV3, CRXJS 2.6.1, and Vite 8. `RestXListApi` is the default mutation adapter; DOM and GraphQL are alternates. List discovery is separate. Optional Mirror sync connects only to the user's configured Convex deployment.
+**Current implementation:** Chrome MV3, CRXJS 2.6.1, and Vite 8; not WXT. `RestXListApi` is default; DOM and GraphQL are alternates. Discovery is separate. Mirror is optional and connects only to the configured Convex deployment. Live authenticated X mutation, DOM, and Owner-switch proof remain pending.
 
 ## 2. Problem
 Curating X Lists is tedious: adding accounts means leaving the timeline, opening each profile, and clicking through a buried menu. There is no bulk path. Power users who discover good accounts while scrolling have no fast way to file them into a List.
@@ -40,7 +40,9 @@ Curating X Lists is tedious: adding accounts means leaving the timeline, opening
 - **FR6 Three mutation adapters** behind `XListApi`: REST (default), DOM, and GraphQL (opt-in); selectable in settings; shared contract test.
 - **FR7 Result feedback** summary toast; never silent; loud failures.
 - **FR8 Policy enforcement** human-paced, stop-on-rate-limit, idempotent already-member, explicit-gesture-only.
-- **FR9 Settings** backend strategy, default list, hotkeys, UI prefs in `chrome.storage.sync`.
+- **FR9 Durable state** worker-owned semantic commands. Settings use `chrome.storage.local`; Filter preferences use `chrome.storage.sync`.
+- **FR10 Runtime safety** capability-checked senders; ordered storage fanout; Owner-qualified cache with observation fences; clear tombstone and epoch.
+- **FR11 Action consistency** snapshot one backend per action; Undo uses that snapshot and only removes newly added Authors.
 
 ## 7. UX flows
 - **Quick (single):** hover tweet → `+List` → picker → pick → toast.

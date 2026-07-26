@@ -1,14 +1,14 @@
-import { computed, signal } from "@preact/signals-core";
-import { render } from "preact";
+import { signal } from "@preact/signals-core";
 
-import { App, OverlayBinding } from "@/content/app";
+import { App } from "@/content/app";
 import { createAppState } from "@/content/app-state";
-import { createBadgeReannouncer, type BadgeActivationState } from "@/content/badge-lifecycle";
+import { createContentActivation, type ActivationLifecycle } from "@/content/content-activation";
 import { createLassoController, type LassoController } from "@/content/controller";
 import { installFilterFeature } from "@/content/filter-feature";
 import { getCurrentAccount } from "@/content/get-current-account";
 import { getFocusedTweet } from "@/content/get-focused-tweet";
-import { createHighContrastHosts, type HighContrastHosts } from "@/content/high-contrast-hosts";
+import { createChromeCatalogCache } from "@/content/graphql-catalog-cache";
+import { createHighContrastHosts } from "@/content/high-contrast-hosts";
 import { installHoverTracker } from "@/content/hover-tracker";
 import { DEFAULT_KEYMAP, installKeyboardLayer } from "@/content/keyboard";
 import { outermostTweet } from "@/content/outermost-tweet";
@@ -16,7 +16,8 @@ import { createOverlayLifecycle } from "@/content/overlay-lifecycle";
 import { isInScope, onRouteChange } from "@/content/route";
 import { createScannerHealth } from "@/content/scanner-health";
 import { installSelectTap } from "@/content/select-tap";
-import { DriverSelectors, Selectors } from "@/content/selectors";
+import { Selectors, SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
+import { mountTweetOverlay, TWEET_OVERLAY_ATTRIBUTE } from "@/content/tweet-overlay-mount";
 import { createTweetScanner } from "@/content/tweet-scanner";
 import { createCoach } from "@/core/coach";
 import { createFilterStore } from "@/core/filter-store";
@@ -30,136 +31,66 @@ import {
   sendToBackground,
   type LassoStatusResponse,
 } from "@/core/protocol";
-import {
-  createSelectionStore,
-  type SelectionStore,
-  type TweetAuthor,
-} from "@/core/selection-store";
+import { createSelectionStore } from "@/core/selection-store";
 import { createSettings, type SettingsStore } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
 import { createUndoRegistry } from "@/core/undo";
 import { createMembershipStore } from "@/packages/membership-store/factory";
 import { createLiveMembershipStore } from "@/packages/membership-store/live";
+import { createTweetActions } from "@/packages/tweet-actions/actions";
 import * as tweetRead from "@/packages/tweet-read";
-import { createDocumentAuth } from "@/packages/x-client/auth";
-import { createCaretActions } from "@/packages/x-client/caret-actions";
-import { createDomPageDriver } from "@/packages/x-client/dom-page-driver";
-import { createXListApi } from "@/packages/x-client/factory";
-import { DEFAULT_GRAPHQL_CONFIG } from "@/packages/x-client/graphql-config";
-import { createGraphqlOpsResolver } from "@/packages/x-client/graphql-ops";
-import { createChromeOpsCache } from "@/packages/x-client/graphql-ops-chrome";
-import { fetchMembershipListIds, fetchOwnedLists } from "@/packages/x-client/lists-provider";
-import { blockUser, muteUser, unmuteUser } from "@/packages/x-client/rest-api";
-import { attachShadowRoot, createUiRoot } from "@/ui/mount";
+import { createXPageClient } from "@/packages/x-client/x-page-client";
+import { createUiRoot } from "@/ui/mount";
 
-const OVERLAY_FLAG = "data-lasso-overlay";
 const WELCOME_HASH = "#lasso-welcome";
 
-interface OverlayDeps {
-  selection: SelectionStore;
-  controller: LassoController;
-  coach: ReturnType<typeof createCoach>;
-  visualHover: ReturnType<typeof signal<Element | null>>;
-  highContrastHosts: HighContrastHosts;
-}
+const dispatchSyntheticEscape = (target: Document | Element): void => {
+  const doc = target instanceof Document ? target : target.ownerDocument;
+  const Event = doc.defaultView?.KeyboardEvent ?? KeyboardEvent;
+  const event = new Event("keydown", {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    key: "Escape",
+  });
+  (event as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] = true;
+  target.dispatchEvent(event);
+};
 
-/**
- * 22px check at the avatar's bottom-right corner — exactly where X puts its own.
- * Returns a disposer that unmounts the Preact tree: the overlay subscribes to
- * long-lived signals (selection.count/selectMode, the hover computed), so a cell
- * X's virtualization prunes MUST be unmounted or its whole detached subtree stays
- * reachable from the signal graph — memory grows with every scrolled-past post
- * and each mousemove/selection edit pays for every overlay ever mounted.
- */
-function injectOverlay(
-  article: Element,
-  author: TweetAuthor,
-  deps: OverlayDeps,
-): (() => void) | null {
-  const avatar = article.querySelector<HTMLElement>(Selectors.AVATAR_CONTAINER);
-  const anchor = avatar ?? article.querySelector('[data-testid="User-Name"]') ?? article;
-  if (anchor.querySelector(`[${OVERLAY_FLAG}]`)) return null;
-
-  const host = document.createElement("span");
-  host.setAttribute(OVERLAY_FLAG, "");
-  const previousPosition = avatar?.style.position;
-  let positionedAvatar = false;
-  if (avatar) {
-    if (getComputedStyle(avatar).position === "static") {
-      avatar.style.position = "relative";
-      positionedAvatar = true;
+const findAuthorCaret = (screenName: string): Element | null => {
+  for (const article of document.querySelectorAll(Selectors.TWEET)) {
+    const author = tweetRead.author(article);
+    if (author?.screenName.toLowerCase() === screenName.toLowerCase()) {
+      const caret = article.querySelector(Selectors.TWEET_CARET);
+      if (caret) return caret;
     }
-    host.style.cssText = "position:absolute;right:-4px;bottom:-4px;z-index:10;display:block";
-    avatar.appendChild(host);
-  } else {
-    host.style.cssText = "display:inline-flex;vertical-align:middle;margin-inline-end:6px";
-    anchor.prepend(host);
   }
+  return null;
+};
 
-  let unregisterHost: (() => void) | undefined;
-  let mount: Element | undefined;
-  try {
-    const hovered = computed(() => deps.visualHover.value === article);
-    unregisterHost = deps.highContrastHosts.register(host);
-    mount = attachShadowRoot(host).mount;
-    render(
-      <OverlayBinding
-        selection={deps.selection}
-        author={author}
-        hovered={hovered}
-        coach={deps.coach}
-        onToggle={() => deps.controller.toggleSelect(author)}
-      />,
-      mount,
-    );
-  } catch (error) {
-    unregisterHost?.();
-    host.remove();
-    /* v8 ignore next -- previousPosition is avatar.style.position, always a string whenever positionedAvatar && avatar is truthy, so the ?? "" fallback is runtime-dead */
-    if (positionedAvatar && avatar) avatar.style.position = previousPosition ?? "";
-    throw error;
-  }
-  return () => {
-    render(null, mount!); // unmount → useSignalValue effects drop their subscriptions
-    unregisterHost?.();
-    host.remove();
-    /* v8 ignore next -- previousPosition is avatar.style.position, always a string whenever positionedAvatar && avatar is truthy, so the ?? "" fallback is runtime-dead */
-    if (positionedAvatar && avatar) avatar.style.position = previousPosition ?? "";
-  };
-}
-
-type ActivationState = BadgeActivationState;
-type ActivationIntent = "silent" | "wake" | "select-mode";
-
-let activationState: ActivationState = "idle";
-let boot: Promise<boolean> | null = null;
-let wakeAfterCommit = false;
-let selectModeAfterCommit = false;
-let disposeDormantKeyboard: (() => void) | null = null;
-const badgeReannouncer = createBadgeReannouncer({
-  activationState: () => activationState,
-  publishDormant: () => sendToBackground({ type: "lasso:state", state: "asleep" }),
-});
-
-function ensureDormantKeyboard(settingsStore: SettingsStore): void {
-  /* v8 ignore next -- the sole call site (main()) runs once per module lifetime with fresh state (disposeDormantKeyboard=null, activationState=idle), so this re-entry guard never returns */
-  if (disposeDormantKeyboard || activationState === "awake") return;
+function installDormantSelectMode(request: () => void): () => void {
   const selectModeBindings = DEFAULT_KEYMAP.filter(
     (binding) => binding.command === "toggle-select-mode",
   );
-  disposeDormantKeyboard = installKeyboardLayer({
+  return installKeyboardLayer({
     keymap: selectModeBindings,
     run: (command) => {
       /* v8 ignore next -- the dormant keymap contains only the toggle-select-mode binding, so run() never receives another command */
       if (command !== "toggle-select-mode") return false;
-      void activate(settingsStore, "select-mode");
+      request();
       return true;
     },
   });
 }
 
+/* v8 ignore next -- installFilterFeature replaces this sentinel before any wired callback can read it */
+const neverStubbed = (_tweet: Element): boolean => false;
+
 /** Build one complete content capability. It either commits as a whole or unwinds. */
-async function install(settingsStore: SettingsStore): Promise<LassoController> {
+async function install(
+  settingsStore: SettingsStore,
+  lifecycle: ActivationLifecycle,
+): Promise<LassoController> {
   // Read before creating any listener or host. An on-demand tab may have slept
   // through an Options write, so this is intentionally not main()'s snapshot.
   const settings = await settingsStore.get();
@@ -168,7 +99,8 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
     cleanups.push(cleanup);
   };
   const rollback = (): void => {
-    for (const cleanup of [...cleanups].reverse()) {
+    for (let index = cleanups.length - 1; index >= 0; index -= 1) {
+      const cleanup = cleanups[index]!;
       try {
         cleanup();
       } catch (error) {
@@ -183,30 +115,24 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
     const toasts = createToastStore();
     const undo = createUndoRegistry();
     const coach = createCoach();
-    const auth = createDocumentAuth();
-    const pageFetch = window.fetch.bind(window);
-    const caret = createCaretActions();
+    const tweetActions = createTweetActions({ dispatchSyntheticEscape });
     const platform = detectPlatform();
     const mirrorStatusStore = createMirrorStatusStore();
 
-    const backend = createXListApi(settings.backend, {
-      fetch: pageFetch,
-      credentials: () => auth.credentials(),
-      createPageDriver: () => createDomPageDriver(),
-      // Self-healing GraphQL query ids: scraped from X's bundles, persisted across
-      // restarts, static config as last resort (graphql-ops.ts, ADR-0004).
-      graphqlOps: createGraphqlOpsResolver({
-        fetch: pageFetch,
-        cache: createChromeOpsCache(),
-        fallback: DEFAULT_GRAPHQL_CONFIG.ops,
-      }),
+    const xPage = createXPageClient({
+      initialBackend: settings.backend,
+      settings: settingsStore,
+      graphqlCache: createChromeCatalogCache(),
+      findAuthorCaret,
+      dispatchSyntheticEscape,
     });
+    own(xPage.dispose);
+    const backend = xPage.lists;
     const currentOwner = getCurrentAccount;
     // List discovery uses separate undocumented web v1.1 endpoints, not the mutation backend.
-    const listCache = createListCache(
-      () => fetchOwnedLists({ fetch: pageFetch, creds: auth.credentials() }),
-      { currentOwner },
-    );
+    const listCache = createListCache(() => xPage.ownedLists(), {
+      currentOwner,
+    });
     const listUsage = createListUsage();
     // Quick actions target the tweet under the mouse (fallback: X's native j/k focus).
     // visualHover tracks the pointer precisely; the tracker's sticky target stays put
@@ -236,15 +162,18 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
       currentOwner,
       membershipStore,
       recentIds: (ownerUserId, limit) => listUsage.recentIds(ownerUserId, limit),
-      memberships: (screenName) =>
-        fetchMembershipListIds({ fetch: pageFetch, creds: auth.credentials() }, screenName),
+      memberships: (screenName) => xPage.membershipListIds(screenName),
     });
 
-    const creds = () => ({ fetch: pageFetch, creds: auth.credentials() });
     // One shared filter store: the conductor mutates the same store the in-page
     // surfaces render, so filter commands flow through controller.filterCommand.
     const filterStore = createFilterStore();
     own(filterStore.dispose);
+    let isFilterStubbed = neverStubbed;
+    const assignableTweet = (): Element | null => {
+      const tweet = hover.targetTweet();
+      return tweet && !isFilterStubbed(tweet) ? tweet : null;
+    };
     const controller = createLassoController({
       selection,
       app: appState,
@@ -255,6 +184,7 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
       backend,
       cache: listCache,
       filter: filterStore,
+      filterInScope: () => isInScope(location.pathname),
       settings: settingsStore,
       membershipStore,
       currentOwner,
@@ -264,22 +194,22 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
       onMirrorResult: (result) => void mirrorStatusStore.publish(result),
       usage: listUsage,
       quick: {
-        mute: (screenName) => muteUser(creds(), screenName),
-        unmute: (screenName) => unmuteUser(creds(), screenName),
-        block: (screenName) => blockUser(creds(), screenName),
-        notInterested: (tweetEl) => caret.notInterested(tweetEl),
+        mute: (screenName) => xPage.mute(screenName),
+        unmute: (screenName) => xPage.unmute(screenName),
+        block: (screenName) => xPage.block(screenName),
+        notInterested: (tweetEl) => tweetActions.notInterested(tweetEl),
       },
       target: {
         author: () => {
-          const tweet = hover.targetTweet();
+          const tweet = assignableTweet();
           return tweet ? tweetRead.author(tweet) : null;
         },
-        tweet: hover.targetTweet,
+        tweet: assignableTweet,
       },
       openUrl: (url) => void window.open(url, "_blank", "noopener"),
       anchorFor: (tweetEl) => {
         // Open at the post's caret corner, where X's own "…" menu opens (beat 6).
-        const caretEl = tweetEl.querySelector(DriverSelectors.CARET) ?? tweetEl;
+        const caretEl = tweetEl.querySelector(Selectors.TWEET_CARET) ?? tweetEl;
         const r = caretEl.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return null;
         const width = 320;
@@ -309,29 +239,10 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
       />,
     );
 
-    // Select mode: clicking anywhere on a post's body toggles it — sweeping a
-    // thread is one click per post, no aiming at 22px circles (story beat 7).
-    own(
-      installSelectTap({
-        isActive: () => selection.selectMode.value,
-        resolveTarget: (eventTarget) => {
-          const origin = eventTarget as Element | null;
-          if (origin?.closest?.(`[${OVERLAY_FLAG}]`)) return null; // the check handles itself
-          if (origin?.closest?.("#lasso-root")) return null; // clicks on Lasso UI pass through
-          return outermostTweet(origin?.closest?.(Selectors.TWEET) ?? null);
-        },
-        onToggle: (article) => {
-          const author = tweetRead.author(article);
-          if (!author) return false;
-          controller.toggleSelect(author);
-        },
-      }),
-    );
-
     // The toolbar badge mirrors the live selection count (story beat 7).
     const reportSelectionCount = (): void =>
       sendToBackground({ type: "lasso:badge", count: selection.count.peek() });
-    own(badgeReannouncer.setAwakeReporter(reportSelectionCount));
+    own(lifecycle.setAwakeReporter(reportSelectionCount));
     own(selection.count.subscribe((count) => sendToBackground({ type: "lasso:badge", count })));
 
     // Filter capability (ADR-0010, spec §3): one self-contained feature unit owns
@@ -344,6 +255,27 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
       conduct: controller.filterCommand,
     });
     own(filter.unmount);
+    isFilterStubbed = filter.isStubbed;
+
+    // Select mode: clicking anywhere on a visible post's body toggles it — sweeping
+    // a thread is one click per post, no aiming at 22px circles (story beat 7).
+    own(
+      installSelectTap({
+        isActive: () => selection.selectMode.value,
+        resolveTarget: (eventTarget) => {
+          const origin = eventTarget as Element | null;
+          if (origin?.closest?.(`[${TWEET_OVERLAY_ATTRIBUTE}]`)) return null; // check handles itself
+          if (origin?.closest?.("#lasso-root")) return null; // clicks on Lasso UI pass through
+          const article = outermostTweet(origin?.closest?.(Selectors.TWEET) ?? null);
+          return article && !isFilterStubbed(article) ? article : null;
+        },
+        onToggle: (article) => {
+          const author = tweetRead.author(article);
+          if (!author) return false;
+          controller.toggleSelect(author);
+        },
+      }),
+    );
     // One capture-phase owner for all document keys. An open Filter palette owns
     // every binding; otherwise app layers dismiss before lower Filter surfaces.
     own(
@@ -385,7 +317,7 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
         const author = tweetRead.author(article);
         if (!author) return;
         overlays.attach(article, () =>
-          injectOverlay(article, author, {
+          mountTweetOverlay(article, author, {
             selection,
             controller,
             coach,
@@ -423,59 +355,6 @@ async function install(settingsStore: SettingsStore): Promise<LassoController> {
   }
 }
 
-/** Coalesced transactional activation. `true` means every lifetime committed. */
-function activate(settingsStore: SettingsStore, intent: ActivationIntent): Promise<boolean> {
-  if (activationState === "awake") return Promise.resolve(true);
-  if (activationState === "booting") {
-    if (intent === "wake") wakeAfterCommit = true;
-    if (intent === "select-mode") selectModeAfterCommit = true;
-    return boot!;
-  }
-
-  activationState = "booting";
-  wakeAfterCommit = intent === "wake";
-  selectModeAfterCommit = intent === "select-mode";
-  const attempt = (async (): Promise<boolean> => {
-    try {
-      const controller = await install(settingsStore);
-      activationState = "awake";
-      disposeDormantKeyboard?.();
-      disposeDormantKeyboard = null;
-      sendToBackground({ type: "lasso:state", state: "awake" });
-      if (wakeAfterCommit) {
-        wakeAfterCommit = false;
-        try {
-          controller.wake();
-        } catch (error) {
-          console.error("[Lasso] wake intent failed", error);
-        }
-      }
-      if (selectModeAfterCommit) {
-        selectModeAfterCommit = false;
-        try {
-          controller.trySelectMode();
-        } catch (error) {
-          console.error("[Lasso] select-mode intent failed", error);
-        }
-      }
-      return true;
-    } catch (error) {
-      activationState = "idle";
-      wakeAfterCommit = false;
-      selectModeAfterCommit = false;
-      sendToBackground({ type: "lasso:state", state: "asleep" });
-      console.error("[Lasso] activation failed", error);
-      return false;
-    }
-  })();
-  boot = attempt;
-  void attempt.finally(() => {
-    /* v8 ignore next -- finally is the attempt's first settled callback and boot is only reassigned by a later activate() from idle, which cannot run before it, so boot === attempt always holds here */
-    if (boot === attempt) boot = null;
-  });
-  return attempt;
-}
-
 async function main(): Promise<void> {
   console.info("%c[Lasso] content script booted", "color:#1d9bf0;font-weight:bold", location.href);
   (window as unknown as { __lasso?: unknown }).__lasso = {
@@ -483,15 +362,23 @@ async function main(): Promise<void> {
     href: location.href,
   };
   const settingsStore = createSettings();
+  const activation = createContentActivation({
+    install: (lifecycle) => install(settingsStore, lifecycle),
+    installDormantSelectMode,
+    readInitialMode: async () => (await settingsStore.get()).activation,
+    delay: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+    publishState: (state) => sendToBackground({ type: "lasso:state", state }),
+    reportError: (message, error) => console.error(message, error),
+  });
 
   // BFCache restores this document's heap without rerunning `main()`. The
   // active reporter preserves its current selection; an on-demand document
   // restores its explicit dormant state instead. Booting will publish on commit.
   window.addEventListener("pageshow", (event) => {
-    if (event.persisted) badgeReannouncer.reannounce();
+    if (event.persisted) activation.reannounce();
   });
   if ((document as Document & { prerendering?: boolean }).prerendering) {
-    document.addEventListener("prerenderingchange", () => badgeReannouncer.reannounce(), {
+    document.addEventListener("prerenderingchange", () => activation.reannounce(), {
       once: true,
     });
   }
@@ -502,48 +389,24 @@ async function main(): Promise<void> {
       (msg: unknown, _sender, sendResponse: (r: LassoStatusResponse) => void) => {
         if (!isPopupToContentMessage(msg)) return;
         if (msg.type === "lasso:status") {
-          sendResponse({ awake: activationState === "awake" });
+          sendResponse({ awake: activation.state() === "awake" });
           return;
         }
-        /* v8 ignore next -- isPopupToContentMessage admits only lasso:status and lasso-activate, and lasso:status returns above, so msg.type is always lasso-activate here */
-        if (msg.type === "lasso-activate") {
-          void activate(settingsStore, "wake")
-            .then((awake) => sendResponse({ awake }))
-            .catch((error) => {
-              console.error("[Lasso] activation response failed", error);
-              sendResponse({ awake: false });
-            });
-          return true;
-        }
+        void activation
+          .activate("wake")
+          .then((awake) => sendResponse({ awake }))
+          .catch((error) => {
+            console.error("[Lasso] activation response failed", error);
+            sendResponse({ awake: false });
+          });
+        return true;
       },
     );
   } catch {
     // not running as an extension (e2e harness) — keyboard/UI still work
   }
 
-  // Installed before hydration: a dead initial storage read must not strand an
-  // on-demand tab. Successful auto or user activation disposes this owner.
-  ensureDormantKeyboard(settingsStore);
-
-  let settings: Awaited<ReturnType<SettingsStore["get"]>>;
-  try {
-    settings = await settingsStore.get();
-  } catch (error) {
-    // The listener above still lets a later toolbar activation retry this read.
-    // A concurrent user activation owns the badge transition. Do not turn its
-    // committed awake state back into `zz` with this older read failure.
-    if (activationState === "idle") sendToBackground({ type: "lasso:state", state: "asleep" });
-    console.error("[Lasso] init failed", error);
-    return;
-  }
-
-  if (settings.activation === "auto") {
-    await activate(settingsStore, "silent");
-  } else if (activationState !== "awake") {
-    // on-demand: stay inert until the popup wakes this tab (ADR-0006); the
-    // toolbar shows a "zz" badge so dormancy is visible.
-    if (activationState === "idle") sendToBackground({ type: "lasso:state", state: "asleep" });
-  }
+  await activation.initialize();
 }
 
 main().catch((e) => console.error("[Lasso] init failed", e));

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { applyFilterCommand, defaultFilterState } from "@/core/filter-domain";
 import { createFilterStore, normalizeFilterState } from "@/core/filter-store";
 import type { StorageLike } from "@/core/settings";
 import { STORAGE_KEYS } from "@/core/storage-keys";
@@ -9,6 +10,195 @@ import { installOnChanged } from "../helpers/chrome-fake";
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("createFilterStore", () => {
+  it("keeps the public API synchronous while sending ordered worker commands", async () => {
+    const previous = globalThis.chrome;
+    let authority = defaultFilterState(["en"]);
+    const sendMessage = vi.fn((request: unknown) => {
+      const command = (request as { command?: Parameters<typeof applyFilterCommand>[1] }).command;
+      if (command) authority = applyFilterCommand(authority, command);
+      return Promise.resolve({ ok: true, state: authority });
+    });
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      s.cycle("kind:video");
+      expect(s.state.value.criteria).toEqual({ "kind:video": "only" });
+      s.cycle("kind:video");
+      expect(s.state.value.criteria).toEqual({ "kind:video": "hide" });
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+      expect(authority.criteria).toEqual({ "kind:video": "hide" });
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("adopts worker authority, but never lets a stale read erase a newer local edit", async () => {
+    const previous = globalThis.chrome;
+    let resolveRead!: (value: unknown) => void;
+    const read = new Promise<unknown>((resolve) => {
+      resolveRead = resolve;
+    });
+    const authority = {
+      ...defaultFilterState(["en"]),
+      criteria: { "kind:photo": "hide" as const },
+    };
+    const sendMessage = vi.fn((request: { operation: "read" | "command" }) =>
+      request.operation === "read"
+        ? read
+        : Promise.resolve({ ok: true, state: defaultFilterState(["en"]) }),
+    );
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      const loading = s.load();
+      s.cycle("kind:video");
+      resolveRead({ ok: true, state: authority });
+      await loading;
+      expect(s.state.value.criteria).toEqual({ "kind:video": "only" });
+
+      const fresh = createFilterStore({ navLanguages: ["en"] });
+      await fresh.load();
+      expect(fresh.state.value).toEqual(authority);
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("rolls back only its own failed worker command and keeps worker read failures fail-soft", async () => {
+    const previous = globalThis.chrome;
+    let rejectCommand!: (reason: Error) => void;
+    const sendMessage = vi.fn((request: { operation: "read" | "command" }) =>
+      request.operation === "read"
+        ? Promise.reject(new Error("offline"))
+        : new Promise<never>((_resolve, reject) => {
+            rejectCommand = reject;
+          }),
+    );
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      const prior = s.state.value;
+      s.setEnabled(false);
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+      rejectCommand(new Error("offline"));
+      await vi.waitFor(() => expect(s.state.value).toBe(prior));
+      expect(s.state.value).toBe(prior);
+      await expect(s.load()).resolves.toBeUndefined();
+      expect(s.state.value).toBe(prior);
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("does not roll back a newer optimistic worker command when an older command fails", async () => {
+    const previous = globalThis.chrome;
+    let rejectFirst!: (reason: Error) => void;
+    let resolveSecond!: (value: unknown) => void;
+    let calls = 0;
+    const sendMessage = vi.fn(() => {
+      calls += 1;
+      if (calls === 1)
+        return new Promise<never>((_resolve, reject) => {
+          rejectFirst = reject;
+        });
+      return new Promise<unknown>((resolve) => {
+        resolveSecond = resolve;
+      });
+    });
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      s.setEnabled(false);
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+      s.setOnlyMyLanguages(true);
+      const newer = s.state.value;
+      rejectFirst(new Error("first command lost"));
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+      expect(s.state.value).toBe(newer);
+      resolveSecond({ ok: true, state: newer });
+      await vi.waitFor(() => expect(s.state.value).toBe(newer));
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("accepts a verified background storage event when worker-backed", () => {
+    const previous = globalThis.chrome;
+    let listener: ((message: unknown, sender: chrome.runtime.MessageSender) => void) | undefined;
+    const removeListener = vi.fn();
+    globalThis.chrome = {
+      ...previous,
+      runtime: {
+        id: "extension-id",
+        sendMessage: async () => ({ ok: true, state: defaultFilterState(["en"]) }),
+        getManifest: () => ({ background: { service_worker: "worker.js" } }),
+        getURL: (path: string) => `chrome-extension://extension-id/${path}`,
+        onMessage: {
+          addListener: (next: typeof listener) => {
+            listener = next;
+          },
+          removeListener,
+        },
+      },
+    } as unknown as typeof chrome;
+
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      s.setRevealed(true);
+      listener?.(
+        {
+          type: "lasso:storage-changed",
+          area: "sync",
+          key: STORAGE_KEYS.filter,
+          oldValue: s.state.value,
+          newValue: { ...s.state.value, enabled: false },
+        },
+        {
+          id: "extension-id",
+          url: "chrome-extension://extension-id/worker.js",
+          origin: "chrome-extension://extension-id",
+        } as chrome.runtime.MessageSender,
+      );
+      expect(s.state.value.enabled).toBe(false);
+      expect(s.revealed.value).toBe(false);
+      s.dispose();
+      expect(removeListener).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("normalizes long BCP-47 language tags before sending a worker command", async () => {
+    const previous = globalThis.chrome;
+    let authority = defaultFilterState([]);
+    const sendMessage = vi.fn((request: unknown) => {
+      const command = (request as { command?: Parameters<typeof applyFilterCommand>[1] }).command;
+      if (command) authority = applyFilterCommand(authority, command);
+      return Promise.resolve({ ok: true, state: authority });
+    });
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const s = createFilterStore({ navLanguages: [] });
+      s.setMyLanguages(["en-x-abcdefgh-ijklmnop-qrstuvwx-yzabcdef"]);
+
+      expect(s.state.value.myLanguages).toEqual(["en"]);
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: { type: "set-my-languages", languages: ["en"] },
+        }),
+      );
+      expect(authority.myLanguages).toEqual(["en"]);
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
   it("cycles a criterion off → only → hide → off", () => {
     const s = createFilterStore({ navLanguages: ["en-US"] });
     expect(s.state.value.criteria["kind:video"]).toBeUndefined();

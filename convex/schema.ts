@@ -64,6 +64,8 @@ export default defineSchema({
     memberIdentity: v.optional(v.string()),
     action: v.union(v.literal("add"), v.literal("remove")),
     outcome: v.string(),
+    /** Mutation receipt strength. Missing values are legacy audit-only events. */
+    evidence: v.optional(v.union(v.literal("server-response"), v.literal("ui-state"))),
     message: v.optional(v.string()),
     /** Source observation time; `at` remains Mirror receipt time. */
     observedAt: v.optional(v.number()),

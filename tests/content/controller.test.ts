@@ -5,14 +5,18 @@ import { createLassoController, UNDO_WINDOW_MS } from "@/content/controller";
 import { createCoach } from "@/core/coach";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
-import type { MirrorStatus } from "@/core/mirror-status";
 import { createPickerController } from "@/core/picker-controller";
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { createSettings } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
 import { createUndoRegistry } from "@/core/undo";
 import type { MembershipChange, MembershipStore, Owner } from "@/packages/membership-store/types";
-import { XApiError, type XList, type XListApi } from "@/packages/x-client/types";
+import {
+  XApiError,
+  type MutationEvidence,
+  type XList,
+  type XListApi,
+} from "@/packages/x-client/types";
 
 const LISTS: XList[] = [
   { id: "L1", name: "Design Folks" },
@@ -21,9 +25,13 @@ const LISTS: XList[] = [
 const OWNER: Owner = { userId: "100", screenName: "me" };
 
 class FakeApi implements XListApi {
+  readonly evidence: MutationEvidence;
   added: string[] = [];
   removed: string[] = [];
   addImpl: (author: TweetAuthor) => Promise<void> = async () => {};
+  constructor(evidence: MutationEvidence = "server-response") {
+    this.evidence = evidence;
+  }
   async addMember(_list: XList, author: TweetAuthor): Promise<void> {
     this.added.push(author.screenName);
     return this.addImpl(author);
@@ -72,14 +80,17 @@ function harness(
     settings?: import("@/core/settings").SettingsStore;
     usage?: { record: (ownerUserId: string, listId: string) => Promise<void> };
     filter?: FilterStore;
+    filterInScope?: () => boolean;
     mirrorConfigurationId?: () => string | null;
-    onMirrorResult?: (result: MirrorStatus) => void;
+    onMirrorResult?: (result: { ok: boolean; configId: string }) => void;
     now?: () => number;
+    evidence?: MutationEvidence;
+    backendSource?: { snapshot(): XListApi };
   } = {},
 ) {
   const selection = createSelectionStore();
   const app = createAppState(selection);
-  const backend = new FakeApi();
+  const backend = new FakeApi(opts.evidence);
   const cache = fakeCache(opts.lists ?? LISTS);
   const currentOwner = opts.currentOwner ?? (() => OWNER);
   const picker = createPickerController({
@@ -114,7 +125,7 @@ function harness(
     toasts,
     undo,
     coach,
-    backend,
+    backend: opts.backendSource ?? { snapshot: () => backend },
     cache,
     settings,
     quick,
@@ -127,6 +138,7 @@ function harness(
     anchorFor: opts.anchorFor,
     usage: opts.usage as Parameters<typeof createLassoController>[0]["usage"],
     filter: opts.filter,
+    filterInScope: opts.filterInScope,
     assignOpts: { sleep: async () => {}, delayMs: 0 },
     ...(opts.omitNow ? {} : { now: opts.now ?? (() => Date.UTC(2026, 5, 10)) }),
   });
@@ -271,6 +283,46 @@ describe("the assign run (story beats 4 & 7)", () => {
     const toast = h.toasts.toasts.value[0];
     expect(toast?.title).toBe("Added 2 to Design Folks");
     expect(toast?.actions?.map((a) => a.label)).toEqual(["View List", "Undo"]);
+  });
+
+  it("pins a paced run to its starting backend, then uses the new backend next time", async () => {
+    const oldApi = new FakeApi();
+    const newApi = new FakeApi();
+    let current: XListApi = oldApi;
+    const first = deferred<void>();
+    oldApi.addImpl = (author) => (author.screenName === "a" ? first.promise : Promise.resolve());
+    const h = harness({ backendSource: { snapshot: () => current } });
+    h.selection.add({ screenName: "a" });
+    h.selection.add({ screenName: "b" });
+
+    const run = h.assign(LISTS[0]!);
+    await flush();
+    current = newApi;
+    first.resolve();
+    await run;
+
+    expect(oldApi.added).toEqual(["a", "b"]);
+    expect(newApi.added).toEqual([]);
+
+    h.selection.add({ screenName: "c" });
+    await h.assign(LISTS[0]!);
+    expect(newApi.added).toEqual(["c"]);
+  });
+
+  it("uses the originating backend for Undo after a switch", async () => {
+    const oldApi = new FakeApi();
+    const newApi = new FakeApi();
+    let current: XListApi = oldApi;
+    const h = harness({ backendSource: { snapshot: () => current } });
+    h.selection.add({ screenName: "a" });
+    await h.assign(LISTS[0]!);
+    current = newApi;
+
+    expect(h.controller.command("undo")).toBe(true);
+    await flush();
+
+    expect(oldApi.removed).toEqual(["a"]);
+    expect(newApi.removed).toEqual([]);
   });
 
   it("View List opens the List on X", async () => {
@@ -912,6 +964,7 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         identity: "user:7",
         action: "add",
         outcome: "added",
+        evidence: "server-response",
         observedAt: Date.UTC(2026, 5, 10),
       },
       {
@@ -919,9 +972,25 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         identity: null,
         action: "add",
         outcome: "added",
+        evidence: "server-response",
         observedAt: Date.UTC(2026, 5, 10),
       },
     ]);
+  });
+
+  it("passes a DOM receipt to the Mirror as ui-state evidence", async () => {
+    const { store, calls } = recordingStore();
+    const h = harness({ membershipStore: store, currentOwner: () => owner, evidence: "ui-state" });
+    h.selection.add({ screenName: "a", userId: "7" });
+
+    await h.assign(LISTS[0] as XList);
+    await flush();
+
+    expect(calls[0]?.changes[0]).toMatchObject({
+      action: "add",
+      outcome: "added",
+      evidence: "ui-state",
+    });
   });
 
   it("timestamps the Owner profile when it is re-read after a long assign", async () => {
@@ -1014,6 +1083,7 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         identity: null,
         action: "remove",
         outcome: "removed",
+        evidence: "server-response",
         observedAt: Date.UTC(2026, 5, 10),
       },
     ]);
@@ -1056,6 +1126,7 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         identity: "user:9",
         action: "remove",
         outcome: "failed",
+        evidence: "server-response",
         observedAt: Date.UTC(2026, 5, 10),
       },
     ]);
@@ -1082,6 +1153,7 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         identity: "user:9",
         action: "remove",
         outcome: "removed",
+        evidence: "server-response",
         observedAt: Date.UTC(2026, 5, 10),
       },
       {
@@ -1090,6 +1162,7 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
         identity: "user:10",
         action: "remove",
         outcome: "failed",
+        evidence: "server-response",
         observedAt: Date.UTC(2026, 5, 10),
       },
     ]);
@@ -1131,7 +1204,6 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     await flush();
     expect(onMirrorResult).toHaveBeenCalledWith({
       ok: true,
-      at: Date.UTC(2026, 5, 10),
       configId: "mirror-1",
     });
   });
@@ -1161,7 +1233,6 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
 
     expect(onMirrorResult).toHaveBeenCalledWith({
       ok: true,
-      at: Date.UTC(2026, 5, 10),
       configId: "mirror-a",
     });
   });
@@ -1263,7 +1334,6 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     await flush();
     expect(onMirrorResult).toHaveBeenCalledWith({
       ok: false,
-      at: Date.UTC(2026, 5, 10),
       configId: "mirror-1",
     });
 
@@ -1285,7 +1355,6 @@ describe("Mirror is off-to-the-side (ADR-0009)", () => {
     expect(onMirrorResult).toHaveBeenCalledTimes(2);
     expect(onMirrorResult).toHaveBeenLastCalledWith({
       ok: false,
-      at: Date.UTC(2026, 5, 10),
       configId: "mirror-1",
     });
     warn.mockRestore();
@@ -1440,6 +1509,23 @@ describe("keyboard command surface (story beat 6)", () => {
     expect(h.controller.command("toggle-reveal")).toBe(false);
   });
 
+  it("leaves Filter keys and direct commands inert off-route, then resumes on a timeline", () => {
+    const filter = createFilterStore({ navLanguages: ["en"] });
+    let inScope = false;
+    const h = harness({ filter, filterInScope: () => inScope });
+
+    h.controller.filterCommand((store) => store.setEnabled(false));
+    expect(h.controller.command("toggle-filter")).toBe(false);
+    expect(h.controller.command("toggle-reveal")).toBe(false);
+    expect(filter.state.value.enabled).toBe(true);
+    expect(filter.revealed.value).toBe(false);
+    expect(h.controller.command("undo")).toBe(false);
+
+    inScope = true;
+    expect(h.controller.command("toggle-filter")).toBe(true);
+    expect(filter.state.value.enabled).toBe(false);
+  });
+
   it("toggle-select selects the focused author", () => {
     const h = harness();
     expect(h.controller.command("toggle-select")).toBe(true);
@@ -1589,6 +1675,31 @@ describe("assign toast Undo action + default-list cache fallback", () => {
     undoAction?.run();
     await flush();
     expect(h.backend.removed).toEqual(["a"]);
+  });
+
+  it("releases Undo while the post-assign coaching read is still pending", async () => {
+    const h = harness();
+    const tip = deferred<boolean>();
+    vi.spyOn(h.coach, "tryShowTip").mockReturnValue(tip.promise);
+    h.selection.add({ screenName: "a" });
+
+    const assignment = h.assign(LISTS[0] as XList);
+    await vi.waitFor(() => expect(h.toasts.toasts.value[0]?.title).toBe("Added 1 to Design Folks"));
+    h.toasts.toasts.value[0]?.actions?.find((action) => action.label === "Undo")?.run();
+    await flush();
+
+    expect(h.backend.removed).toEqual(["a"]);
+    tip.resolve(false);
+    await assignment;
+  });
+
+  it("swallows a rejected post-assign coaching hint", async () => {
+    const h = harness();
+    vi.spyOn(h.coach, "tryShowTip").mockRejectedValue(new Error("coach unavailable"));
+    h.selection.add({ screenName: "a" });
+
+    await expect(h.assign(LISTS[0] as XList)).resolves.toBeUndefined();
+    await flush();
   });
 
   it("an empty selection is a no-op assign", async () => {

@@ -22,11 +22,14 @@ export function fuzzyRank<T>(query: string, items: readonly T[], key: (item: T) 
     const s = fuzzyScore(q, key(item).toLowerCase());
     if (s !== null) scored.push({ item, s });
   }
-  return scored
-    .sort((a, b) => {
-      const byScore = a.s - b.s;
-      if (byScore !== 0) return byScore;
-      return key(a.item).localeCompare(key(b.item));
-    })
-    .map((x) => x.item);
+  return (
+    scored
+      // oxlint-disable-next-line unicorn/no-array-sort -- scored is fresh; Chrome 106 lacks toSorted().
+      .sort((a, b) => {
+        const byScore = a.s - b.s;
+        if (byScore !== 0) return byScore;
+        return key(a.item).localeCompare(key(b.item));
+      })
+      .map((x) => x.item)
+  );
 }

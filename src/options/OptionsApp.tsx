@@ -1,25 +1,19 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { DEFAULT_KEYMAP, type KeyBinding } from "@/content/keyboard";
 import { type Coach, createCoach } from "@/core/coach";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import { detectPlatform, keycaps, type Platform } from "@/core/keycaps";
 import { readCachedCatalog } from "@/core/list-cache";
-import {
-  type BackendStrategy,
-  createSettings,
-  DEFAULT_SETTINGS,
-  type LassoSettings,
-  type SettingsStore,
-} from "@/core/settings";
-import { localArea, syncArea, type StorageLike } from "@/core/storage-areas";
-import { clearLassoData } from "@/core/storage-keys";
+import { requestLassoDataClear, type ClearDataResponse } from "@/core/protocol";
+import { type BackendStrategy, createSettings, type SettingsStore } from "@/core/settings";
 import { PRIVACY_LINE } from "@/core/strings";
 import { LinkRulesEditor, MyLanguagesEditor } from "@/options/FilterOptions";
 import { PresetManager, SurfaceOptions } from "@/options/SurfaceOptions";
+import { useSettingsDraft } from "@/options/use-settings-draft";
 import { defaultMembershipStoreProbe } from "@/packages/membership-store/factory";
-import type { MembershipStoreProbe } from "@/packages/membership-store/types";
+import type { MembershipStoreProbe, OwnerCatalog } from "@/packages/membership-store/types";
 import {
   Badge,
   Button,
@@ -45,10 +39,10 @@ export const ACTIVATION_COPY = {
 } as const;
 
 export const BACKEND_COPY: Record<BackendStrategy, string> = {
-  dom: "Drive X's own menus — slow; requires a currently visible post and uses only what you could click yourself",
+  dom: "Drive X's own English menus — slow; requires a currently visible post and uses only what you could click yourself",
   rest: "X's web REST endpoints — fast, same calls X's site makes; not the developer API",
   graphql:
-    "GraphQL — fastest; uses X's private endpoints and may break or be frowned upon. Opt in deliberately.",
+    "GraphQL — fastest; uses private endpoints and reads operation IDs from X's page bundles. May break or conflict with X policy. Opt in deliberately.",
 };
 
 export const DEFAULT_LIST_NONE = "None — always ask";
@@ -89,50 +83,12 @@ const RAIL = [
 export interface OptionsAppProps {
   settings?: SettingsStore;
   coach?: Coach;
-  local?: StorageLike;
-  sync?: StorageLike;
+  catalogReader?: () => Promise<OwnerCatalog[]>;
+  clearData?: () => Promise<ClearDataResponse>;
   keymap?: KeyBinding[];
   platform?: Platform;
   filter?: FilterStore;
   mirrorProbe?: MembershipStoreProbe;
-}
-
-interface PendingSettingsWrite {
-  id: number;
-  expected: LassoSettings;
-  externalEpoch: number;
-}
-
-interface PendingClear {
-  id: number;
-  superseded: boolean;
-}
-
-function mergeSettings(base: LassoSettings, patch: Partial<LassoSettings>): LassoSettings {
-  return {
-    ...base,
-    ...patch,
-    /* v8 ignore next -- no OptionsApp control patches surfaces (SurfaceOptions writes settings directly), so the merge branch is unreachable here. */
-    surfaces: patch.surfaces ? { ...base.surfaces, ...patch.surfaces } : base.surfaces,
-  };
-}
-
-function sameSettings(a: LassoSettings, b: LassoSettings): boolean {
-  return (
-    a.backend === b.backend &&
-    a.defaultList?.ownerUserId === b.defaultList?.ownerUserId &&
-    a.defaultList?.listId === b.defaultList?.listId &&
-    a.defaultListId === b.defaultListId &&
-    a.activation === b.activation &&
-    a.highContrast === b.highContrast &&
-    a.convexUrl === b.convexUrl &&
-    a.convexDeviceKey === b.convexDeviceKey &&
-    a.surfaces.pill === b.surfaces.pill &&
-    a.surfaces.palette === b.surfaces.palette &&
-    a.pillPosition.x === b.pillPosition.x &&
-    a.pillPosition.y === b.pillPosition.y &&
-    a.paletteHotkey === b.paletteHotkey
-  );
 }
 
 /**
@@ -144,8 +100,8 @@ function sameSettings(a: LassoSettings, b: LassoSettings): boolean {
 export function OptionsApp({
   settings: settingsProp,
   coach: coachProp,
-  local = localArea(),
-  sync = syncArea(),
+  catalogReader: catalogReaderProp,
+  clearData: clearDataProp,
   keymap = DEFAULT_KEYMAP,
   platform = detectPlatform(),
   filter: filterProp,
@@ -162,8 +118,9 @@ export function OptionsApp({
   const settings = useMemo(() => settingsProp ?? createSettings(), [settingsProp]);
   const coach = useMemo(() => coachProp ?? createCoach(), [coachProp]);
   const filter = useMemo(() => filterProp ?? createFilterStore(), [filterProp]);
+  const catalogReader = useMemo(() => catalogReaderProp ?? readCachedCatalog, [catalogReaderProp]);
+  const clearData = clearDataProp ?? requestLassoDataClear;
 
-  const [current, setCurrent] = useState<LassoSettings | null>(null);
   const [mirrorDraft, setMirrorDraft] = useState({ url: "", deviceKey: "" });
   const [lists, setLists] = useState<
     Array<{ id: string; name: string; owner: string; ownerUserId: string }>
@@ -172,25 +129,19 @@ export function OptionsApp({
   const [clearFailed, setClearFailed] = useState(false);
   const [replayed, setReplayed] = useState(false);
   const [urlError, setUrlError] = useState(false);
-  const [settingsLoadError, setSettingsLoadError] = useState(false);
-  const [settingsSaveError, setSettingsSaveError] = useState(false);
-  const [settingsRetry, setSettingsRetry] = useState(0);
   const [syncSaved, setSyncSaved] = useState(false);
   const [mirrorTest, setMirrorTest] = useState<"idle" | "testing" | "connected" | "failed">("idle");
   const [confirmClear, setConfirmClear] = useState(false);
   const [activeRail, setActiveRail] = useState<string>(RAIL[0].target);
   const mounted = useRef(false);
-  const settingsGeneration = useRef(0);
-  const settingsRevision = useRef(0);
-  const externalSettingsEpoch = useRef(0);
-  const writeSequence = useRef(0);
-  const pendingSettingsWrites = useRef<PendingSettingsWrite[]>([]);
-  const clearSequence = useRef(0);
-  const pendingClear = useRef<PendingClear | null>(null);
   const catalogRevision = useRef(0);
-  const currentRef = useRef<LassoSettings | null>(null);
-  const presentedSettings = useRef<LassoSettings | null>(null);
   const filterState = useSignalValue(filter.state);
+  const { current, latest, loadError, saveError, retry, patch, beginClear } =
+    useSettingsDraft(settings);
+  const presentedSettings = useRef<typeof current>(null);
+  const presentedMirrorDraft = useRef(mirrorDraft);
+  presentedSettings.current = current;
+  presentedMirrorDraft.current = mirrorDraft;
   const loaded = current !== null;
 
   useEffect(() => {
@@ -200,97 +151,19 @@ export function OptionsApp({
     };
   }, []);
 
-  const recordAuthority = (snapshot: LassoSettings): void => {
-    currentRef.current = snapshot;
-  };
-
-  const presentSettings = (snapshot: LassoSettings): void => {
-    presentedSettings.current = snapshot;
-    setCurrent(snapshot);
-  };
-
-  const adoptSettings = (snapshot: LassoSettings): void => {
-    recordAuthority(snapshot);
-    presentSettings(snapshot);
+  useLayoutEffect(() => {
+    if (!latest) return;
     setMirrorDraft({
-      url: snapshot.convexUrl ?? "",
-      deviceKey: snapshot.convexDeviceKey ?? "",
+      url: latest.convexUrl ?? "",
+      deviceKey: latest.convexDeviceKey ?? "",
     });
-  };
-
-  useEffect(() => {
-    const generation = ++settingsGeneration.current;
-    let active = true;
-    const adopt = (snapshot: LassoSettings): void => {
-      if (!active || !mounted.current || settingsGeneration.current !== generation) return;
-      adoptSettings(snapshot);
-      setSettingsLoadError(false);
-      setSettingsSaveError(false);
-    };
-
-    // Subscribe first. A newer external setting must beat this read if it
-    // resolves late.
-    const unsubscribe = settings.subscribe((snapshot) => {
-      settingsRevision.current += 1;
-      const pending = pendingSettingsWrites.current.find((write) =>
-        sameSettings(write.expected, snapshot),
-      );
-      if (pending) {
-        // `createSettings.set()` notifies before its promise settles. Its own
-        // echo confirms this request, but must not invalidate a later local
-        // request that is still pending.
-        if (pending.externalEpoch === externalSettingsEpoch.current) {
-          recordAuthority(snapshot);
-          if (!pendingSettingsWrites.current.some((write) => write.id > pending.id)) {
-            presentSettings(snapshot);
-          }
-          setSettingsSaveError(false);
-        }
-        return;
-      }
-
-      const clear = pendingClear.current;
-      if (clear && sameSettings(snapshot, DEFAULT_SETTINGS)) {
-        // A storage-remove event carries defaults. It confirms this clear; it
-        // is not a competing write.
-        adopt(snapshot);
-        setSettingsSaveError(false);
-        return;
-      }
-
-      externalSettingsEpoch.current += 1;
-      if (clear) clear.superseded = true;
-      adopt(snapshot);
-    });
-    const readRevision = settingsRevision.current;
-    setSettingsLoadError(false);
-    void Promise.resolve()
-      .then(() => settings.get())
-      .then((snapshot) => {
-        if (settingsRevision.current === readRevision) adopt(snapshot);
-      })
-      .catch(() => {
-        if (
-          active &&
-          mounted.current &&
-          settingsGeneration.current === generation &&
-          settingsRevision.current === readRevision
-        ) {
-          setSettingsLoadError(true);
-        }
-      });
-
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, [settings, settingsRetry]);
+  }, [latest]);
 
   useEffect(() => {
     let active = true;
     const readRevision = catalogRevision.current;
     void filter.load();
-    void readCachedCatalog(local)
+    void catalogReader()
       .then((catalog) => {
         if (!active || !mounted.current || catalogRevision.current !== readRevision) return;
         setLists(
@@ -303,15 +176,13 @@ export function OptionsApp({
           ),
         );
       })
-      /* v8 ignore start -- readCachedCatalog converts every storage failure to an empty catalog, so this catch never runs. */
       .catch(() => {
         if (active && mounted.current && catalogRevision.current === readRevision) setLists([]);
       });
-    /* v8 ignore stop */
     return () => {
       active = false;
     };
-  }, [local, filter, filterProp]);
+  }, [catalogReader, filter, filterProp]);
 
   useEffect(() => {
     if (filterProp) return;
@@ -344,14 +215,14 @@ export function OptionsApp({
     return () => clearTimeout(timer);
   }, [syncSaved]);
 
-  if (!current && settingsLoadError) {
+  if (!current && loadError) {
     return (
       <main class="mx-auto flex w-full max-w-[920px] flex-col gap-3 px-6 py-10">
         <p role="alert" class="text-destructive text-sm">
           Could not load settings.
         </p>
         <div>
-          <Button variant="outline" size="pill" onClick={() => setSettingsRetry((n) => n + 1)}>
+          <Button variant="outline" size="pill" onClick={retry}>
             Retry
           </Button>
         </div>
@@ -374,64 +245,7 @@ export function OptionsApp({
     );
   }
 
-  const patch = (p: Partial<LassoSettings>, onSaved?: () => void) => {
-    const generation = settingsGeneration.current;
-    const externalEpoch = externalSettingsEpoch.current;
-    let previous: LassoSettings | undefined;
-    for (const write of pendingSettingsWrites.current) {
-      if (write.externalEpoch === externalEpoch) previous = write.expected;
-    }
-    const request: PendingSettingsWrite = {
-      id: ++writeSequence.current,
-      /* v8 ignore next -- currentRef.current is recorded with `current` in adoptSettings before any patch runs, so the DEFAULT_SETTINGS fallback is unreachable. */
-      expected: mergeSettings(previous ?? currentRef.current ?? DEFAULT_SETTINGS, p),
-      externalEpoch,
-    };
-    pendingSettingsWrites.current.push(request);
-    settingsRevision.current += 1;
-    presentSettings(request.expected);
-    setSettingsSaveError(false);
-    const retire = () => {
-      const index = pendingSettingsWrites.current.indexOf(request);
-      /* v8 ignore next -- retire() runs once per request (a settled promise calls exactly one of accept/reject) and nothing else mutates the array, so the request is always present; index is never < 0. */
-      if (index >= 0) pendingSettingsWrites.current.splice(index, 1);
-    };
-    const accept = (snapshot: LassoSettings) => {
-      retire();
-      if (!mounted.current || settingsGeneration.current !== generation) return;
-      // A stale local P resolves as the newer external Q. A queued P2 may
-      // start after Q and become storage authority itself. The returned
-      // snapshot distinguishes those traces; the epoch alone cannot.
-      if (!sameSettings(snapshot, request.expected)) return;
-      recordAuthority(snapshot);
-      if (!pendingSettingsWrites.current.some((write) => write.id > request.id)) {
-        presentSettings(snapshot);
-      }
-      setSettingsSaveError(false);
-      if (request.id === writeSequence.current) onSaved?.();
-    };
-    const reject = () => {
-      retire();
-      if (
-        !mounted.current ||
-        settingsGeneration.current !== generation ||
-        externalSettingsEpoch.current !== request.externalEpoch ||
-        request.id !== writeSequence.current
-      )
-        return;
-      // Controlled controls return to confirmed authority. Mirror fields keep
-      // the latest draft so a failed write never eats what the user typed.
-      /* v8 ignore next -- recordAuthority runs before the first presentSettings in every adopt path, so once the form renders (current !== null) currentRef.current is set and is never reset to null; a rejected write always has confirmed authority to restore. */
-      if (currentRef.current) presentSettings({ ...currentRef.current });
-      setSettingsSaveError(true);
-    };
-    try {
-      void Promise.resolve(settings.set(p)).then(accept, reject);
-    } catch {
-      reject();
-    }
-  };
-  const patchSync = (p: Partial<LassoSettings>) => {
+  const patchSync = (p: Parameters<typeof patch>[0]) => {
     patch(p, () => {
       setSyncSaved(true);
       setMirrorTest("idle");
@@ -439,20 +253,33 @@ export function OptionsApp({
   };
 
   const probeMirror = async (): Promise<void> => {
-    const generation = settingsGeneration.current;
-    const config = { url: current.convexUrl!, deviceKey: current.convexDeviceKey! };
+    const config = { url: mirrorDraft.url.trim(), deviceKey: mirrorDraft.deviceKey.trim() };
+    if (
+      !isValidConvexUrl(config.url) ||
+      !config.deviceKey ||
+      current.convexUrl !== config.url ||
+      current.convexDeviceKey !== config.deviceKey
+    ) {
+      return;
+    }
     const isCurrentConfig = () => {
-      const latest = presentedSettings.current;
-      return latest?.convexUrl === config.url && latest.convexDeviceKey === config.deviceKey;
+      const presented = presentedSettings.current;
+      const draft = presentedMirrorDraft.current;
+      return (
+        presented?.convexUrl === config.url &&
+        presented.convexDeviceKey === config.deviceKey &&
+        draft.url.trim() === config.url &&
+        draft.deviceKey.trim() === config.deviceKey
+      );
     };
     setMirrorTest("testing");
     try {
       await mirrorProbe.probe(config);
-      if (mounted.current && settingsGeneration.current === generation && isCurrentConfig()) {
+      if (mounted.current && isCurrentConfig()) {
         setMirrorTest("connected");
       }
     } catch {
-      if (mounted.current && settingsGeneration.current === generation && isCurrentConfig()) {
+      if (mounted.current && isCurrentConfig()) {
         setMirrorTest("failed");
       }
     }
@@ -489,7 +316,7 @@ export function OptionsApp({
           <h1 class="text-[24px] font-bold tracking-tight">Settings</h1>
           <p class="text-muted-foreground text-sm">How and when Lasso runs on x.com.</p>
         </header>
-        {settingsSaveError && (
+        {saveError && (
           <p role="alert" class="text-destructive text-sm">
             Could not save settings. Try again.
           </p>
@@ -664,7 +491,7 @@ export function OptionsApp({
           id="surfaces"
           helper="Where the filter shows up on x.com: the floating funnel pill, the command palette, and the palette's shortcut."
         >
-          <SurfaceOptions settings={settings} />
+          <SurfaceOptions settings={current} onPatch={patch} />
         </Section>
 
         <Section
@@ -688,6 +515,7 @@ export function OptionsApp({
                 onChange={(e) => {
                   const value = (e.currentTarget as HTMLInputElement).value;
                   setMirrorDraft((draft) => ({ ...draft, url: value }));
+                  setMirrorTest("idle");
                   const raw = value.trim();
                   if (raw === "") {
                     setUrlError(false);
@@ -721,6 +549,7 @@ export function OptionsApp({
                 onChange={(e) => {
                   const value = (e.currentTarget as HTMLInputElement).value;
                   setMirrorDraft((draft) => ({ ...draft, deviceKey: value }));
+                  setMirrorTest("idle");
                   patchSync({ convexDeviceKey: value.trim() || undefined });
                 }}
               />
@@ -730,7 +559,13 @@ export function OptionsApp({
             <Button
               variant="secondary"
               size="pill"
-              disabled={mirrorTest === "testing" || !current.convexUrl || !current.convexDeviceKey}
+              disabled={
+                mirrorTest === "testing" ||
+                !isValidConvexUrl(mirrorDraft.url.trim()) ||
+                !mirrorDraft.deviceKey.trim() ||
+                current.convexUrl !== mirrorDraft.url.trim() ||
+                current.convexDeviceKey !== mirrorDraft.deviceKey.trim()
+              }
               onClick={() => void probeMirror()}
             >
               {mirrorTest === "testing" ? "Testing…" : "Test connection"}
@@ -774,44 +609,31 @@ export function OptionsApp({
                   variant="destructive"
                   size="pill"
                   onClick={() => {
-                    const clear: PendingClear = { id: ++clearSequence.current, superseded: false };
-                    pendingClear.current = clear;
-                    settingsRevision.current += 1;
-                    const catalogClearRevision = ++catalogRevision.current;
-                    void clearLassoData(local, sync)
+                    const clear = beginClear();
+                    catalogRevision.current += 1;
+                    void clearData()
                       .then(({ localCleared, syncCleared }) => {
                         if (!mounted.current) return;
                         if (!localCleared || !syncCleared) {
-                          if (pendingClear.current === clear) pendingClear.current = null;
+                          clear.abort();
                           setClearFailed(true);
                           return;
                         }
-                        // Do not ask the cache: it may still hold the erased
-                        // snapshot until chrome.storage emits its change event.
-                        // DEFAULT_SETTINGS is also the intended dev baseline.
-                        if (pendingClear.current !== clear) return;
-                        if (clear.superseded) {
-                          pendingClear.current = null;
+                        if (!clear.finish()) {
                           setClearFailed(true);
                           return;
                         }
-                        /* v8 ignore next -- catalogRevision advances only when a newer clear starts, which also replaces pendingClear (caught above at the pendingClear.current !== clear guard); this guard's true branch is unreachable. */
-                        if (catalogRevision.current !== catalogClearRevision) return;
-                        adoptSettings(DEFAULT_SETTINGS);
-                        pendingClear.current = null;
                         setConfirmClear(false);
                         setClearFailed(false);
                         setCleared(true);
-                        setSettingsSaveError(false);
                         setUrlError(false);
                         setMirrorTest("idle");
                         setLists([]);
                       })
-                      /* v8 ignore start -- clearLassoData reports both storage failures in its result, so this catch never runs. */
                       .catch(() => {
+                        clear.abort();
                         if (mounted.current) setClearFailed(true);
                       });
-                    /* v8 ignore stop */
                   }}
                 >
                   Yes, clear it

@@ -13,6 +13,9 @@ import type {
   ObservedMembershipSnapshot,
 } from "./types";
 
+/** Must stay aligned with Convex's `MAX_ASSIGN_RESULTS`; this adapter batches audit writes. */
+const RECORD_ASSIGN_BATCH_SIZE = 256;
+
 /** The Convex calls the store needs — the real ConvexClient satisfies this structurally. */
 export interface ConvexCalls {
   mutation(ref: unknown, args: Record<string, unknown>): Promise<unknown>;
@@ -76,20 +79,24 @@ export class ConvexMembershipStore implements MembershipStore {
     list: XList,
     observation: ObservedMembershipChanges,
   ): Promise<void> {
-    await this.client.mutation(this.api.recordAssign, {
-      deviceKey: this.deviceKey,
-      owner,
-      ownerObservedAt: observation.ownerObservedAt,
-      list: listArg(list),
-      results: observation.changes.map((c) => ({
-        memberScreenName: c.screenName,
-        ...(c.userId !== undefined ? { memberUserId: c.userId } : {}),
-        ...(c.identity !== null ? { memberIdentity: c.identity } : {}),
-        action: c.action,
-        outcome: c.outcome,
-        observedAt: c.observedAt,
-      })),
-    });
+    const results = observation.changes.map((c) => ({
+      memberScreenName: c.screenName,
+      ...(c.userId !== undefined ? { memberUserId: c.userId } : {}),
+      ...(c.identity !== null ? { memberIdentity: c.identity } : {}),
+      action: c.action,
+      outcome: c.outcome,
+      evidence: c.evidence,
+      observedAt: c.observedAt,
+    }));
+    for (let start = 0; start < Math.max(results.length, 1); start += RECORD_ASSIGN_BATCH_SIZE) {
+      await this.client.mutation(this.api.recordAssign, {
+        deviceKey: this.deviceKey,
+        owner,
+        ownerObservedAt: observation.ownerObservedAt,
+        list: listArg(list),
+        results: results.slice(start, start + RECORD_ASSIGN_BATCH_SIZE),
+      });
+    }
   }
 
   async reconcileAuthor(

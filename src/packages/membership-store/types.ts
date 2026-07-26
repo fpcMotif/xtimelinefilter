@@ -1,9 +1,14 @@
-import type { XList } from "@/packages/x-client/types";
+import type {
+  AssignOutcome,
+  MutationEvidence,
+  RemoveOutcome,
+  XList,
+} from "@/packages/x-client/types";
 
 import type { MembershipIdentity } from "./lib/identity";
 
-/** One of *your own* X accounts, captured at action time (ADR-0009). The operator
- *  / list owner — distinct from Account/Author (the member). */
+/** One of *your own* X accounts, read when an operation observes its Owner
+ *  (ADR-0009). The operator / list owner — distinct from Account/Author. */
 export interface Owner {
   /** numeric X id (rest_id), read from the `twid` cookie — the stable identity. */
   userId: string;
@@ -28,18 +33,21 @@ export interface OwnerCatalog {
   lastReconciledAt?: number;
 }
 
-/** One mirrored membership change — an add run result OR an undo removal. */
-export interface MembershipChange {
+interface MembershipChangeBase {
   screenName: string;
   userId?: string;
   /** Stable cache identity. Null means audit-only: never write a snapshot. */
   identity: MembershipIdentity | null;
-  action: "add" | "remove";
-  /** AssignOutcome for adds ("added"/"already-member"/…); "removed"/"failed" for removes. */
-  outcome: string;
   /** When X finished this exact add/remove attempt. */
   observedAt: number;
+  /** What accepted this mutation; only a server response may update cached facts. */
+  evidence: MutationEvidence;
 }
+
+/** One mirrored add or remove result. Direction and outcome stay coupled. */
+export type MembershipChange =
+  | (MembershipChangeBase & { action: "add"; outcome: AssignOutcome })
+  | (MembershipChangeBase & { action: "remove"; outcome: RemoveOutcome });
 
 /** Direct membership facts, each timed at its own X attempt completion. */
 export interface ObservedMembershipChanges {

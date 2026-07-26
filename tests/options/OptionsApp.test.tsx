@@ -35,11 +35,17 @@ function deferred<T>() {
 }
 
 const cachedLists = () => ({
-  [`${STORAGE_KEYS.lists}:100`]: {
+  [STORAGE_KEYS.cacheObservation]: {
     schema: 1,
+    epoch: "00000000-0000-4000-8000-000000000001",
+    sequence: 1,
+  },
+  [`${STORAGE_KEYS.lists}:100`]: {
+    schema: 2,
     owner: { userId: "100", screenName: "me" },
     lists: [{ id: "9", name: "Design Folks" }],
     refreshedAt: 1,
+    observation: { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 },
   },
 });
 
@@ -61,22 +67,43 @@ async function setup(
   const settings = createSettings(sync);
   const coach = createCoach(local);
   const filter = createFilterStore({ storage: memoryArea() });
+  const catalogReader = async () => {
+    const row = seedLocal[`${STORAGE_KEYS.lists}:100`] as
+      | {
+          owner: { userId: string; screenName: string };
+          lists: Array<{ id: string; name: string }>;
+        }
+      | undefined;
+    return row ? [{ owner: row.owner, lists: row.lists }] : [];
+  };
+  const clearData = vi.fn(async () => ({ localCleared: true, syncCleared: true }));
   const r = render(
     <OptionsApp
       settings={settings}
       coach={coach}
-      local={local}
-      sync={sync}
+      catalogReader={catalogReader}
+      clearData={clearData}
       platform="other"
       filter={filter}
       mirrorProbe={mirrorProbe}
     />,
   );
   await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
-  return { ...r, local, sync, settings, coach, filter };
+  return { ...r, local, sync, settings, coach, filter, clearData };
 }
 
 describe("OptionsApp — story beat 9", () => {
+  it("loads and saves through its browser-backed defaults", async () => {
+    const r = render(<OptionsApp platform="other" />);
+
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    fireEvent.click(r.getByLabelText("Higher-contrast buttons"));
+
+    await waitFor(() =>
+      expect((r.getByLabelText("Higher-contrast buttons") as HTMLInputElement).checked).toBe(true),
+    );
+  });
+
   it("shows an error and restores confirmed controls after rejected setting writes", async () => {
     const settings: SettingsStore = {
       get: async () => ({
@@ -91,8 +118,6 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -132,8 +157,6 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -160,8 +183,6 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -189,8 +210,6 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -227,8 +246,6 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -270,8 +287,6 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -304,8 +319,6 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -389,9 +402,7 @@ describe("OptionsApp — story beat 9", () => {
     fireEvent.click(s.getByText("Clear Lasso data"));
     fireEvent.click(await waitFor(() => s.getByText("Yes, clear it"))); // confirm step
     await waitFor(() => expect(s.getByText("Cleared")).toBeTruthy());
-    expect(Object.keys(s.local.data)).toEqual([]);
-    expect(STORAGE_KEYS.settings in s.sync.data).toBe(false);
-    expect(STORAGE_KEYS.filter in s.sync.data).toBe(false);
+    expect(s.clearData).toHaveBeenCalledOnce();
   });
 
   it("renders build defaults after clear without rereading a stale settings cache", async () => {
@@ -426,8 +437,10 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(local)}
-        local={local}
-        sync={sync}
+        clearData={async () => {
+          emit(DEFAULT_SETTINGS);
+          return { localCleared: true, syncCleared: true };
+        }}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -436,9 +449,8 @@ describe("OptionsApp — story beat 9", () => {
     expect((r.getByLabelText("Convex deployment URL") as HTMLInputElement).value).toBe(
       "https://stale.convex.cloud",
     );
-    // SurfaceOptions owns its separate initial read; settle it before testing
-    // that the clear path itself never asks a stale cache.
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    // OptionsApp is the only settings reader; clear must not ask its stale cache.
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
     const readsBeforeClear = get.mock.calls.length;
 
     fireEvent.click(r.getByText("Clear Lasso data"));
@@ -465,8 +477,28 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={createSettings(sync)}
         coach={createCoach(local)}
-        local={local}
-        sync={sync}
+        clearData={async () => ({ localCleared: false, syncCleared: true })}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.click(r.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => r.getByText("Yes, clear it")));
+
+    await waitFor(() => expect(r.getByText("Could not clear all data. Try again.")).toBeTruthy());
+    expect(r.queryByText("Cleared")).toBeNull();
+  });
+
+  it("reports a rejected clear request", async () => {
+    const r = render(
+      <OptionsApp
+        settings={createSettings(memoryArea())}
+        coach={createCoach(memoryArea())}
+        clearData={async () => {
+          throw new Error("worker unavailable");
+        }}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -481,10 +513,8 @@ describe("OptionsApp — story beat 9", () => {
   });
 
   it("rejects a clear superseded by an external settings snapshot", async () => {
-    const removal = deferred<void>();
+    const removal = deferred<{ localCleared: boolean; syncCleared: boolean }>();
     const local = memoryArea({ [STORAGE_KEYS.coach]: { onboarded: true } });
-    local.remove = () => removal.promise;
-    const sync = memoryArea();
     const subscribers = new Set<(snapshot: LassoSettings) => void>();
     const settings: SettingsStore = {
       get: async () => DEFAULT_SETTINGS,
@@ -498,8 +528,7 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(local)}
-        local={local}
-        sync={sync}
+        clearData={() => removal.promise}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -511,7 +540,7 @@ describe("OptionsApp — story beat 9", () => {
     for (const subscribe of subscribers) {
       subscribe({ ...DEFAULT_SETTINGS, activation: "on-demand" });
     }
-    removal.resolve();
+    removal.resolve({ localCleared: true, syncCleared: true });
 
     await waitFor(() => expect(r.getByText("Could not clear all data. Try again.")).toBeTruthy());
     expect(r.queryByText("Cleared")).toBeNull();
@@ -523,15 +552,7 @@ describe("OptionsApp — story beat 9", () => {
     const coach = createCoach(local);
     await coach.markOnboarded();
     const replaySpy = vi.spyOn(coach, "replayIntro");
-    const r = render(
-      <OptionsApp
-        settings={createSettings(sync)}
-        coach={coach}
-        local={local}
-        sync={sync}
-        platform="other"
-      />,
-    );
+    const r = render(<OptionsApp settings={createSettings(sync)} coach={coach} platform="other" />);
     await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
     fireEvent.click(r.getByText("Replay intro"));
     await waitFor(async () => expect(await coach.isOnboarded()).toBe(false));
@@ -598,6 +619,29 @@ describe("OptionsApp — story beat 9", () => {
     });
   });
 
+  it("cannot probe an old saved Mirror config while the visible URL is invalid", async () => {
+    const probe = vi.fn(async () => {});
+    const s = await setup(
+      {},
+      { probe },
+      { convexUrl: "https://good.convex.cloud", convexDeviceKey: "secret" },
+    );
+    const button = s.getByRole("button", { name: "Test connection" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.change(s.getByLabelText("Convex deployment URL"), {
+      target: { value: "invalid" },
+    });
+
+    expect(button.disabled).toBe(true);
+    // A queued click can outlive its disabled render. The handler still must
+    // not probe the old credentials after the visible config became invalid.
+    button.removeAttribute("disabled");
+    fireEvent.click(button);
+    expect(probe).not.toHaveBeenCalled();
+    expect(s.queryByText("Connected")).toBeNull();
+  });
+
   it("tests the saved Mirror connection without exposing credentials", async () => {
     const probe = vi.fn(async () => {});
     const s = await setup({}, { probe });
@@ -651,8 +695,6 @@ describe("OptionsApp — story beat 9", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
         mirrorProbe={{ probe: () => probe.promise }}
@@ -787,6 +829,26 @@ describe("OptionsApp — rail scroll-spy + destructive confirm", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("treats a rejected catalog port as no cached Lists", async () => {
+    const r = render(
+      <OptionsApp
+        settings={createSettings(memoryArea())}
+        coach={createCoach(memoryArea())}
+        catalogReader={async () => {
+          throw new Error("worker unavailable");
+        }}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    const select = r.getByLabelText("Default List") as HTMLSelectElement;
+    await waitFor(() =>
+      expect([...select.options].map((option) => option.textContent)).toEqual([DEFAULT_LIST_NONE]),
+    );
+  });
 });
 
 describe("OptionsApp — late async work is dropped after unmount or supersession", () => {
@@ -801,8 +863,6 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -827,8 +887,6 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
       <OptionsApp
         settings={createSettings(sync)}
         coach={createCoach(memoryArea())}
-        local={local}
-        sync={sync}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -836,6 +894,26 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
     await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
     r.unmount();
     catalogRead.resolve({});
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it("drops a Lists catalog failure after unmount", async () => {
+    const catalogRead = deferred<never[]>();
+    const r = render(
+      <OptionsApp
+        settings={createSettings(memoryArea())}
+        coach={createCoach(memoryArea())}
+        catalogReader={() => catalogRead.promise}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    r.unmount();
+    catalogRead.reject(new Error("worker unavailable"));
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -853,8 +931,6 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -869,16 +945,13 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
   });
 
   it("drops a clear whose storage settles after unmount", async () => {
-    const removal = deferred<void>();
-    const local = memoryArea({ [STORAGE_KEYS.coach]: { onboarded: true } });
-    local.remove = () => removal.promise;
+    const removal = deferred<{ localCleared: boolean; syncCleared: boolean }>();
     const sync = memoryArea();
     const r = render(
       <OptionsApp
         settings={createSettings(sync)}
         coach={createCoach(memoryArea())}
-        local={local}
-        sync={sync}
+        clearData={() => removal.promise}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -887,24 +960,45 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
     fireEvent.click(r.getByText("Clear Lasso data"));
     fireEvent.click(await waitFor(() => r.getByText("Yes, clear it")));
     r.unmount();
-    removal.resolve();
+    removal.resolve({ localCleared: true, syncCleared: true });
+    await act(async () => {
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+  });
+
+  it("drops a clear failure after unmount", async () => {
+    const removal = deferred<{ localCleared: boolean; syncCleared: boolean }>();
+    const r = render(
+      <OptionsApp
+        settings={createSettings(memoryArea())}
+        coach={createCoach(memoryArea())}
+        clearData={() => removal.promise}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    fireEvent.click(r.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => r.getByText("Yes, clear it")));
+    r.unmount();
+    removal.reject(new Error("storage unavailable"));
     await act(async () => {
       for (let i = 0; i < 8; i++) await Promise.resolve();
     });
   });
 
   it("discards a clear result once a newer clear supersedes it", async () => {
-    const removals = [deferred<void>(), deferred<void>()];
+    const removals = [
+      deferred<{ localCleared: boolean; syncCleared: boolean }>(),
+      deferred<{ localCleared: boolean; syncCleared: boolean }>(),
+    ];
     let call = 0;
-    const local = memoryArea({ [STORAGE_KEYS.coach]: { onboarded: true } });
-    local.remove = () => removals[call++]!.promise;
     const sync = memoryArea();
     const r = render(
       <OptionsApp
         settings={createSettings(sync)}
         coach={createCoach(memoryArea())}
-        local={local}
-        sync={sync}
+        clearData={() => removals[call++]!.promise}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -913,13 +1007,13 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
     fireEvent.click(r.getByText("Clear Lasso data"));
     fireEvent.click(await waitFor(() => r.getByText("Yes, clear it"))); // clear #1
     fireEvent.click(r.getByText("Yes, clear it")); // clear #2 supersedes #1
-    removals[0]!.resolve(); // #1 settles, but pendingClear now points at #2
+    removals[0]!.resolve({ localCleared: true, syncCleared: true }); // #1 settles, but pendingClear now points at #2
     await act(async () => {
       for (let i = 0; i < 8; i++) await Promise.resolve();
     });
     expect(r.queryByText("Cleared")).toBeNull(); // the superseded #1 result never lands
 
-    removals[1]!.resolve(); // #2 is authority and completes the clear
+    removals[1]!.resolve({ localCleared: true, syncCleared: true }); // #2 is authority and completes the clear
     await act(async () => {
       for (let i = 0; i < 8; i++) await Promise.resolve();
     });
@@ -933,8 +1027,6 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
       <OptionsApp
         settings={createSettings(memoryArea())}
         coach={coach}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -950,6 +1042,87 @@ describe("OptionsApp — late async work is dropped after unmount or supersessio
 });
 
 describe("OptionsApp — Sync saved acknowledgement", () => {
+  it("acknowledges a saved Mirror edit that rotates its internal identity", async () => {
+    const s = await setup(
+      {},
+      { probe: async () => {} },
+      {
+        convexUrl: "https://first.convex.cloud",
+        convexDeviceKey: "first-key",
+        mirrorConfigId: "mirror-first",
+      },
+    );
+    fireEvent.click(s.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(s.getByText("Connected")).toBeTruthy());
+
+    fireEvent.change(s.getByLabelText("Convex device key"), { target: { value: "second-key" } });
+
+    await waitFor(() => expect(s.getByText("Saved")).toBeTruthy());
+    expect(s.queryByText("Connected")).toBeNull();
+    expect((s.sync.data[STORAGE_KEYS.settings] as LassoSettings).mirrorConfigId).not.toBe(
+      "mirror-first",
+    );
+  });
+
+  it("shows Saved when P1 fails and P2's local Mirror snapshot differs", async () => {
+    const first = deferred<LassoSettings>();
+    const second = deferred<LassoSettings>();
+    const initial = {
+      ...DEFAULT_SETTINGS,
+      convexUrl: "https://first.convex.cloud",
+      convexDeviceKey: "first-key",
+      mirrorConfigId: "mirror-first",
+    };
+    const accepted = {
+      ...initial,
+      convexDeviceKey: "second-key",
+      mirrorConfigId: "mirror-second",
+    };
+    const writes = [first, second];
+    let publish: Parameters<SettingsStore["subscribe"]>[0] | undefined;
+    const settings: SettingsStore = {
+      get: async () => initial,
+      set: () => writes.shift()!.promise,
+      subscribe: (listener) => {
+        publish = listener;
+        return () => {};
+      },
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+        mirrorProbe={{ probe: async () => {} }}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    fireEvent.click(r.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(r.getByText("Connected")).toBeTruthy());
+
+    fireEvent.change(r.getByLabelText("Convex deployment URL"), {
+      target: { value: "https://second.convex.cloud" },
+    });
+    fireEvent.change(r.getByLabelText("Convex device key"), { target: { value: "second-key" } });
+    first.reject(new Error("storage unavailable"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => publish?.(accepted, "local"));
+
+    await waitFor(() => expect(r.getByText("Saved")).toBeTruthy());
+    expect(r.queryByText("Connected")).toBeNull();
+    expect((r.getByLabelText("Convex deployment URL") as HTMLInputElement).value).toBe(
+      initial.convexUrl,
+    );
+    expect((r.getByLabelText("Convex device key") as HTMLInputElement).value).toBe(
+      accepted.convexDeviceKey,
+    );
+    second.resolve(accepted);
+  });
+
   it("shows a transient Saved tick after persisting a Sync field", async () => {
     const s = await setup();
     const url = s.getByLabelText("Convex deployment URL") as HTMLInputElement;
@@ -974,6 +1147,107 @@ describe("OptionsApp — Sync saved acknowledgement", () => {
 });
 
 describe("OptionsApp — epoch fencing and supersession edges", () => {
+  it("keeps the newest surface and general save when the older save settles last", async () => {
+    const first = deferred<LassoSettings>();
+    const second = deferred<LassoSettings>();
+    const saves = [first, second];
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: vi.fn(() => saves.shift()!.promise),
+      subscribe: () => () => {},
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.change(r.getByLabelText("Command palette"), { target: { checked: true } });
+    fireEvent.click(r.getByLabelText("Higher-contrast buttons"));
+
+    const newest = {
+      ...DEFAULT_SETTINGS,
+      highContrast: true,
+      surfaces: { pill: true, palette: true },
+    };
+    second.resolve(newest);
+    await waitFor(() => {
+      expect((r.getByLabelText("Command palette") as HTMLInputElement).checked).toBe(true);
+      expect((r.getByLabelText("Higher-contrast buttons") as HTMLInputElement).checked).toBe(true);
+    });
+
+    first.resolve({ ...DEFAULT_SETTINGS, surfaces: { pill: true, palette: true } });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((r.getByLabelText("Command palette") as HTMLInputElement).checked).toBe(true);
+    expect((r.getByLabelText("Higher-contrast buttons") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("rolls a failed surface save back through OptionsApp authority", async () => {
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: async () => Promise.reject(new Error("storage unavailable")),
+      subscribe: () => () => {},
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.change(r.getByLabelText("Command palette"), { target: { checked: true } });
+
+    await waitFor(() =>
+      expect(r.getByRole("alert").textContent).toBe("Could not save settings. Try again."),
+    );
+    expect((r.getByLabelText("Command palette") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("keeps clear authority when an earlier surface save resolves late", async () => {
+    const write = deferred<LassoSettings>();
+    const clear = deferred<{ localCleared: boolean; syncCleared: boolean }>();
+    const settings: SettingsStore = {
+      get: async () => DEFAULT_SETTINGS,
+      set: () => write.promise,
+      subscribe: () => () => {},
+    };
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        clearData={() => clear.promise}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    fireEvent.change(r.getByLabelText("Command palette"), { target: { checked: true } });
+    fireEvent.click(r.getByText("Clear Lasso data"));
+    fireEvent.click(await waitFor(() => r.getByText("Yes, clear it")));
+    clear.resolve({ localCleared: true, syncCleared: true });
+    await waitFor(() => expect(r.getByText("Cleared")).toBeTruthy());
+
+    write.resolve({ ...DEFAULT_SETTINGS, surfaces: { pill: true, palette: true } });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((r.getByLabelText("Command palette") as HTMLInputElement).checked).toBe(false);
+  });
+
   it("drops a resolved write's authority once a newer external change fenced its epoch", async () => {
     const write = deferred<LassoSettings>();
     const subscribers = new Set<(snapshot: LassoSettings) => void>();
@@ -989,8 +1263,6 @@ describe("OptionsApp — epoch fencing and supersession edges", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -1028,8 +1300,6 @@ describe("OptionsApp — epoch fencing and supersession edges", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -1064,8 +1334,6 @@ describe("OptionsApp — epoch fencing and supersession edges", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -1111,8 +1379,6 @@ describe("OptionsApp — epoch fencing and supersession edges", () => {
       <OptionsApp
         settings={settings}
         coach={createCoach(memoryArea())}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
         mirrorProbe={{ probe: () => probe.promise }}
@@ -1133,17 +1399,18 @@ describe("OptionsApp — epoch fencing and supersession edges", () => {
   });
 
   it("keeps a newer clear's ownership when a superseded clear reports a partial failure", async () => {
-    const removals = [deferred<void>(), deferred<void>()];
+    const removals = [
+      deferred<{ localCleared: boolean; syncCleared: boolean }>(),
+      deferred<{ localCleared: boolean; syncCleared: boolean }>(),
+    ];
     let call = 0;
     const local = memoryArea({ [STORAGE_KEYS.coach]: { onboarded: true } });
-    local.remove = () => removals[call++]!.promise;
     const sync = memoryArea();
     const r = render(
       <OptionsApp
         settings={createSettings(sync)}
         coach={createCoach(local)}
-        local={local}
-        sync={sync}
+        clearData={() => removals[call++]!.promise}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,
@@ -1162,7 +1429,7 @@ describe("OptionsApp — epoch fencing and supersession edges", () => {
     expect(r.getByText("Could not clear all data. Try again.")).toBeTruthy();
     expect(r.queryByText("Cleared")).toBeNull();
 
-    removals[1]!.resolve(); // #2 still owns pendingClear and completes the clear
+    removals[1]!.resolve({ localCleared: true, syncCleared: true }); // #2 still owns pendingClear and completes the clear
     await act(async () => {
       for (let i = 0; i < 8; i++) await Promise.resolve();
     });
@@ -1177,8 +1444,6 @@ describe("OptionsApp — epoch fencing and supersession edges", () => {
       <OptionsApp
         settings={createSettings(memoryArea())}
         coach={coach}
-        local={memoryArea()}
-        sync={memoryArea()}
         platform="other"
         filter={createFilterStore({ storage: memoryArea() })}
       />,

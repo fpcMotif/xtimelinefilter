@@ -3,7 +3,9 @@
 Status: living user guide. Verify screenshots against the release build.
 Audience: regular users of Lasso
 
-Lasso helps you add people from your X timeline to X Lists without leaving the feed. It works on x.com and gives visible feedback for every action so you know what happened.
+Lasso is a Chrome extension for adding people from an X timeline to X Lists without leaving the feed. It gives visible feedback for each action.
+
+The screenshots use a local timeline simulator. Live authenticated X mutations, DOM behavior, and Owner switching still need verification.
 
 ## Screenshot Record
 
@@ -277,9 +279,9 @@ Options:
 
 Options:
 
-- **Drive X's own menus**: slower, requires a currently visible post, and uses only actions you could click yourself. Scrolled-away selections are not author-addressable through this adapter.
+- **Drive X's own menus**: designed to be slower, require a visible post, and use X's visible English UI. Live DOM behavior remains to verify. Scrolled-away selections are not author-addressable through this adapter.
 - **X's web REST endpoints**: fast and uses the same endpoints X's site uses. They are not X's developer API.
-- **GraphQL**: fastest, but uses private endpoints and may break or be frowned upon.
+- **GraphQL**: fastest, but uses private endpoints and reads compatible operation IDs from X's page bundles. It may break or conflict with X policy.
 
 Changing this setting affects future List actions.
 
@@ -301,7 +303,7 @@ Option:
 
 ### Privacy & Data
 
-Lasso keeps your X session credentials between your browser and X. With Mirror configured, it sends its device key, Owner/List catalog, membership snapshots, and assignment audit events to your Convex deployment.
+Lasso keeps your X session credentials between your browser and X. With Mirror configured, it sends its device key, Owner/List catalog, membership snapshots, and assignment audit events to your Convex deployment. DOM-driven changes are logged as UI-state evidence; only direct X server replies update Mirror membership facts.
 
 ### Sync
 
@@ -309,7 +311,7 @@ Mirror sync is optional. Enter both a Convex deployment URL and device key to co
 
 Buttons:
 
-- **Clear Lasso data**: clears cached Lists, List usage, settings, filter preferences, Mirror status, and onboarding hint state. After clicking, settings shows **Cleared**.
+- **Clear Lasso data**: clears cached Lists, List usage, GraphQL operation caches, settings, filter preferences, Mirror status, and onboarding hint state. Work already running may finish, but its old cache write cannot restore cleared data. Later activity may write fresh data. After clicking, settings shows **Cleared**.
 - **Replay intro**: makes the welcome card appear on your next visit to x.com. After clicking, settings shows **On your next visit to x.com**.
 
 ## Install And Uninstall Behavior

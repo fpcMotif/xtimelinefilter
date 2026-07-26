@@ -1,12 +1,22 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
-import { createDomPageDriver } from "@/packages/x-client/dom-page-driver";
-import type { XList } from "@/packages/x-client/types";
+import { DomXListApi } from "@/packages/x-client/dom-api";
+import {
+  createDomPageDriver,
+  type DomPageDriverOptions,
+} from "@/packages/x-client/dom-page-driver";
+import { XApiError, type XList } from "@/packages/x-client/types";
 
 const list = (name: string, id = name): XList => ({ id, name });
 const RESEARCH = list("Research", "1");
 const FRIENDS = list("Friends", "2");
+const SYNTHETIC_EVENT_FLAG = "__testSyntheticEscape";
+
+async function expectUnknownFailure(action: Promise<unknown>, message: RegExp): Promise<void> {
+  const failure = await action.catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(XApiError);
+  expect(failure).toMatchObject({ kind: "unknown", message: expect.stringMatching(message) });
+}
 
 /**
  * Drives a SYNTHETIC x.com-shaped DOM (caret → menu → Lists dialog) to cover the
@@ -50,6 +60,9 @@ function setupSyntheticX(doc: Document): void {
           );
         });
       }
+      (
+        dialog.querySelector('[data-testid="confirmationSheetConfirm"]') as HTMLElement
+      ).addEventListener("click", () => dialog.remove());
       doc.body.appendChild(dialog);
     });
   });
@@ -57,23 +70,80 @@ function setupSyntheticX(doc: Document): void {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  document.documentElement.removeAttribute("lang");
 });
 
-const driver = () =>
-  createDomPageDriver({ doc: document, settle: async () => {}, timeoutMs: 1000 });
+const findAuthorCaret =
+  (doc: Document) =>
+  (screenName: string): Element | null =>
+    screenName.toLowerCase() === "jack" ? doc.querySelector('[data-testid="caret"]') : null;
+const dispatchSyntheticEscape = (target: Document | Element): void => {
+  const event = new KeyboardEvent("keydown", { bubbles: true, key: "Escape" });
+  (event as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] = true;
+  target.dispatchEvent(event);
+};
+const driver = (overrides: Partial<DomPageDriverOptions> = {}) => {
+  const doc = overrides.doc ?? document;
+  return createDomPageDriver({
+    dispatchSyntheticEscape,
+    doc,
+    findAuthorCaret: findAuthorCaret(doc),
+    settle: async () => {},
+    timeoutMs: 1000,
+    ...overrides,
+  });
+};
 
 describe("createDomPageDriver (synthetic x.com)", () => {
   it("throws before a dialog opens or after its dialog disconnects", async () => {
     setupSyntheticX(document);
     const d = driver();
-    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/not found/);
+    await expectUnknownFailure(d.isChecked(RESEARCH), /not found/);
     await d.openListsDialog({ screenName: "jack" });
     document.querySelector('[role="dialog"]')?.remove();
-    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/not found/);
+    await expectUnknownFailure(d.isChecked(RESEARCH), /not found/);
+  });
+
+  it("rejects a non-English X interface before clicking the caret", async () => {
+    setupSyntheticX(document);
+    document.documentElement.lang = "de-AT";
+    let caretClicks = 0;
+    document.querySelector('[data-testid="caret"]')?.addEventListener("click", () => caretClicks++);
+
+    await expectUnknownFailure(
+      driver().openListsDialog({ screenName: "jack" }),
+      /requires X in English.*REST or GraphQL/i,
+    );
+
+    expect(caretClicks).toBe(0);
+  });
+
+  it("does not escape unrelated UI after English or no-caret failures", async () => {
+    let escapes = 0;
+    document.addEventListener("keydown", (event) => {
+      if ((event as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]) escapes++;
+    });
+
+    setupSyntheticX(document);
+    document.documentElement.lang = "de";
+    await expectUnknownFailure(
+      new DomXListApi(driver()).addMember(RESEARCH, { screenName: "jack" }),
+      /requires X in English/,
+    );
+
+    document.body.innerHTML = "";
+    document.documentElement.lang = "en";
+    await expectUnknownFailure(
+      new DomXListApi(driver()).addMember(RESEARCH, { screenName: "ghost" }),
+      /no visible tweet/,
+    );
+
+    expect(escapes).toBe(0);
   });
 
   it("opens the Lists dialog from a tweet's caret", async () => {
     setupSyntheticX(document);
+    document.documentElement.lang = "en-AU";
     const d = driver();
     await d.openListsDialog({ screenName: "jack" });
     expect(await d.isChecked(RESEARCH)).toBe(false);
@@ -148,32 +218,61 @@ describe("createDomPageDriver (synthetic x.com)", () => {
     }
   });
 
-  it("reads and toggles row checked state", async () => {
+  it("reads and toggles row checked state, then returns an explicit receipt", async () => {
     setupSyntheticX(document);
     const d = driver();
+    let escapes = 0;
+    document.addEventListener("keydown", (event) => {
+      if ((event as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]) escapes++;
+    });
     await d.openListsDialog({ screenName: "jack" });
     expect(await d.isChecked(RESEARCH)).toBe(false);
     expect(await d.isChecked(FRIENDS)).toBe(true);
     await d.toggleList(RESEARCH);
     expect(await d.isChecked(RESEARCH)).toBe(true);
-    await d.commit(); // clicks Save without throwing
+    await expect(d.commit()).resolves.toBe("explicit");
+    await d.close();
+    expect(escapes).toBe(0);
   });
 
-  it("treats a row without a checkbox as unchecked", async () => {
+  it("reads native checkbox state without toggling an existing membership", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.insertAdjacentHTML(
+      "afterbegin",
+      `<div role="menuitem"><span>Native</span><input type="checkbox" checked></div>`,
+    );
+    const native = list("Native");
+
+    expect(await d.isChecked(native)).toBe(true);
+    (dialog.querySelector('input[type="checkbox"]') as HTMLInputElement).checked = false;
+    expect(await d.isChecked(native)).toBe(false);
+  });
+
+  it("fails before toggling a row without a readable checked state", async () => {
     setupSyntheticX(document);
     const d = driver();
     await d.openListsDialog({ screenName: "jack" });
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     dialog.insertAdjacentHTML("beforeend", `<div role="menuitem">No checkbox</div>`);
-    expect(await d.isChecked(list("No checkbox"))).toBe(false);
+    const row = [...dialog.querySelectorAll('[role="menuitem"]')].find(
+      (candidate) => candidate.textContent === "No checkbox",
+    ) as HTMLElement;
+    let clicks = 0;
+    row.addEventListener("click", () => clicks++);
+
+    await expectUnknownFailure(d.isChecked(list("No checkbox")), /no readable checked state/);
+    expect(clicks).toBe(0);
   });
 
   it("throws for missing rows", async () => {
     setupSyntheticX(document);
     const d = driver();
     await d.openListsDialog({ screenName: "jack" });
-    await expect(d.isChecked(list("Missing"))).rejects.toThrow(/not found/);
-    await expect(d.toggleList(list("Missing"))).rejects.toThrow(/not found/);
+    await expectUnknownFailure(d.isChecked(list("Missing")), /not found/);
+    await expectUnknownFailure(d.toggleList(list("Missing")), /not found/);
   });
 
   it("matches the exact visible list name, not a longer row", async () => {
@@ -247,8 +346,8 @@ describe("createDomPageDriver (synthetic x.com)", () => {
       <div role="menuitem"><span>Research</span></div>
       <div role="menuitem"><span>Research</span></div>`;
 
-    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/ambiguous/);
-    await expect(d.toggleList(RESEARCH)).rejects.toThrow(/ambiguous/);
+    await expectUnknownFailure(d.isChecked(RESEARCH), /ambiguous/);
+    await expectUnknownFailure(d.toggleList(RESEARCH), /ambiguous/);
   });
 
   it("throws when two rows share the target List id", async () => {
@@ -260,8 +359,8 @@ describe("createDomPageDriver (synthetic x.com)", () => {
       <div role="menuitem" data-list-id="1"><span>Research</span></div>
       <div role="menuitem" data-list-id="1"><span>Research copy</span></div>`;
 
-    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/ambiguous/);
-    await expect(d.toggleList(RESEARCH)).rejects.toThrow(/ambiguous/);
+    await expectUnknownFailure(d.isChecked(RESEARCH), /ambiguous/);
+    await expectUnknownFailure(d.toggleList(RESEARCH), /ambiguous/);
   });
 
   it("does not use a name when the sole row names another List id", async () => {
@@ -271,31 +370,172 @@ describe("createDomPageDriver (synthetic x.com)", () => {
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     dialog.innerHTML = `<div role="menuitem" data-list-id="2"><span>Research</span></div>`;
 
-    await expect(d.isChecked(RESEARCH)).rejects.toThrow(/not found/);
+    await expectUnknownFailure(d.isChecked(RESEARCH), /not found/);
   });
 
-  it("commits harmlessly when the Save button is absent and closes with Escape", async () => {
+  it("returns an immediate receipt without Save and marks its closing Escape as driver-internal", async () => {
     setupSyntheticX(document);
     const d = driver();
     await d.openListsDialog({ screenName: "jack" });
     document.querySelector('[data-testid="confirmationSheetConfirm"]')?.remove();
-    let escaped = false;
+    let closingEvent: KeyboardEvent | null = null;
     document.body.addEventListener("keydown", (e) => {
-      if ((e as KeyboardEvent).key === "Escape") escaped = true;
+      if ((e as KeyboardEvent).key === "Escape") closingEvent = e as KeyboardEvent;
     });
-    await d.commit();
+    await expect(d.commit()).resolves.toBe("immediate");
     await d.close();
-    expect(escaped).toBe(true);
+    expect(closingEvent).not.toBeNull();
+    expect((closingEvent as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]).toBe(true);
+  });
+
+  it("commits through an exact Done button fallback", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    document.querySelector('[data-testid="confirmationSheetConfirm"]')?.remove();
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const done = document.createElement("button");
+    done.textContent = "Done";
+    let clicks = 0;
+    done.addEventListener("click", () => {
+      clicks++;
+      dialog.remove();
+    });
+    dialog.appendChild(done);
+
+    await expect(d.commit()).resolves.toBe("explicit");
+
+    expect(clicks).toBe(1);
+  });
+
+  it("never clicks an unowned confirmation sheet", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.querySelector('[data-testid="confirmationSheetConfirm"]')?.remove();
+
+    const stale = document.createElement("button");
+    stale.setAttribute("data-testid", "confirmationSheetConfirm");
+    let staleClicks = 0;
+    stale.addEventListener("click", () => staleClicks++);
+    document.body.appendChild(stale);
+
+    const done = document.createElement("button");
+    done.textContent = "Done";
+    let unrelatedClicks = 0;
+    done.addEventListener("click", () => {
+      const confirmation = document.createElement("button");
+      confirmation.setAttribute("data-testid", "confirmationSheetConfirm");
+      confirmation.addEventListener("click", () => {
+        unrelatedClicks++;
+      });
+      document.body.appendChild(confirmation);
+    });
+    dialog.appendChild(done);
+
+    await expectUnknownFailure(d.commit(), /unowned confirmation/);
+    expect(unrelatedClicks).toBe(0);
+    expect(staleClicks).toBe(0);
+  });
+
+  it("rejects a confirmation that replaces the Lists dialog in the same mutation", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.querySelector('[data-testid="confirmationSheetConfirm"]')?.remove();
+
+    const done = document.createElement("button");
+    done.textContent = "Done";
+    let confirmationClicks = 0;
+    done.addEventListener("click", () => {
+      dialog.remove();
+      const confirmation = document.createElement("button");
+      confirmation.setAttribute("data-testid", "confirmationSheetConfirm");
+      confirmation.addEventListener("click", () => confirmationClicks++);
+      document.body.appendChild(confirmation);
+    });
+    dialog.appendChild(done);
+
+    await expectUnknownFailure(d.commit(), /unowned confirmation/);
+    expect(confirmationClicks).toBe(0);
+  });
+
+  it("fails instead of treating an unknown Apply control as autosave", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    document.querySelector('[data-testid="confirmationSheetConfirm"]')?.remove();
+    const apply = document.createElement("button");
+    apply.textContent = "Apply";
+    document.querySelector('[role="dialog"]')?.appendChild(apply);
+
+    await expectUnknownFailure(d.commit(), /unrecognized commit control/);
+  });
+
+  it("fails closed for empty and aria-label-only controls", async () => {
+    for (const controlMarkup of ["<button></button>", '<button aria-label="Close"></button>']) {
+      setupSyntheticX(document);
+      const d = driver();
+      await d.openListsDialog({ screenName: "jack" });
+      document.querySelector('[data-testid="confirmationSheetConfirm"]')?.remove();
+      document.querySelector('[role="dialog"]')?.insertAdjacentHTML("beforeend", controlMarkup);
+
+      await expectUnknownFailure(d.commit(), /unrecognized commit control/);
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("fails as unknown when an explicit commit leaves the original dialog open", async () => {
+    setupSyntheticX(document);
+    const d = driver({ timeoutMs: 5 });
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const save = dialog.querySelector('[data-testid="confirmationSheetConfirm"]') as HTMLElement;
+    save.replaceWith(save.cloneNode(true));
+
+    const failure = await d.commit().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(XApiError);
+    expect(failure).toMatchObject({
+      kind: "unknown",
+      message: "Timed out waiting for X to close the Lists dialog after explicit commit",
+    });
+    expect(dialog.isConnected).toBe(true);
+  });
+
+  it("rejects a commit after its owned dialog closes during settle", async () => {
+    setupSyntheticX(document);
+    let settles = 0;
+    const d = driver({
+      settle: async () => {
+        settles++;
+        if (settles === 3) document.querySelector('[role="dialog"]')?.remove();
+      },
+    });
+    await d.openListsDialog({ screenName: "jack" });
+    await expectUnknownFailure(d.commit(), /closed before its change/i);
+  });
+
+  it("ignores controls nested in list rows when detecting unknown commit controls", async () => {
+    setupSyntheticX(document);
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    dialog.querySelector('[data-testid="confirmationSheetConfirm"]')?.remove();
+    dialog.insertAdjacentHTML("beforeend", `<div role="menuitem"><button>Apply</button></div>`);
+    await expect(d.commit()).resolves.toBe("immediate");
   });
 
   it("throws a clear error when the author has no visible tweet", async () => {
     document.body.innerHTML = "";
-    await expect(driver().openListsDialog({ screenName: "ghost" })).rejects.toThrow(
+    await expectUnknownFailure(
+      driver().openListsDialog({ screenName: "ghost" }),
       /no visible tweet/i,
     );
   });
 
-  it("skips tweets whose author cannot be extracted while looking for the caret", async () => {
+  it("uses the injected author-caret locator", async () => {
     document.body.innerHTML = `
       <article data-testid="tweet"><button data-testid="caret"></button></article>
       <article data-testid="tweet">
@@ -314,7 +554,13 @@ describe("createDomPageDriver (synthetic x.com)", () => {
       });
       document.body.appendChild(menu);
     });
-    await driver().openListsDialog({ screenName: "jack" });
+    const d = driver({
+      findAuthorCaret: (screenName) =>
+        screenName === "jack"
+          ? (document.querySelectorAll('[data-testid="caret"]')[1] ?? null)
+          : null,
+    });
+    await d.openListsDialog({ screenName: "jack" });
     expect(document.querySelector('[role="dialog"]')).toBeTruthy();
   });
 
@@ -324,8 +570,60 @@ describe("createDomPageDriver (synthetic x.com)", () => {
         <div data-testid="User-Name"><a href="/jack/status/1"><time>1h</time></a></div>
         <button data-testid="caret"></button>
       </article>`;
-    const d = createDomPageDriver({ doc: document, settle: async () => {}, timeoutMs: 5 });
-    await expect(d.openListsDialog({ screenName: "jack" })).rejects.toThrow(/timed out/);
+    const d = driver({ timeoutMs: 5 });
+    await expectUnknownFailure(d.openListsDialog({ screenName: "jack" }), /timed out/);
+  });
+
+  it("fails if its newly opened menu closes during the settle window", async () => {
+    setupSyntheticX(document);
+    const d = driver({
+      settle: async (ms) => {
+        if (ms === 120) document.querySelector('[role="menu"]')?.remove();
+      },
+    });
+
+    await expectUnknownFailure(d.openListsDialog({ screenName: "jack" }), /menu changed before/i);
+  });
+
+  it("fails if the Lists item is replaced during the settle window", async () => {
+    setupSyntheticX(document);
+    const d = driver({
+      settle: async (ms) => {
+        if (ms === 120) document.querySelector('[role="menuitem"]:nth-child(2)')?.remove();
+      },
+    });
+
+    await expectUnknownFailure(
+      d.openListsDialog({ screenName: "jack" }),
+      /Lists.*changed before use/i,
+    );
+  });
+
+  it("waits through unrelated portal mutations before the fresh menu appears", async () => {
+    document.body.innerHTML = `<button data-testid="caret"></button>`;
+    document.querySelector("button")?.addEventListener("click", () => {
+      queueMicrotask(() => document.body.appendChild(document.createElement("span")));
+      setTimeout(() => {
+        const menu = document.createElement("div");
+        menu.setAttribute("role", "menu");
+        menu.innerHTML = `<div role="menuitem">Follow @jack</div>`;
+        document.body.appendChild(menu);
+      }, 0);
+    });
+    await expectUnknownFailure(
+      driver({ timeoutMs: 1000 }).openListsDialog({ screenName: "jack" }),
+      /menu item/,
+    );
+  });
+
+  it("uses document, timeout, and settle defaults when no overrides are supplied", async () => {
+    setupSyntheticX(document);
+    const d = createDomPageDriver({
+      findAuthorCaret: findAuthorCaret(document),
+      dispatchSyntheticEscape,
+    });
+    await d.openListsDialog({ screenName: "jack" });
+    expect(await d.isChecked(RESEARCH)).toBe(false);
   });
 
   it("throws when the Lists menu item is absent", async () => {
@@ -340,8 +638,60 @@ describe("createDomPageDriver (synthetic x.com)", () => {
       menu.innerHTML = `<div role="menuitem">Follow @jack</div>`;
       document.body.appendChild(menu);
     });
-    const d = createDomPageDriver({ doc: document, settle: async () => {}, timeoutMs: 50 });
-    await expect(d.openListsDialog({ screenName: "jack" })).rejects.toThrow(/menu item/);
+    const d = driver({ timeoutMs: 50 });
+    await expectUnknownFailure(d.openListsDialog({ screenName: "jack" }), /menu item/);
+  });
+
+  it("closes a partially opened owned menu once", async () => {
+    document.body.innerHTML = `
+      <article data-testid="tweet">
+        <div data-testid="User-Name"><a href="/jack/status/1"><time>1h</time></a></div>
+        <button data-testid="caret"></button>
+      </article>`;
+    let escapes = 0;
+    document.querySelector("button")?.addEventListener("click", () => {
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.innerHTML = `<div role="menuitem">Follow @jack</div>`;
+      menu.addEventListener("keydown", (event) => {
+        if ((event as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG]) escapes++;
+      });
+      document.body.appendChild(menu);
+    });
+
+    await expectUnknownFailure(
+      new DomXListApi(driver()).addMember(RESEARCH, { screenName: "jack" }),
+      /menu item/,
+    );
+    expect(escapes).toBe(1);
+  });
+
+  it("never clicks a Lists item that was replaced during settle", async () => {
+    document.body.innerHTML = `
+      <article data-testid="tweet">
+        <div data-testid="User-Name"><a href="/jack/status/1"><time>1h</time></a></div>
+        <button data-testid="caret"></button>
+      </article>`;
+    let listClicks = 0;
+    let menu: HTMLElement | undefined;
+    document.querySelector("button")?.addEventListener("click", () => {
+      menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.innerHTML = `<div role="menuitem">Add/remove @jack from Lists</div>`;
+      (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
+        listClicks++;
+      });
+      document.body.appendChild(menu);
+    });
+    const d = driver({
+      settle: async (ms) => {
+        if (ms === 120) menu?.remove();
+      },
+      timeoutMs: 100,
+    });
+
+    await expectUnknownFailure(d.openListsDialog({ screenName: "jack" }), /menu changed/);
+    expect(listClicks).toBe(0);
   });
 
   it("waits for asynchronously inserted menus and dialogs", async () => {
@@ -351,42 +701,71 @@ describe("createDomPageDriver (synthetic x.com)", () => {
         <button data-testid="caret"></button>
       </article>`;
     document.querySelector("button")?.addEventListener("click", () => {
-      setTimeout(() => document.body.appendChild(document.createElement("span")), 1);
-      setTimeout(() => {
+      queueMicrotask(() => document.body.appendChild(document.createElement("span")));
+      queueMicrotask(() => {
         const menu = document.createElement("div");
         menu.setAttribute("role", "menu");
         menu.innerHTML = `<div role="menuitem">Add/remove @jack from Lists</div>`;
         (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
-          setTimeout(() => document.body.appendChild(document.createElement("span")), 1);
-          setTimeout(() => {
+          queueMicrotask(() => document.body.appendChild(document.createElement("span")));
+          queueMicrotask(() => {
             const dialog = document.createElement("div");
             dialog.setAttribute("role", "dialog");
-            dialog.innerHTML = `<div role="menuitem">Research</div>`;
+            dialog.innerHTML =
+              `<div role="menuitem">Research` +
+              `<div role="checkbox" aria-checked="false"></div></div>`;
             document.body.appendChild(dialog);
-          }, 5);
+          });
         });
         document.body.appendChild(menu);
-      }, 5);
+      });
     });
-    const d = createDomPageDriver({ doc: document, settle: async () => {}, timeoutMs: 100 });
+    const d = driver({ timeoutMs: 1000 });
     await d.openListsDialog({ screenName: "jack" });
     expect(await d.isChecked(RESEARCH)).toBe(false);
   });
 
-  it("works with default document, timeout, and settle options", async () => {
+  it("accepts menu and dialog portal nodes whose contents are reused", async () => {
+    document.body.innerHTML = `
+      <article data-testid="tweet">
+        <div data-testid="User-Name"><a href="/jack/status/1"><time>1h</time></a></div>
+        <button data-testid="caret"></button>
+      </article>
+      <div role="menu"><div role="menuitem">Old menu</div></div>
+      <div role="dialog"><div role="menuitem">Old dialog</div></div>`;
+    const menu = document.querySelector('[role="menu"]') as HTMLElement;
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    document.querySelector('[data-testid="caret"]')?.addEventListener("click", () => {
+      menu.innerHTML = `<div role="menuitem">Add/remove @jack from Lists</div>`;
+      menu.querySelector('[role="menuitem"]')?.addEventListener("click", () => {
+        dialog.innerHTML =
+          `<div role="menuitem"><span>Research</span>` +
+          `<div role="checkbox" aria-checked="false"></div></div>`;
+      });
+    });
+
+    const d = driver();
+    await d.openListsDialog({ screenName: "jack" });
+
+    expect(await d.isChecked(RESEARCH)).toBe(false);
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  });
+
+  it("works with injected content adapters and default timing", async () => {
     setupSyntheticX(document);
-    const d = createDomPageDriver();
+    const d = driver();
     await d.openListsDialog({ screenName: "jack" });
     expect(await d.isChecked(FRIENDS)).toBe(true);
   });
 
-  it("uses the global KeyboardEvent when a detached document has no default view", async () => {
+  it("works with a detached document supplied by its content adapter", async () => {
     const doc = document.implementation.createHTMLDocument("detached");
     setupSyntheticX(doc);
     const staleMenu = doc.createElement("div");
     staleMenu.setAttribute("role", "menu");
     doc.body.appendChild(staleMenu);
-    const d = createDomPageDriver({ doc, settle: async () => {}, timeoutMs: 100 });
+    const d = driver({ doc, timeoutMs: 100 });
 
     await d.openListsDialog({ screenName: "jack" });
 

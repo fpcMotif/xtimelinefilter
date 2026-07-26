@@ -182,6 +182,7 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
     for (const catalog of mirrorCatalog.value) {
       if (catalog.owner.userId !== owner?.userId) catalogs.set(catalog.owner.userId, catalog);
     }
+    // oxlint-disable-next-line unicorn/no-array-sort -- fresh owned array; Chrome 106 lacks toSorted().
     const ordered: ProjectedCatalog[] = [...catalogs.values()].sort((a, b) =>
       a.owner.screenName.localeCompare(b.owner.screenName),
     );

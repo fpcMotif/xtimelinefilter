@@ -241,6 +241,27 @@ describe("createLiveMembershipStore", () => {
     await expect(write).rejects.toBeInstanceOf(MirrorUnavailableError);
   });
 
+  it("keeps observations inert and rejects new writes after disposal", async () => {
+    const adapter = mirror();
+    const live = createLiveMembershipStore(
+      enabled,
+      settings().store,
+      vi.fn(async () => adapter.store),
+    );
+    await settle();
+    live.dispose();
+
+    const snapshots: MirrorSnapshot[] = [];
+    const stop = live.observe({ kind: "bulk" }, (snapshot) => snapshots.push(snapshot));
+
+    expect(snapshots).toEqual([]);
+    await expect(live.recordAssign(owner, list, emptyObservation)).rejects.toBeInstanceOf(
+      MirrorUnavailableError,
+    );
+    stop();
+    stop();
+  });
+
   it("rejects configured writes when adapter construction fails", async () => {
     const s = settings();
     const live = createLiveMembershipStore(

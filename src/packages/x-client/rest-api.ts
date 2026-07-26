@@ -42,6 +42,8 @@ export const blockUser = (deps: RestDeps, screenName: string): Promise<void> =>
  * No DOM driving, no GraphQL query-id drift, no id resolution (uses screen_name).
  */
 export class RestXListApi implements XListApi {
+  readonly evidence = "server-response" as const;
+
   // creds are read lazily per call so constructing the backend never throws
   // (ct0 may not be readable at startup / when logged out).
   constructor(

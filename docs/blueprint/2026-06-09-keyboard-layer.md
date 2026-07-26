@@ -21,7 +21,7 @@
 `Alt+key` is collision-free: every X native shortcut is a bare key (`m`=DM, `l`=like, `n`=new post, `b`=bookmark, `t`=repost, `r`=reply, `/`=search; `g` is a go-to prefix). The capture-phase dispatcher only `preventDefault`s keys Lasso owns, and ignores everything while typing in inputs/contenteditable.
 
 ## Action driver (caret menu)
-`createCaretActions` clicks the focused tweet's `[data-testid="caret"]`, waits for the menu (`[data-testid="Dropdown"], [role="menu"]` — portalled to `#layers`), then selects the row by stability tier: `data-testid` / Mute icon-path `M18 6.59V1.2` → localized text (`/^(un)?mute/i`, `/not interested/i`, `[data-testid="block"]`). Confirmation handling is per-action: Block **always** confirms (`[data-testid="confirmationSheetConfirm"]`), Mute confirms **if present**, Not-interested **never**. Labels confirmed from the live screenshot ("Mute", "Not interested in this post", "Add/remove from Lists", "Block").
+`createTweetActions` clicks the focused tweet's `[data-testid="caret"]`, waits for the portalled menu (`[data-testid="Dropdown"], [role="menu"]`), then selects the localized Not-interested row by icon path or text. It verifies X's replacement feedback before reporting success; absent rows resolve as unavailable.
 
 ```mermaid
 sequenceDiagram
@@ -44,7 +44,7 @@ sequenceDiagram
 ## Modules
 - `content/get-focused-tweet.ts` — focus reader (tested).
 - `content/keyboard.ts` — `canonicalCombo`/`eventToCombo`/`installKeyboardLayer` + `DEFAULT_KEYMAP` (tested).
-- `core/x-client/caret-actions.ts` — `createCaretActions` mute/not-interested/block (fixture-tested).
+- `packages/tweet-actions/actions.ts` — `createTweetActions` Not-interested (fixture-tested).
 - `content/main.tsx` — wires keymap → `runCommand` over the focused tweet; `Alt+l` bumps `openPickerTick` → `App` opens the picker.
 
 ## Open / live-verify

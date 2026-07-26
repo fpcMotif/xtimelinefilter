@@ -10,14 +10,14 @@ const fakeDriver: PageDriver = {
   openListsDialog: async () => {},
   isChecked: async () => false,
   toggleList: async () => {},
-  commit: async () => {},
+  commit: async () => "immediate",
   close: async () => {},
 };
 function runtime() {
   const credentials = vi.fn(() => ({ csrf: "c", bearer: "b" }));
   const createPageDriver = vi.fn(() => fakeDriver);
   const fetch = vi.fn(
-    async () => new Response("", { status: 200 }),
+    async () => new Response(JSON.stringify({ data: { list: {} } }), { status: 200 }),
   ) as unknown as typeof globalThis.fetch;
   return { fetch, credentials, createPageDriver };
 }
@@ -62,25 +62,31 @@ describe("createXListApi", () => {
   });
 
   it("uses the provided GraphQL ops resolver", async () => {
-    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ data: { list: {} } }), { status: 200 }),
+    );
     const deps = { ...runtime(), fetch: fetchMock as unknown as typeof globalThis.fetch };
     const live = {
-      ListAddMember: "liveAdd",
-      ListRemoveMember: "liveRm",
-      UserByScreenName: "liveUser",
+      ListAddMember: { queryId: "liveAdd", features: {} },
+      ListRemoveMember: { queryId: "liveRm", features: {} },
+      UserByScreenName: { queryId: "liveUser", features: {} },
     };
-    const graphqlOps = { resolve: vi.fn(async () => live), refresh: vi.fn(async () => live) };
-    const api = createXListApi("graphql", { ...deps, graphqlOps });
+    const graphqlCatalog = { resolve: vi.fn(async () => live), refresh: vi.fn(async () => live) };
+    const api = createXListApi("graphql", { ...deps, graphqlCatalog });
 
     await api.addMember({ id: "1", name: "Research" }, { screenName: "jack", userId: "2" });
 
-    expect(graphqlOps.resolve).toHaveBeenCalledTimes(1);
+    expect(graphqlCatalog.resolve).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0] as unknown as [string];
     expect(url).toBe("https://x.com/i/api/graphql/liveAdd/ListAddMember");
   });
 
   it("defaults to a scraping resolver seeded with the static fallback ids", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response("", { status: 200 })); // empty body → scrape finds nothing
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "https://x.com/"
+        ? new Response("", { status: 200 }) // empty body → scrape finds nothing
+        : new Response(JSON.stringify({ data: { list: {} } }), { status: 200 }),
+    );
     const deps = { ...runtime(), fetch: fetchMock as unknown as typeof globalThis.fetch };
     const api = createXListApi("graphql", deps);
 

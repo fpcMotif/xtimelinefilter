@@ -14,6 +14,7 @@ const r = (
 ): AssignResult => ({
   author: { screenName },
   outcome,
+  evidence: extra.evidence ?? "server-response",
   ...extra,
   observedAt: extra.observedAt ?? NOW,
 });

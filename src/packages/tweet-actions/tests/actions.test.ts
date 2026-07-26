@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MUTE_ICON_PATH_PREFIX } from "@/content/selectors";
-import { createCaretActions } from "@/packages/x-client/caret-actions";
+import { createTweetActions } from "@/packages/tweet-actions/actions";
 
 const clicked: string[] = [];
 
@@ -24,7 +23,7 @@ function setup(doc: Document): void {
     menu.setAttribute("data-testid", "Dropdown");
     menu.innerHTML = `
       <div role="menuitem" data-k="not">Not interested in this post</div>
-      <div role="menuitem" data-k="mute"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg><span>Mute</span></div>
+      <div role="menuitem" data-k="mute"><svg><path d="M12 13.6c1.64-test"></path></svg><span>Mute</span></div>
       <div role="menuitem" data-k="block" data-testid="block">Block @jack</div>`;
     for (const row of menu.querySelectorAll('[role="menuitem"]')) {
       row.addEventListener("click", () => {
@@ -49,37 +48,29 @@ afterEach(() => {
   clicked.length = 0;
 });
 
+const dispatchSyntheticEscape = (target: Document | Element): void => {
+  target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+};
+
 const actions = () =>
-  createCaretActions({
+  createTweetActions({
+    dispatchSyntheticEscape,
     doc: document,
     settle: async () => {},
     timeoutMs: 1000,
-    confirmTimeoutMs: 50,
   });
 const tweet = () => document.querySelector("article") as Element;
 
-describe("createCaretActions", () => {
-  it("mute clicks the Mute row (matched by icon path), no confirm needed", async () => {
-    setup(document);
-    await actions().mute(tweet());
-    expect(clicked).toEqual(["mute"]);
-  });
-
+describe("createTweetActions", () => {
   it("notInterested clicks the not-interested row", async () => {
     setup(document);
     await actions().notInterested(tweet());
     expect(clicked).toEqual(["not"]);
   });
 
-  it("block clicks Block then confirms the sheet", async () => {
-    setup(document);
-    await actions().block(tweet());
-    expect(clicked).toEqual(["block", "confirm"]);
-  });
-
   it("throws when the focused tweet has no caret", async () => {
     document.body.innerHTML = `<article data-testid="tweet"></article>`;
-    await expect(actions().mute(tweet())).rejects.toThrow(/caret/i);
+    await expect(actions().notInterested(tweet())).rejects.toThrow(/caret/i);
   });
 
   it("falls back to the outer article's caret for nested quoted tweets", async () => {
@@ -299,7 +290,7 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       const row = menu.querySelector('[role="menuitem"]') as HTMLElement;
       let clicks = 0;
       row.addEventListener("click", () => {
@@ -308,7 +299,7 @@ describe("createCaretActions", () => {
       });
       document.body.appendChild(menu);
     });
-    await actions().mute(tweet());
+    await actions().notInterested(tweet());
     expect(clicked).toEqual(["mute", "mute"]);
   });
 
@@ -353,11 +344,11 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       document.body.appendChild(menu);
     });
 
-    await actions().mute(tweet());
+    await actions().notInterested(tweet());
     expect(clicked).toEqual(["bridge"]);
   });
 
@@ -395,20 +386,6 @@ describe("createCaretActions", () => {
     expect(clicked).toEqual(["fresh", "irrelevant"]);
   });
 
-  it("reports the rows it saw when a required row is missing (mute)", async () => {
-    document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
-    caret.addEventListener("click", () => {
-      const menu = document.createElement("div");
-      menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem">跟隨 @someone</div>`;
-      document.body.appendChild(menu);
-    });
-    // mute surfaces the missing-row diagnostic; notInterested swallows it (unavailable).
-    const a = createCaretActions({ doc: document, settle: async () => {}, timeoutMs: 60 });
-    await expect(a.mute(tweet())).rejects.toThrow(/跟隨 @someone/);
-  });
-
   it("notInterested resolves 'unavailable' (and toggles the menu shut) where X offers no row", async () => {
     document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
     const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
@@ -426,9 +403,32 @@ describe("createCaretActions", () => {
     });
     // No keydown→Escape listener: synthetic Escape can't dismiss X's menu (like live),
     // so the caret-toggle fallback in dismissMenu must close it.
-    const a = createCaretActions({ doc: document, settle: async () => {}, timeoutMs: 60 });
+    const a = createTweetActions({
+      dispatchSyntheticEscape,
+      doc: document,
+      settle: async () => {},
+      timeoutMs: 60,
+    });
     await expect(a.notInterested(tweet())).resolves.toBe("unavailable");
     expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("skips dismissal when an unavailable menu already closed itself", async () => {
+    document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
+    document.querySelector('[data-testid="caret"]')?.addEventListener("click", () => {
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      document.body.appendChild(menu);
+      setTimeout(() => menu.remove(), 0);
+    });
+    const a = createTweetActions({
+      dispatchSyntheticEscape,
+      doc: document,
+      settle: async () => {},
+      timeoutMs: 20,
+    });
+
+    await expect(a.notInterested(tweet())).resolves.toBe("unavailable");
   });
 
   it("dismisses the menu and fails honestly when X never accepts the click", async () => {
@@ -462,9 +462,9 @@ describe("createCaretActions", () => {
     caret.scrollIntoView = (() => {
       scrolled = true;
     }) as never;
-    await actions().mute(tweet());
+    await actions().notInterested(tweet());
     expect(scrolled).toBe(true);
-    expect(clicked).toEqual(["mute"]);
+    expect(clicked).toEqual(["not"]);
   });
 
   it("falls back to a plain click when the document has no window (no defaultView)", async () => {
@@ -476,7 +476,7 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       const menu = detached.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       const row = menu.querySelector('[role="menuitem"]') as HTMLElement;
       row.addEventListener("click", () => {
         clicked.push("mute-detached");
@@ -484,27 +484,14 @@ describe("createCaretActions", () => {
       });
       detached.body.appendChild(menu);
     });
-    const a = createCaretActions({ doc: detached, settle: async () => {}, timeoutMs: 1000 });
-    await a.mute(detached.querySelector("article") as Element);
-    expect(clicked).toEqual(["mute-detached"]);
-  });
-
-  it("throws when a confirmation sheet is required for block but never appears", async () => {
-    document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-    const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
-    caret.addEventListener("click", () => {
-      const menu = document.createElement("div");
-      menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem" data-testid="block">Block @jack</div>`;
-      (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
-        clicked.push("block");
-        menu.remove(); // menu closes, but no confirmation sheet is ever rendered
-      });
-      document.body.appendChild(menu);
+    const a = createTweetActions({
+      dispatchSyntheticEscape,
+      doc: detached,
+      settle: async () => {},
+      timeoutMs: 1000,
     });
-
-    await expect(actions().block(tweet())).rejects.toThrow(/confirmation sheet/i);
-    expect(clicked).toEqual(["block"]);
+    await a.notInterested(detached.querySelector("article") as Element);
+    expect(clicked).toEqual(["mute-detached"]);
   });
 
   it("re-finds the live row after X swaps in a fresh menu before the click", async () => {
@@ -514,22 +501,22 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       menu = document.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       document.body.appendChild(menu);
     });
     // settle(100) runs right after the row is found, before the isConnected
     // check — use it to detach the stale menu and mount a fresh one, forcing
     // findLiveRow to re-resolve the row across containers (lines 300-301, 323).
-    const a = createCaretActions({
+    const a = createTweetActions({
+      dispatchSyntheticEscape,
       doc: document,
       timeoutMs: 1000,
-      confirmTimeoutMs: 50,
       settle: async (ms) => {
         if (ms === 100 && menu.isConnected) {
           menu.remove();
           const fresh = document.createElement("div");
           fresh.setAttribute("role", "menu");
-          fresh.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+          fresh.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
           (fresh.querySelector('[role="menuitem"]') as HTMLElement).addEventListener(
             "click",
             () => {
@@ -541,14 +528,12 @@ describe("createCaretActions", () => {
         }
       },
     });
-    await a.mute(tweet());
+    await a.notInterested(tweet());
     expect(clicked).toEqual(["fresh-mute"]);
   });
 
-  it("uses default deps (timeout/confirm/settle) when none are injected", async () => {
-    // createCaretActions({ doc }) leaves timeoutMs, confirmTimeoutMs and settle
-    // to their defaults — the default settle runs real timers via notInterested,
-    // which never enters the confirm path so the test stays fast.
+  it("uses default document, timeout and settle when only Escape is injected", async () => {
+    // Only Escape is injected. Document, timeout and settle use production defaults.
     document.body.innerHTML = `<div data-testid="cellInnerDiv"><article data-testid="tweet"><button data-testid="caret"></button></article></div>`;
     const cell = document.querySelector('[data-testid="cellInnerDiv"]') as Element;
     const caret = document.querySelector('[data-testid="caret"]') as HTMLElement;
@@ -569,7 +554,7 @@ describe("createCaretActions", () => {
       });
       document.body.appendChild(menu);
     });
-    await createCaretActions().notInterested(tweet()); // no deps → doc defaults to global document
+    await createTweetActions({ dispatchSyntheticEscape }).notInterested(tweet());
     expect(clicked).toEqual(["not", "irrelevant"]);
   });
 
@@ -580,8 +565,8 @@ describe("createCaretActions", () => {
     (window as unknown as { PointerEvent?: unknown }).PointerEvent = undefined;
     try {
       setup(document);
-      await actions().mute(tweet());
-      expect(clicked).toEqual(["mute"]);
+      await actions().notInterested(tweet());
+      expect(clicked).toEqual(["not"]);
     } finally {
       (window as unknown as { PointerEvent?: unknown }).PointerEvent = original;
     }
@@ -667,13 +652,17 @@ describe("createCaretActions", () => {
   it("throws when the caret click never opens a menu", async () => {
     // The caret has no click handler, so no menu container is ever added.
     document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
-    const a = createCaretActions({ doc: document, settle: async () => {}, timeoutMs: 40 });
-    await expect(a.mute(tweet())).rejects.toThrow(/caret menu did not open/i);
+    const a = createTweetActions({
+      dispatchSyntheticEscape,
+      doc: document,
+      settle: async () => {},
+      timeoutMs: 40,
+    });
+    await expect(a.notInterested(tweet())).rejects.toThrow(/caret menu did not open/i);
   });
 
-  it("escapes a stale open menu even when the document has no window", async () => {
-    // defaultView === null exercises the `new KeyboardEvent` fallback in
-    // dismissOpenMenus; a pre-existing menu makes the dismiss loop actually run.
+  it("uses the injected Escape dispatcher for a detached document", async () => {
+    // A stale menu makes the injected dismissal seam run before activation.
     const detached = document.implementation.createHTMLDocument("x");
     detached.body.innerHTML = `
       <div role="menu"><div role="menuitem">stale</div></div>
@@ -686,16 +675,19 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       const menu = detached.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
         clicked.push("mute");
         menu.remove();
       });
       detached.body.appendChild(menu);
     });
-    await createCaretActions({ doc: detached, settle: async () => {}, timeoutMs: 1000 }).mute(
-      detached.querySelector("article") as Element,
-    );
+    await createTweetActions({
+      dispatchSyntheticEscape,
+      doc: detached,
+      settle: async () => {},
+      timeoutMs: 1000,
+    }).notInterested(detached.querySelector("article") as Element);
     expect(clicked).toEqual(["mute"]);
   });
 
@@ -709,14 +701,14 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       (menu.querySelector('[role="menuitem"]') as HTMLElement).addEventListener("click", () => {
         clicked.push("mute");
         menu.remove();
       });
       document.body.appendChild(menu);
     });
-    await actions().mute(tweet());
+    await actions().notInterested(tweet());
     expect(clicked).toEqual(["mute"]);
   });
 
@@ -754,10 +746,10 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       document.body.appendChild(menu);
     });
-    await actions().mute(tweet());
+    await actions().notInterested(tweet());
     expect(clicked).toEqual(["bridge"]);
   });
 
@@ -799,10 +791,10 @@ describe("createCaretActions", () => {
       caret.addEventListener("click", () => {
         const menu = document.createElement("div");
         menu.setAttribute("role", "menu");
-        menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+        menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
         document.body.appendChild(menu);
       });
-      await actions().mute(tweet());
+      await actions().notInterested(tweet());
       expect(clicked).toEqual(["bridge"]);
       // Let the surviving 250ms timers fire so the done-guard runs.
       await new Promise((r) => realSetTimeout(r, 400));
@@ -836,10 +828,10 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem">Not interested in this post</div>`;
       document.body.appendChild(menu);
     });
-    await actions().mute(tweet());
+    await actions().notInterested(tweet());
     expect(clicked).toEqual(["bridge"]);
   });
 
@@ -854,14 +846,14 @@ describe("createCaretActions", () => {
     caret.addEventListener("click", () => {
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
-      menu.innerHTML = `<div role="menuitem" data-k="mute"><svg><path d="${MUTE_ICON_PATH_PREFIX}xyz"></path></svg>Mute</div>`;
+      menu.innerHTML = `<div role="menuitem" data-k="mute">Not interested in this post</div>`;
       muteRow = menu.querySelector('[role="menuitem"]') as HTMLElement;
       document.body.appendChild(menu);
     });
-    const a = createCaretActions({
+    const a = createTweetActions({
+      dispatchSyntheticEscape,
       doc: document,
       timeoutMs: 1000,
-      confirmTimeoutMs: 50,
       settle: async (ms) => {
         if (ms === 100 && muteRow.isConnected) {
           // Detach the Mute row, leave a non-matching row so the menu stays open.
@@ -871,7 +863,7 @@ describe("createCaretActions", () => {
         }
       },
     });
-    await expect(a.mute(tweet())).rejects.toThrow(/did not accept/i);
+    await expect(a.notInterested(tweet())).rejects.toThrow(/did not accept/i);
   });
 
   it("succeeds without a follow-up click when the article unmounts but no panel appears", async () => {
@@ -896,7 +888,7 @@ describe("createCaretActions", () => {
     expect(clicked).toEqual(["not"]);
   });
 
-  it("lists rows that have no text in the no-match error (mute)", async () => {
+  it("handles a no-text row as unavailable", async () => {
     // A row whose textContent is empty exercises the label fallback inside the
     // diagnostic message builder; mute surfaces it as a thrown error.
     document.body.innerHTML = `<article data-testid="tweet"><button data-testid="caret"></button></article>`;
@@ -909,7 +901,12 @@ describe("createCaretActions", () => {
       menu.appendChild(row);
       document.body.appendChild(menu);
     });
-    const a = createCaretActions({ doc: document, settle: async () => {}, timeoutMs: 60 });
-    await expect(a.mute(tweet())).rejects.toThrow(/target menu item not found/i);
+    const a = createTweetActions({
+      dispatchSyntheticEscape,
+      doc: document,
+      settle: async () => {},
+      timeoutMs: 60,
+    });
+    await expect(a.notInterested(tweet())).resolves.toBe("unavailable");
   });
 });

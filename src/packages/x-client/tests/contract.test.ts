@@ -5,7 +5,7 @@ import { DomXListApi } from "@/packages/x-client/dom-api";
 import type { PageDriver } from "@/packages/x-client/dom-page-driver";
 import { GraphqlXListApi } from "@/packages/x-client/graphql-api";
 import { RestXListApi } from "@/packages/x-client/rest-api";
-import type { Credentials, GraphqlConfig, XList, XListApi } from "@/packages/x-client/types";
+import type { Credentials, GraphqlClientConfig, XList, XListApi } from "@/packages/x-client/types";
 
 const LIST: XList = { id: "Research", name: "Research" };
 const AUTHOR: TweetAuthor = { screenName: "jack", userId: "12" };
@@ -19,17 +19,20 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 // --- GraphQL backend builders ---
 const creds: Credentials = { csrf: "c", bearer: "b" };
-const config: GraphqlConfig = {
+const config: GraphqlClientConfig = {
   baseUrl: "https://x.com/i/api/graphql",
-  ops: { ListAddMember: "add", ListRemoveMember: "rm", UserByScreenName: "u" },
-  features: {},
+  catalog: {
+    ListAddMember: { queryId: "add", features: {} },
+    ListRemoveMember: { queryId: "rm", features: {} },
+    UserByScreenName: { queryId: "u", features: {} },
+  },
 };
-const gqlOps = { resolve: async () => config.ops, refresh: async () => config.ops };
+const gqlCatalog = { resolve: async () => config.catalog, refresh: async () => config.catalog };
 const gqlFresh = (): XListApi =>
   new GraphqlXListApi(() => creds, {
     fetch: (async () => jsonResponse({ data: { list: {} } })) as unknown as typeof fetch,
     config,
-    ops: gqlOps,
+    catalog: gqlCatalog,
   });
 const gqlMember = (): XListApi =>
   new GraphqlXListApi(() => creds, {
@@ -38,7 +41,7 @@ const gqlMember = (): XListApi =>
         errors: [{ message: "User is already a member of this List." }],
       })) as unknown as typeof fetch,
     config,
-    ops: gqlOps,
+    catalog: gqlCatalog,
   });
 
 // --- DOM backend builders ---
@@ -52,9 +55,12 @@ class Driver implements PageDriver {
     return this.checked.has(list.id);
   }
   async toggleList(list: XList): Promise<void> {
-    this.checked.add(list.id);
+    if (this.checked.has(list.id)) this.checked.delete(list.id);
+    else this.checked.add(list.id);
   }
-  async commit(): Promise<void> {}
+  async commit(): Promise<"immediate"> {
+    return "immediate";
+  }
   async close(): Promise<void> {}
 }
 const domFresh = (): XListApi => new DomXListApi(new Driver());
@@ -77,12 +83,33 @@ const restMember = (): XListApi =>
   );
 
 const backends = [
-  { label: "GraphqlXListApi", fresh: gqlFresh, member: gqlMember, removable: gqlFresh },
-  { label: "DomXListApi", fresh: domFresh, member: domMember, removable: domMember },
-  { label: "RestXListApi", fresh: restFresh, member: restMember, removable: restFresh },
+  {
+    label: "GraphqlXListApi",
+    evidence: "server-response",
+    fresh: gqlFresh,
+    member: gqlMember,
+    removable: gqlFresh,
+  },
+  {
+    label: "DomXListApi",
+    evidence: "ui-state",
+    fresh: domFresh,
+    member: domMember,
+    removable: domMember,
+  },
+  {
+    label: "RestXListApi",
+    evidence: "server-response",
+    fresh: restFresh,
+    member: restMember,
+    removable: restFresh,
+  },
 ];
 
-describe.each(backends)("XListApi contract: $label", ({ fresh, member, removable }) => {
+describe.each(backends)("XListApi contract: $label", ({ evidence, fresh, member, removable }) => {
+  it("declares the strength of its mutation receipt", () => {
+    expect(fresh().evidence).toBe(evidence);
+  });
   it("addMember resolves for a non-member", async () => {
     await expect(fresh().addMember(LIST, AUTHOR)).resolves.toBeUndefined();
   });
@@ -113,7 +140,7 @@ const httpBackends = [
   {
     label: "GraphqlXListApi",
     build: (res: () => Response): XListApi =>
-      new GraphqlXListApi(() => creds, { fetch: restFetch(res), config, ops: gqlOps }),
+      new GraphqlXListApi(() => creds, { fetch: restFetch(res), config, catalog: gqlCatalog }),
   },
 ];
 
@@ -162,7 +189,7 @@ describe("XListApi HTTP error precedence (intentional divergence)", () => {
     const graphql = new GraphqlXListApi(() => creds, {
       fetch: restFetch(bothCodes),
       config,
-      ops: gqlOps,
+      catalog: gqlCatalog,
     });
     await expect(graphql.addMember(LIST, AUTHOR)).rejects.toMatchObject({ kind: "rate-limited" });
   });

@@ -149,6 +149,20 @@ describe("ensureOk — success and non-envelope failures", () => {
     ).resolves.toEqual({ ok: 1 });
   });
 
+  it("accepts an explicit empty errors array", async () => {
+    await expect(
+      ensureOk(new Response(JSON.stringify({ ok: 1, errors: [] }), { status: 200 }), REST_PROFILE),
+    ).resolves.toEqual({ ok: 1, errors: [] });
+  });
+
+  it.each([{ message: "rejected" }, null, "rejected"])(
+    "rejects malformed errors envelopes",
+    async (errors) => {
+      const err = await kindOf(new Response(JSON.stringify({ ok: 1, errors }), { status: 200 }));
+      expect(err.kind).toBe("unknown");
+    },
+  );
+
   it("an ok response with an unparseable body resolves to undefined (not a throw)", async () => {
     await expect(
       ensureOk(new Response("not json", { status: 200 }), REST_PROFILE),

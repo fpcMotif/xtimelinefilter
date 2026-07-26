@@ -15,6 +15,12 @@ const ARROW_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
 type Position = { x: number; y: number };
 
+interface DragSession {
+  dispose(): void;
+  /** Cancelled drags neither persist nor suppress their trailing click. */
+  cancel(): void;
+}
+
 export interface FunnelPillProps {
   store: FilterStore;
   hiddenCount: () => number;
@@ -40,6 +46,14 @@ function viewport(): { w: number; h: number } {
   return { w, h };
 }
 
+function visiblePosition(position: Position): Position {
+  const { w, h } = viewport();
+  return {
+    x: clamp(position.x, 0, Math.max(0, w - PILL_SIZE)),
+    y: clamp(position.y, 0, Math.max(0, h - PILL_SIZE)),
+  };
+}
+
 /**
  * Default surface: a draggable floating funnel pill that hosts the shared
  * <FilterPanel> in an anchored popover. Position comes from props (persisted by
@@ -58,10 +72,13 @@ export function FunnelPill({
   conduct,
 }: FunnelPillProps) {
   const state = useSignalValue(store.state);
-  const [pos, setPos] = useState(position);
-  const posRef = useRef<Position>(position);
+  const positionX = position.x;
+  const positionY = position.y;
+  const initialPosition = visiblePosition({ x: positionX, y: positionY });
+  const [pos, setPos] = useState(initialPosition);
+  const posRef = useRef<Position>(initialPosition);
   const rootRef = useRef<HTMLDivElement>(null);
-  const disposeDrag = useRef<(() => void) | null>(null);
+  const dragSession = useRef<DragSession | null>(null);
   const keyboardMove = useRef<{ start: Position; last: Position } | null>(null);
   // A drag's bookkeeping lives in the pointerdown closure; pointerup latches its
   // `moved` flag here so the trailing synthetic click can tell a drag from a tap.
@@ -69,15 +86,28 @@ export function FunnelPill({
 
   // Keep local position in sync when the caller hands us a new persisted value.
   useEffect(() => {
-    const next = { x: position.x, y: position.y };
+    const next = visiblePosition({ x: positionX, y: positionY });
     // The parent owns persisted position. Do not let a stale, uncommitted key
     // sequence overwrite an external settings update.
     keyboardMove.current = null;
+    dragSession.current?.cancel();
     posRef.current = next;
     setPos(next);
-  }, [position.x, position.y]);
+  }, [positionX, positionY]);
 
-  useEffect(() => () => disposeDrag.current?.(), []);
+  useEffect(() => () => dragSession.current?.dispose(), []);
+
+  useEffect(() => {
+    const onResize = (): void => {
+      // A keyup after a viewport shrink must not restore the old, now-hidden
+      // coordinate. The next key press starts a new, viewport-relative move.
+      keyboardMove.current = null;
+      dragSession.current?.cancel();
+      setLocalPosition(visiblePosition(posRef.current));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   function setLocalPosition(next: Position): void {
     posRef.current = next;
@@ -116,7 +146,7 @@ export function FunnelPill({
   }, [open, onOpenChange]);
 
   function onPointerDown(e: PointerEvent) {
-    disposeDrag.current?.();
+    dragSession.current?.cancel();
     const start = posRef.current;
     const drag = {
       dx: e.clientX - start.x,
@@ -135,6 +165,7 @@ export function FunnelPill({
       setLocalPosition(next); // live position is local state only — no persistence per move
     };
     let disposed = false;
+    let session: DragSession | undefined;
     const dispose = () => {
       /* v8 ignore next -- re-entrancy guard: each dispose removes all pointer listeners and clears disposeDrag.current, so the same closure is never invoked twice */
       if (disposed) return;
@@ -142,9 +173,9 @@ export function FunnelPill({
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", onCancel);
-      // A new drag disposes the prior one before claiming disposeDrag, so this
-      /* v8 ignore next -- closure always owns disposeDrag when it runs; mismatch arm is dead */
-      if (disposeDrag.current === dispose) disposeDrag.current = null;
+      // A new drag cancels the prior one before claiming this session, so this
+      /* v8 ignore next -- closure always owns dragSession when it runs; mismatch arm is dead */
+      if (dragSession.current === session) dragSession.current = null;
     };
     const onUp = () => {
       dispose();
@@ -156,7 +187,8 @@ export function FunnelPill({
       if (drag.moved) onPositionChange(drag.last);
     };
     const onCancel = () => dispose();
-    disposeDrag.current = dispose;
+    session = { dispose, cancel: dispose };
+    dragSession.current = session;
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", onCancel);

@@ -29,6 +29,8 @@ export function handleInstalled(details: { reason: string }, api: InstallApi): v
 }
 
 /** Complete visual state for a badge message, or null when unrelated. */
+export function badgePresentationFor(msg: ContentToBackground): BadgePresentation;
+export function badgePresentationFor(msg: undefined): null;
 export function badgePresentationFor(
   msg: ContentToBackground | undefined,
 ): BadgePresentation | null {

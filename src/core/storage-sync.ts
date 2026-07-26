@@ -1,16 +1,35 @@
 /**
- * Cross-context change bridge. `chrome.storage.sync`/`local` writes are visible
- * to every extension context (popup, Options, sibling content scripts), but each
- * context holds its own in-memory mirror — so an edit in one is invisible to the
- * others until they reload. `watchStorageKey` closes that gap: it invokes
- * `onChange` whenever a context changes `key` in `areaName`.
+ * Cross-context change bridge. The background owns Chrome storage and relays
+ * public transitions over runtime messaging, so content scripts never need raw
+ * storage access. `watchStorageKey` closes each in-memory mirror's gap.
  *
- * A no-op when `chrome.storage.onChanged` is absent (unit tests under happy-dom,
- * the e2e harness, plain web pages), so callers can wire it unconditionally.
+ * Unit and non-extension hosts without runtime listeners retain the raw-storage
+ * fallback. Callers can therefore wire it unconditionally.
  */
+import { isStorageChangedMessage } from "@/core/protocol";
+
 export interface StorageKeyChange {
   oldValue: unknown;
   newValue: unknown;
+}
+
+interface BackgroundSenderIdentity {
+  url: string;
+  origin: string;
+}
+
+function backgroundSenderIdentity(runtime: typeof chrome.runtime): BackgroundSenderIdentity | null {
+  try {
+    const background = runtime.getManifest().background;
+    const route =
+      background && "service_worker" in background ? background.service_worker : undefined;
+    if (typeof route !== "string" || route.length === 0) return null;
+    const url = runtime.getURL(route);
+    const parsed = new URL(url);
+    return { url, origin: `${parsed.protocol}//${parsed.host}` };
+  } catch {
+    return null;
+  }
 }
 
 export function watchStorageKey(
@@ -19,7 +38,33 @@ export function watchStorageKey(
   onChange: (change: StorageKeyChange) => void,
 ): () => void {
   try {
-    const onChanged = (globalThis as { chrome?: typeof chrome }).chrome?.storage?.onChanged;
+    const extension = (globalThis as { chrome?: typeof chrome }).chrome;
+    const runtimeMessages = extension?.runtime?.onMessage;
+    const runtimeId = extension?.runtime?.id;
+    const worker = extension?.runtime ? backgroundSenderIdentity(extension.runtime) : null;
+    if (runtimeMessages?.addListener && typeof runtimeId === "string" && worker) {
+      const listener = (message: unknown, sender: chrome.runtime.MessageSender): void => {
+        const fromWorker =
+          sender.id === runtimeId &&
+          sender.url === worker.url &&
+          sender.tab === undefined &&
+          sender.frameId === undefined &&
+          sender.documentId === undefined &&
+          (sender.origin === undefined || sender.origin === worker.origin);
+        if (
+          fromWorker &&
+          isStorageChangedMessage(message) &&
+          message.area === areaName &&
+          message.key === key
+        ) {
+          onChange({ oldValue: message.oldValue, newValue: message.newValue });
+        }
+      };
+      runtimeMessages.addListener(listener);
+      return () => runtimeMessages.removeListener?.(listener);
+    }
+
+    const onChanged = extension?.storage?.onChanged;
     if (!onChanged?.addListener) return () => {};
     const listener = (
       changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,

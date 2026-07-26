@@ -84,6 +84,7 @@ describe("ConvexMembershipStore", () => {
           identity: "user:9",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
           observedAt: 123,
         },
         {
@@ -91,6 +92,7 @@ describe("ConvexMembershipStore", () => {
           identity: null,
           action: "remove",
           outcome: "removed",
+          evidence: "server-response",
           observedAt: 124,
         },
       ],
@@ -111,16 +113,42 @@ describe("ConvexMembershipStore", () => {
             memberIdentity: "user:9",
             action: "add",
             outcome: "added",
+            evidence: "server-response",
             observedAt: 123,
           },
           {
             memberScreenName: "bob",
             action: "remove",
             outcome: "removed",
+            evidence: "server-response",
             observedAt: 124,
           },
         ],
       },
+    });
+  });
+
+  it("batches more than 256 audit observations without dropping or reordering them", async () => {
+    const { fake, store } = make();
+    await store.recordAssign(owner, list, {
+      ownerObservedAt: 0,
+      changes: Array.from({ length: 257 }, (_, i) => ({
+        screenName: `person-${i}`,
+        identity: `user:${i}`,
+        action: "add" as const,
+        outcome: "added",
+        evidence: "server-response" as const,
+        observedAt: i,
+      })),
+    });
+
+    expect(fake.calls).toHaveLength(2);
+    expect(fake.calls.map((call) => (call.args.results as unknown[]).length)).toEqual([256, 1]);
+    expect((fake.calls[0]!.args.results as Array<{ memberScreenName: string }>)[0]).toMatchObject({
+      memberScreenName: "person-0",
+    });
+    expect((fake.calls[1]!.args.results as Array<{ memberScreenName: string }>)[0]).toMatchObject({
+      memberScreenName: "person-256",
     });
   });
 

@@ -1,150 +1,155 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createMirrorStatusStore, mirrorAgeLabel, parseMirrorStatus } from "@/core/mirror-status";
-import type { StorageLike } from "@/core/storage-areas";
-import { STORAGE_KEYS } from "@/core/storage-keys";
+import {
+  createMirrorStatusStore,
+  createWorkerMirrorStatusPort,
+  mirrorAgeLabel,
+  parseMirrorStatus,
+  type MirrorStatus,
+  type MirrorStatusPort,
+} from "@/core/mirror-status";
+import * as protocol from "@/core/protocol";
 
-import { createMemoryArea, installOnChanged } from "../helpers/chrome-fake";
+type StorageChangeListener = (
+  changes: Record<string, { newValue?: unknown }>,
+  area: string,
+) => void;
+
+function statusPort(overrides: Partial<MirrorStatusPort> = {}): MirrorStatusPort {
+  return {
+    report: vi.fn(async () => {}),
+    read: vi.fn(async () => null),
+    subscribe: vi.fn(() => () => {}),
+    ...overrides,
+  };
+}
 
 describe("parseMirrorStatus", () => {
-  it("accepts a well-formed tagged status", () => {
-    expect(parseMirrorStatus({ ok: true, at: 123, configId: "mirror-1" })).toEqual({
+  it("accepts a complete status", () => {
+    expect(parseMirrorStatus({ ok: true, at: 1, configId: "mirror-1" })).toEqual({
       ok: true,
-      at: 123,
+      at: 1,
       configId: "mirror-1",
     });
-    expect(parseMirrorStatus({ ok: false, at: 0, configId: "mirror-2", extra: "ignored" })).toEqual(
-      {
-        ok: false,
-        at: 0,
-        configId: "mirror-2",
-      },
-    );
   });
 
-  it("rejects old untagged rows and anything malformed", () => {
-    expect(parseMirrorStatus(null)).toBeNull();
-    expect(parseMirrorStatus(undefined)).toBeNull();
-    expect(parseMirrorStatus("synced")).toBeNull();
-    expect(parseMirrorStatus({ ok: "yes", at: 1 })).toBeNull();
-    expect(parseMirrorStatus({ ok: true, at: "now" })).toBeNull();
-    expect(parseMirrorStatus({ ok: true })).toBeNull();
-    expect(parseMirrorStatus({ ok: true, at: 1 })).toBeNull();
-    expect(parseMirrorStatus({ ok: true, at: 1, configId: "" })).toBeNull();
-    expect(parseMirrorStatus({ ok: true, at: 1, configId: "   " })).toBeNull();
-    expect(parseMirrorStatus({ ok: true, at: -1, configId: "mirror-1" })).toBeNull();
-    expect(parseMirrorStatus({ ok: true, at: Number.NaN, configId: "mirror-1" })).toBeNull();
-    expect(parseMirrorStatus({ ok: true, at: Infinity, configId: "mirror-1" })).toBeNull();
-  });
+  it.each([
+    null,
+    {},
+    { ok: "yes", at: 1, configId: "id" },
+    { ok: true, at: Number.NaN, configId: "id" },
+    { ok: true, at: -1, configId: "id" },
+    { ok: true, at: 1, configId: "   " },
+    { ok: true, at: 1, configId: "x".repeat(257) },
+    { ok: true, at: 1 },
+  ])("rejects malformed values", (value) => expect(parseMirrorStatus(value)).toBeNull());
 });
 
 describe("mirrorAgeLabel", () => {
-  const now = Date.UTC(2026, 6, 2, 12, 0, 0);
-
-  it("labels sub-minute ages as just now (clock skew clamps to zero)", () => {
-    expect(mirrorAgeLabel(now - 30_000, now)).toBe("just now");
-    expect(mirrorAgeLabel(now + 5_000, now)).toBe("just now"); // future stamp: skew, not time travel
-  });
-
-  it("labels minute and hour ages", () => {
-    expect(mirrorAgeLabel(now - 3 * 60_000, now)).toBe("3m ago");
-    expect(mirrorAgeLabel(now - 59 * 60_000, now)).toBe("59m ago");
-    expect(mirrorAgeLabel(now - 2 * 3_600_000, now)).toBe("2h ago");
+  it.each([
+    [0, 0, "just now"],
+    [0, 180_000, "3m ago"],
+    [0, 7_200_000, "2h ago"],
+  ])("renders %s / %s", (at, now, expected) => {
+    expect(mirrorAgeLabel(at, now)).toBe(expected);
   });
 });
 
 describe("createMirrorStatusStore", () => {
-  it("defaults to chrome.storage.local", async () => {
-    const store = createMirrorStatusStore();
-    await store.publish({ ok: true, at: 5, configId: "mirror-1" });
-    expect(await store.read()).toEqual({ ok: true, at: 5, configId: "mirror-1" });
-  });
-
-  it("read() returns null when nothing has been published", async () => {
-    const store = createMirrorStatusStore(createMemoryArea());
-    expect(await store.read()).toBeNull();
-  });
-
-  it("publish() then read() round-trips under STORAGE_KEYS.mirrorStatus, value shape unchanged", async () => {
-    const area = createMemoryArea();
-    const store = createMirrorStatusStore(area);
-    await store.publish({ ok: true, at: 42, configId: "mirror-1" });
-    expect(area.data[STORAGE_KEYS.mirrorStatus]).toEqual({
-      ok: true,
-      at: 42,
-      configId: "mirror-1",
-    });
-    expect(await store.read()).toEqual({ ok: true, at: 42, configId: "mirror-1" });
-  });
-
-  it("read() returns null for a malformed stored value", async () => {
-    const area = createMemoryArea({ [STORAGE_KEYS.mirrorStatus]: "not a status" });
-    const store = createMirrorStatusStore(area);
-    expect(await store.read()).toBeNull();
-  });
-
-  it("publish() never throws when storage rejects (fail-soft, ADR-0009)", async () => {
-    const area: StorageLike = {
-      get: async () => ({}),
-      set: () => Promise.reject(new Error("boom")),
-    };
-    const store = createMirrorStatusStore(area);
-    await expect(
-      store.publish({ ok: false, at: 1, configId: "mirror-1" }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("read() returns null when storage rejects", async () => {
-    const area: StorageLike = {
-      get: () => Promise.reject(new Error("boom")),
-      set: async () => {},
-    };
-    const store = createMirrorStatusStore(area);
-    expect(await store.read()).toBeNull();
-  });
-
-  it("subscribes to tagged local changes, rejects malformed rows, and disposes", () => {
-    const bridge = installOnChanged();
+  it("uses Chrome transport and parses storage status updates", async () => {
+    const sendMessage = vi.fn(async (request: { operation: string }) =>
+      request.operation === "read"
+        ? { ok: true, status: { ok: true, at: 1, configId: "mirror-1" } }
+        : { ok: true },
+    );
+    const listeners = new Set<StorageChangeListener>();
+    const previous = globalThis.chrome;
+    globalThis.chrome = {
+      ...previous,
+      runtime: { sendMessage },
+      storage: {
+        ...previous.storage,
+        onChanged: {
+          addListener: (listener: StorageChangeListener) => listeners.add(listener),
+          removeListener: (listener: StorageChangeListener) => listeners.delete(listener),
+        },
+      },
+    } as unknown as typeof chrome;
     try {
-      const store = createMirrorStatusStore(createMemoryArea());
+      const port = createWorkerMirrorStatusPort();
       const seen = vi.fn();
-      const dispose = store.subscribe(seen);
-      const status = { ok: false, at: 7, configId: "mirror-1" };
+      const stop = port.subscribe(seen);
 
-      bridge.emit(STORAGE_KEYS.mirrorStatus, status, "sync");
-      expect(seen).not.toHaveBeenCalled();
-      bridge.emit(STORAGE_KEYS.mirrorStatus, status, "local");
-      bridge.emit(STORAGE_KEYS.mirrorStatus, { ok: true, at: 8 }, "local", status);
-      expect(seen).toHaveBeenNthCalledWith(1, status);
-      expect(seen).toHaveBeenNthCalledWith(2, null);
-
-      dispose();
-      dispose();
-      bridge.emit(STORAGE_KEYS.mirrorStatus, status, "local");
-      expect(seen).toHaveBeenCalledTimes(2);
+      await expect(port.report({ ok: false, configId: "mirror-1" })).resolves.toBeUndefined();
+      await expect(port.read()).resolves.toEqual({ ok: true, at: 1, configId: "mirror-1" });
+      for (const listener of listeners)
+        listener(
+          { "lasso:mirror-status": { newValue: { ok: false, at: 2, configId: "mirror-2" } } },
+          "local",
+        );
+      stop();
+      expect(seen).toHaveBeenCalledWith({ ok: false, at: 2, configId: "mirror-2" });
     } finally {
-      bridge.restore();
+      globalThis.chrome = previous;
     }
   });
 
-  it("keeps watching for the survivors when one of several subscribers disposes", () => {
-    const bridge = installOnChanged();
-    try {
-      const store = createMirrorStatusStore(createMemoryArea());
-      const first = vi.fn();
-      const second = vi.fn();
-      const disposeFirst = store.subscribe(first);
-      store.subscribe(second);
-      const status = { ok: true, at: 9, configId: "mirror-1" };
+  it("treats a missing worker status as unset", async () => {
+    vi.spyOn(protocol, "requestMirrorStatus").mockResolvedValue({ ok: true });
 
-      disposeFirst();
-      bridge.emit(STORAGE_KEYS.mirrorStatus, status, "local");
+    await expect(createWorkerMirrorStatusPort().read()).resolves.toBeNull();
+  });
 
-      // subscribers.size is still 1, so the underlying watch is NOT torn down.
-      expect(first).not.toHaveBeenCalled();
-      expect(second).toHaveBeenCalledWith(status);
-    } finally {
-      bridge.restore();
-    }
+  it("delegates read and publish through its semantic port", async () => {
+    const status: MirrorStatus = { ok: true, at: 1, configId: "mirror-1" };
+    const port = statusPort({ read: vi.fn(async () => status) });
+    const store = createMirrorStatusStore(port);
+
+    await store.publish({ ok: true, configId: "mirror-1" });
+    await expect(store.read()).resolves.toEqual(status);
+    expect(port.report).toHaveBeenCalledWith({ ok: true, configId: "mirror-1" });
+  });
+
+  it("fails soft when the worker is unavailable", async () => {
+    const port = statusPort({
+      report: vi.fn(async () => {
+        throw new Error("down");
+      }),
+      read: vi.fn(async () => {
+        throw new Error("down");
+      }),
+    });
+    const store = createMirrorStatusStore(port);
+
+    await expect(store.publish({ ok: false, configId: "mirror-1" })).resolves.toBeUndefined();
+    await expect(store.read()).resolves.toBeNull();
+  });
+
+  it("fans one semantic subscription to active listeners", () => {
+    let publish!: (status: MirrorStatus | null) => void;
+    const unsubscribe = vi.fn();
+    const port = statusPort({
+      subscribe: vi.fn((listener) => {
+        publish = listener;
+        return unsubscribe;
+      }),
+    });
+    const store = createMirrorStatusStore(port);
+    const first = vi.fn(() => {
+      throw new Error("cosmetic surface failed");
+    });
+    const second = vi.fn();
+    const stopFirst = store.subscribe(first);
+    const stopSecond = store.subscribe(second);
+
+    publish({ ok: false, at: 7, configId: "mirror-1" });
+    stopFirst();
+    stopFirst();
+    stopSecond();
+
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).toHaveBeenCalledOnce();
+    expect(port.subscribe).toHaveBeenCalledOnce();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 });

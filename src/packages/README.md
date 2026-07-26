@@ -36,6 +36,14 @@ Avoid barrel files: prefer several small, purposeful entry points
 an entire subtree. A barrel just moves the internals back behind a single
 door instead of keeping them genuinely private.
 
+## Ownership
+
+Own an X-facing capability where its behaviour lives. `x-client` owns the
+page-scoped X facade: auth, fetch, backend replacement, Lists reads, and quick
+REST actions. It also owns the Lists dialog; content injects caret lookup and
+the worker cache adapter. `tweet-actions` owns one-tweet UI actions; content
+injects keyboard-safe event dispatch. Content does not assemble X transport.
+
 Run the check with `bun run lint:boundaries` (this also runs in CI).
 
 `example/` is a starter template — copy it to start a new package, or delete

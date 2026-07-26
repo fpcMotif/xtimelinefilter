@@ -1,16 +1,4 @@
 import {
-  DriverSelectors,
-  MUTE_ICON_PATH_PREFIX,
-  MUTE_TEXT,
-  NOT_INTERESTED_ICON_PATH_PREFIX,
-  NOT_INTERESTED_TEXT,
-  POST_NOT_RELEVANT_TEXT,
-  Selectors,
-  SHOW_FEWER_TEXT,
-  SYNTHETIC_EVENT_FLAG,
-  UNDO_TEXT,
-} from "@/content/selectors";
-import {
   PAGE_ACTIVATE_CHANNEL,
   PAGE_ACTIVATE_READY,
   PAGE_ACTIVATE_REQUEST,
@@ -19,6 +7,21 @@ import {
 } from "@/core/protocol";
 
 const textOf = (el: Element): string => el.textContent as string;
+
+const TWEET = 'article[data-testid="tweet"]';
+const CELL = 'div[data-testid="cellInnerDiv"]';
+const CARET = '[data-testid="caret"]';
+const MENU = '[role="menu"]';
+const MENUITEM = '[role="menuitem"]';
+const DROPDOWN = '[data-testid="Dropdown"]';
+const SHEET = '[data-testid="sheetDialog"]';
+const MENU_CONTAINER = `${DROPDOWN}, ${SHEET}, ${MENU}`;
+const NOT_INTERESTED_ICON_PATH_PREFIX = "M12 13.6c1.64";
+const NOT_INTERESTED_TEXT = /not interested|不感興趣|不感兴趣|興味がない/i;
+const SHOW_FEWER_TEXT = /show fewer|see fewer|減少顯示|减少显示|表示を減らす/i;
+const POST_NOT_RELEVANT_TEXT =
+  /(?:post|this).*(?:not relevant|irrelevant|isn['’]t relevant)|not relevant|irrelevant|不相關|不相关|関連性が(?:ありません|ない)/i;
+const UNDO_TEXT = /^\s*(undo|復原|复原|元に戻す)\s*$/i;
 
 let activateSeq = 0;
 
@@ -133,32 +136,24 @@ const activate = async (el: Element): Promise<void> => {
   isolatedActivate(el);
 };
 
-const muteMatch = (el: Element): boolean =>
-  !!el.querySelector(`svg path[d^="${MUTE_ICON_PATH_PREFIX}"]`) || MUTE_TEXT.test(textOf(el));
-const blockMatch = (el: Element): boolean =>
-  !!el.querySelector(DriverSelectors.BLOCK) ||
-  el.getAttribute("data-testid") === "block" ||
-  /^\s*block/i.test(textOf(el));
 const notInterestedMatch = (el: Element): boolean =>
   !!el.querySelector(`svg path[d^="${NOT_INTERESTED_ICON_PATH_PREFIX}"]`) ||
   NOT_INTERESTED_TEXT.test(textOf(el));
 
-export interface CaretActionDeps {
+export interface TweetActionsDeps {
+  /** Dispatches an Escape that Lasso's keyboard layer must ignore. */
+  dispatchSyntheticEscape(target: Document | Element): void;
   doc?: Document;
   timeoutMs?: number;
-  /** How long to wait for an optional confirmation sheet. */
-  confirmTimeoutMs?: number;
   settle?: (ms: number) => Promise<void>;
 }
 
-export interface CaretActions {
-  mute(tweetEl: Element): Promise<void>;
+export interface TweetActions {
   /**
    * Resolves "hidden" on success, "unavailable" when X offers no "not interested"
    * row for this post (e.g. off the home feed) — a no-op the caller can ignore.
    */
   notInterested(tweetEl: Element): Promise<"hidden" | "unavailable">;
-  block(tweetEl: Element): Promise<void>;
 }
 
 /**
@@ -168,14 +163,12 @@ export interface CaretActions {
  * "not available here", not breakage. Thrown distinctly from a plain Error so callers
  * (controller.hideTweet) can stay silent instead of showing a futile failure + Retry.
  */
-export class CaretActionUnavailableError extends Error {
+export class TweetActionUnavailableError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "CaretActionUnavailableError";
+    this.name = "TweetActionUnavailableError";
   }
 }
-
-type ConfirmMode = "always" | "if-present" | "never";
 
 function waitForEl(
   find: () => Element | null,
@@ -209,7 +202,7 @@ function waitForEl(
  */
 function findNotInterestedFeedback(cellEl: Element): Element | null {
   const outside = [...cellEl.querySelectorAll('button, [role="button"]')].filter(
-    (b) => !b.closest(Selectors.TWEET),
+    (b) => !b.closest(TWEET),
   );
   const byPost = outside.find((b) => POST_NOT_RELEVANT_TEXT.test(textOf(b)));
   if (byPost) return byPost;
@@ -225,39 +218,23 @@ function findNotInterestedFeedback(cellEl: Element): Element | null {
 }
 
 /**
- * Drives the tweet "..." caret menu for quick actions on a focused tweet element
- * (docs/research/09). Row matching is tiered: data-testid / icon-path → localized
- * text. Confirmation sheet handling is per-action (Block always, Mute maybe,
- * Not-interested never). Live-DOM boundary — orchestration tested via fixtures.
+ * Drives X's tweet-caret "not interested" action. It owns the live-DOM retry,
+ * feedback and cleanup protocol; callers only provide the focused tweet.
  */
-export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
+export function createTweetActions(deps: TweetActionsDeps): TweetActions {
   const doc = deps.doc ?? document;
   const timeoutMs = deps.timeoutMs ?? 4000;
-  const confirmTimeoutMs = deps.confirmTimeoutMs ?? 1500;
   const settle = deps.settle ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   // Rows render with the menu container in one shot (live), so when our row is absent
   // it will never appear — cap the row wait well under timeoutMs to fail fast instead
   // of hanging the full 4s on an unsupported post.
   const rowWaitMs = Math.min(timeoutMs, 1500);
 
-  const MENU_CONTAINER_SELECTOR = `${DriverSelectors.DROPDOWN}, ${DriverSelectors.SHEET}, ${DriverSelectors.MENU}`;
-
-  const waitFor = (selector: string, timeout: number): Promise<Element | null> =>
-    waitForEl(() => doc.querySelector(selector), timeout, doc.body);
-
-  const menuContainers = (): Element[] => [...doc.querySelectorAll(MENU_CONTAINER_SELECTOR)];
+  const menuContainers = (): Element[] => [...doc.querySelectorAll(MENU_CONTAINER)];
 
   async function dismissOpenMenus(): Promise<void> {
     if (menuContainers().length === 0) return;
-    const win = doc.defaultView;
-    const init = { key: "Escape", bubbles: true, cancelable: true, composed: true };
-    for (const node of [doc, doc.body]) {
-      const ev = win ? new win.KeyboardEvent("keydown", init) : new KeyboardEvent("keydown", init);
-      // Marked so Lasso's own keyboard layer ignores it — this Escape is aimed
-      // at X's menu, not at Lasso's select mode / picker / selection.
-      (ev as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] = true;
-      node.dispatchEvent(ev);
-    }
+    for (const node of [doc, doc.body]) deps.dispatchSyntheticEscape(node);
     await settle(80);
   }
 
@@ -275,8 +252,7 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
   async function openMenu(tweetEl: Element): Promise<{ menu: Element; caret: Element }> {
     // Quoted tweets nest articles; the inner article has no caret — climb out.
     const caret =
-      tweetEl.querySelector(DriverSelectors.CARET) ??
-      tweetEl.parentElement?.closest(Selectors.TWEET)?.querySelector(DriverSelectors.CARET);
+      tweetEl.querySelector(CARET) ?? tweetEl.parentElement?.closest(TWEET)?.querySelector(CARET);
     if (!caret) throw new Error("Lasso: caret button not found on the focused tweet");
     await dismissOpenMenus();
     const staleMenus = new Set(menuContainers());
@@ -297,28 +273,13 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
     match: (el: Element) => boolean,
     timeout: number,
   ): Promise<Element | null> =>
-    waitForEl(
-      () => [...menu.querySelectorAll(DriverSelectors.MENUITEM)].find(match) ?? null,
-      timeout,
-      menu,
-    );
-
-  async function confirm(required: boolean): Promise<void> {
-    const btn = await waitFor(DriverSelectors.CONFIRM, confirmTimeoutMs);
-    if (btn) {
-      await activate(btn);
-      await settle(120);
-    } else if (required) {
-      throw new Error("Lasso: expected a confirmation sheet but none appeared");
-    }
-  }
+    waitForEl(() => [...menu.querySelectorAll(MENUITEM)].find(match) ?? null, timeout, menu);
 
   // X removes the menu once it accepts a row click — "no connected menu
   // container holds a row anymore" is the acceptance signal. Checking the
   // CAPTURED container alone is wrong: X can swap the whole dropdown for a
   // fresh one mid-flight, and a dead container must not read as "accepted".
-  const anyMenuRowsOpen = (): boolean =>
-    menuContainers().some((m) => m.querySelector(DriverSelectors.MENUITEM));
+  const anyMenuRowsOpen = (): boolean => menuContainers().some((m) => m.querySelector(MENUITEM));
 
   async function waitForMenuClose(timeout: number): Promise<boolean> {
     for (let i = Math.max(1, Math.ceil(timeout / 50)); i > 0; i--) {
@@ -333,24 +294,20 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
   // live row instead of the dead one.
   const findLiveRow = (match: (el: Element) => boolean): Element | null =>
     menuContainers()
-      .flatMap((m) => [...m.querySelectorAll(DriverSelectors.MENUITEM)])
+      .flatMap((m) => [...m.querySelectorAll(MENUITEM)])
       .find(match) ?? null;
 
-  async function run(
-    tweetEl: Element,
-    match: (el: Element) => boolean,
-    confirmMode: ConfirmMode,
-  ): Promise<void> {
+  async function run(tweetEl: Element, match: (el: Element) => boolean): Promise<void> {
     const { menu, caret } = await openMenu(tweetEl);
     try {
       let row = await waitForRow(menu, match, rowWaitMs);
       if (!row) {
-        const labels = [...menu.querySelectorAll(DriverSelectors.MENUITEM)]
+        const labels = [...menu.querySelectorAll(MENUITEM)]
           .map((r) => textOf(r).trim().slice(0, 24))
           .join(" | ");
         // The menu opened with other rows but not ours — X offers no such action in
         // this context. Unavailable, not breakage (caller decides whether to surface).
-        throw new CaretActionUnavailableError(
+        throw new TweetActionUnavailableError(
           `Lasso: target menu item not found (rows: ${labels})`,
         );
       }
@@ -366,8 +323,6 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
         if (attempt >= 1) throw new Error("Lasso: X did not accept the menu click");
         await settle(150);
       }
-      if (confirmMode === "always") await confirm(true);
-      else if (confirmMode === "if-present") await confirm(false);
     } catch (e) {
       await dismissMenu(caret); // never leave the user staring at a stuck-open menu
       throw e;
@@ -377,13 +332,13 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
   // After the menu action, X swaps the article for a feedback panel. Require
   // that real X-side effect before reporting success.
   async function notInterested(tweetEl: Element): Promise<"hidden" | "unavailable"> {
-    const cellEl = tweetEl.closest(Selectors.CELL); // capture before X replaces the article
+    const cellEl = tweetEl.closest(CELL); // capture before X replaces the article
     try {
-      await run(tweetEl, notInterestedMatch, "never");
+      await run(tweetEl, notInterestedMatch);
     } catch (e) {
       // X offers no "not interested" here (profile / post page / list / search) — a
       // silent no-op for the caller, not a failure. Genuine errors still propagate.
-      if (e instanceof CaretActionUnavailableError) return "unavailable";
+      if (e instanceof TweetActionUnavailableError) return "unavailable";
       throw e;
     }
     if (!cellEl) return "hidden";
@@ -411,13 +366,5 @@ export function createCaretActions(deps: CaretActionDeps = {}): CaretActions {
     return "hidden";
   }
 
-  return {
-    mute: async (t) => {
-      await run(t, muteMatch, "if-present");
-    },
-    notInterested,
-    block: async (t) => {
-      await run(t, blockMatch, "always");
-    },
-  };
+  return { notInterested };
 }

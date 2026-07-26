@@ -2,13 +2,22 @@ import { describe, expect, it, vi } from "vitest";
 
 import { assignAuthorsToList, removeAuthorsFromList } from "@/core/actions/assign-to-list";
 import type { TweetAuthor } from "@/core/selection-store";
-import { XApiError, type XList, type XListApi } from "@/packages/x-client/types";
+import {
+  XApiError,
+  type MutationEvidence,
+  type XList,
+  type XListApi,
+} from "@/packages/x-client/types";
 
 class FakeApi implements XListApi {
+  readonly evidence: MutationEvidence;
   added: string[] = [];
   removed: string[] = [];
   addImpl: (author: TweetAuthor) => Promise<void> = async () => {};
   removeImpl: (author: TweetAuthor) => Promise<void> = async () => {};
+  constructor(evidence: MutationEvidence = "server-response") {
+    this.evidence = evidence;
+  }
   async addMember(_list: XList, author: TweetAuthor): Promise<void> {
     this.added.push(author.screenName);
     return this.addImpl(author);
@@ -60,6 +69,18 @@ describe("assignAuthorsToList", () => {
     const res = await assignAuthorsToList([a("x"), a("y"), a("z")], LIST, api, noSleep);
     expect(res.map((r) => r.outcome)).toEqual(["added", "already-member", "added"]);
     expect(api.added).toEqual(["x", "y", "z"]);
+  });
+
+  it("tags successful, idempotent, and failed attempts with the backend evidence", async () => {
+    const api = new FakeApi("ui-state");
+    api.addImpl = async (author) => {
+      if (author.screenName === "b") throw new XApiError("already-member", "already");
+      if (author.screenName === "c") throw new Error("no receipt");
+    };
+
+    const results = await assignAuthorsToList([a("a"), a("b"), a("c")], LIST, api, noSleep);
+
+    expect(results.map((result) => result.evidence)).toEqual(["ui-state", "ui-state", "ui-state"]);
   });
 
   it("STOPS the run on rate-limited (honors backoff) — later authors untouched", async () => {
@@ -212,6 +233,42 @@ describe("removeAuthorsFromList — undo under the same policy", () => {
     expect(res[1]).toMatchObject({ outcome: "failed", message: "remove boom" });
   });
 
+  it("maps an already-member remove error to already-absent, then continues", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async (au) => {
+      if (au.screenName === "x") throw new XApiError("already-member", "not a member");
+      if (au.screenName === "y") throw new XApiError("protected", "private");
+    };
+
+    const res = await removeAuthorsFromList([a("x"), a("y"), a("z")], LIST, api, noSleep);
+
+    expect(res.map((r) => r.outcome)).toEqual(["already-absent", "protected", "removed"]);
+    expect(api.removed).toEqual(["x", "y", "z"]);
+  });
+
+  it("maps the DOM already-absent receipt without claiming a removal", async () => {
+    const api = new FakeApi();
+    api.removeImpl = async () => {
+      throw new XApiError("already-absent", "not a member");
+    };
+
+    const res = await removeAuthorsFromList([a("x")], LIST, api, noSleep);
+
+    expect(res.map((r) => r.outcome)).toEqual(["already-absent"]);
+  });
+
+  it("honors Stop before the first remove", async () => {
+    const api = new FakeApi();
+
+    const res = await removeAuthorsFromList([a("x")], LIST, api, {
+      ...noSleep,
+      shouldStop: () => true,
+    });
+
+    expect(res).toEqual([]);
+    expect(api.removed).toEqual([]);
+  });
+
   it("stringifies non-Error throws in the remove result message", async () => {
     const api = new FakeApi();
     api.removeImpl = async (au) => {
@@ -261,7 +318,9 @@ describe("removeAuthorsFromList — undo under the same policy", () => {
     stop = true;
     releaseSleep();
 
-    await expect(res).resolves.toEqual([{ author: a("x"), outcome: "removed", observedAt: 456 }]);
+    await expect(res).resolves.toEqual([
+      { author: a("x"), outcome: "removed", evidence: "server-response", observedAt: 456 },
+    ]);
     expect(api.removed).toEqual(["x"]);
   });
 });
@@ -318,7 +377,9 @@ describe("story beat 7 — progress + Stop", () => {
     stop = true;
     releaseSleep();
 
-    await expect(res).resolves.toEqual([{ author: a("x"), outcome: "added", observedAt: 456 }]);
+    await expect(res).resolves.toEqual([
+      { author: a("x"), outcome: "added", evidence: "server-response", observedAt: 456 },
+    ]);
     expect(api.added).toEqual(["x"]);
   });
 

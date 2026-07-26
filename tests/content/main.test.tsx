@@ -12,10 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type AnyFn = (...args: unknown[]) => unknown;
 type Caps = {
   controllerDeps?: Record<string, AnyFn | Record<string, AnyFn> | unknown>;
-  xlistRuntime?: {
-    fetch: typeof fetch;
-    credentials: AnyFn;
-    createPageDriver: AnyFn;
+  xPageOptions?: {
+    initialBackend: unknown;
+    settings: unknown;
+    graphqlCache: unknown;
+    dispatchSyntheticEscape(target: Document | Element): void;
+    findAuthorCaret(screenName: string): Element | null;
   };
   listCacheLoader?: AnyFn;
   pickerDeps?: {
@@ -104,13 +106,21 @@ const H = vi.hoisted(() => {
           return () => H.fake.highContrastUnsubscribe();
         }),
       },
-      auth: { credentials: vi.fn(() => ({ ct0: "tok" })) },
       caret: { notInterested: fn() },
       listCache: {},
       listUsage: { recentIds: vi.fn(() => []), record: vi.fn() },
       picker: {},
       membership: {},
       backend: {},
+      xPage: {
+        lists: { snapshot: vi.fn(() => ({})) },
+        ownedLists: vi.fn(async () => []),
+        membershipListIds: vi.fn(async () => []),
+        mute: vi.fn(async () => {}),
+        unmute: vi.fn(async () => {}),
+        block: vi.fn(async () => {}),
+        dispose: vi.fn(),
+      },
       health: { record: vi.fn() },
       uiHost: {
         host: null as unknown as HTMLElement,
@@ -142,14 +152,8 @@ const H = vi.hoisted(() => {
       render: vi.fn(),
       getCurrentAccount: vi.fn(() => ({ userId: "1", screenName: "op" })),
       getFocusedTweet: vi.fn(() => null as Element | null),
-      extractAuthor: vi.fn(() => ({ screenName: "a" }) as unknown),
+      extractAuthor: vi.fn((_article: Element) => ({ screenName: "a" }) as unknown),
       isInScope: vi.fn(() => true),
-      fetchOwnedLists: vi.fn(async () => []),
-      fetchMembershipListIds: vi.fn(async () => []),
-      muteUser: vi.fn(async () => {}),
-      unmuteUser: vi.fn(async () => {}),
-      blockUser: vi.fn(async () => {}),
-      createDomPageDriver: vi.fn(() => ({})),
       buildConvex: vi.fn(),
     },
   };
@@ -264,29 +268,14 @@ vi.mock("@/core/picker-controller", () => ({
 }));
 vi.mock("@/core/settings", () => ({ createSettings: () => H.fake.settings }));
 vi.mock("@/packages/tweet-read", () => ({ author: H.spy.extractAuthor }));
-vi.mock("@/packages/x-client/auth", () => ({
-  createDocumentAuth: () => H.fake.auth,
+vi.mock("@/packages/tweet-actions/actions", () => ({
+  createTweetActions: () => H.fake.caret,
 }));
-vi.mock("@/packages/x-client/caret-actions", () => ({
-  createCaretActions: () => H.fake.caret,
-}));
-vi.mock("@/packages/x-client/dom-page-driver", () => ({
-  createDomPageDriver: H.spy.createDomPageDriver,
-}));
-vi.mock("@/packages/x-client/factory", () => ({
-  createXListApi: (_backend: unknown, runtime: Caps["xlistRuntime"]) => {
-    H.cap.xlistRuntime = runtime;
-    return H.fake.backend;
+vi.mock("@/packages/x-client/x-page-client", () => ({
+  createXPageClient: (options: Caps["xPageOptions"]) => {
+    H.cap.xPageOptions = options;
+    return H.fake.xPage;
   },
-}));
-vi.mock("@/packages/x-client/lists-provider", () => ({
-  fetchMembershipListIds: H.spy.fetchMembershipListIds,
-  fetchOwnedLists: H.spy.fetchOwnedLists,
-}));
-vi.mock("@/packages/x-client/rest-api", () => ({
-  blockUser: H.spy.blockUser,
-  muteUser: H.spy.muteUser,
-  unmuteUser: H.spy.unmuteUser,
 }));
 vi.mock("@/core/selection-store", async () => {
   const actual =
@@ -358,6 +347,9 @@ beforeEach(() => {
   for (const m of Object.values(H.fake.controller)) m.mockClear();
   for (const m of Object.values(H.fake.filter)) m.mockClear();
   H.fake.filterStore.dispose.mockClear();
+  for (const value of Object.values(H.fake.xPage)) {
+    if (typeof value === "function" && "mockClear" in value) value.mockClear();
+  }
   H.fake.installFilter.mockReset();
   H.fake.installFilter.mockResolvedValue(H.fake.filter);
   H.fake.membership = {};
@@ -471,6 +463,21 @@ describe("content boot (main.tsx)", () => {
     expect(sendMessage).toHaveBeenCalledWith({ type: "lasso:badge", count: 1 });
   });
 
+  it("constructs one X page capability and passes its List seam to the controller", async () => {
+    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+
+    expect(H.cap.xPageOptions).toMatchObject({
+      initialBackend: "rest",
+      settings: H.fake.settings,
+      graphqlCache: expect.any(Object),
+      findAuthorCaret: expect.any(Function),
+      dispatchSyntheticEscape: expect.any(Function),
+    });
+    expect(H.cap.controllerDeps?.backend).toBe(H.fake.xPage.lists);
+  });
+
   it("ignores ordinary pageshow but reannounces dormant state from BFCache", async () => {
     await importMain();
     sendMessage.mockClear();
@@ -547,20 +554,13 @@ describe("content boot (main.tsx)", () => {
     // main(), the fresh activation read, then the host registry refresh.
     expect(H.fake.settings.get).toHaveBeenCalledTimes(3);
 
-    // ---- backend runtime: factory owns concrete backend construction ----
-    expect(H.cap.xlistRuntime!.fetch).toBeTypeOf("function");
-    H.cap.xlistRuntime!.credentials();
-    H.cap.xlistRuntime!.createPageDriver();
-    expect(H.fake.auth.credentials).toHaveBeenCalled();
-    expect(H.spy.createDomPageDriver).toHaveBeenCalledTimes(1);
-
-    // ---- list-cache loader + picker memberships/recentIds thunks ----
+    // ---- one X page seam owns List reads and quick REST actions ----
     await H.cap.listCacheLoader!();
-    expect(H.spy.fetchOwnedLists).toHaveBeenCalled();
+    expect(H.fake.xPage.ownedLists).toHaveBeenCalled();
     H.cap.pickerDeps!.recentIds("1", 5);
     expect(H.fake.listUsage.recentIds).toHaveBeenCalledWith("1", 5);
     await H.cap.pickerDeps!.memberships("alice");
-    expect(H.spy.fetchMembershipListIds).toHaveBeenCalled();
+    expect(H.fake.xPage.membershipListIds).toHaveBeenCalledWith("alice");
     expect(H.cap.pickerDeps!.membershipStore).toMatchObject({
       recordAssign: expect.any(Function),
       observe: expect.any(Function),
@@ -591,9 +591,9 @@ describe("content boot (main.tsx)", () => {
     await quick.block("alice");
     const tweetForCaret = document.createElement("article");
     quick.notInterested(tweetForCaret);
-    expect(H.spy.muteUser).toHaveBeenCalled();
-    expect(H.spy.unmuteUser).toHaveBeenCalled();
-    expect(H.spy.blockUser).toHaveBeenCalled();
+    expect(H.fake.xPage.mute).toHaveBeenCalledWith("alice");
+    expect(H.fake.xPage.unmute).toHaveBeenCalledWith("alice");
+    expect(H.fake.xPage.block).toHaveBeenCalledWith("alice");
     expect(H.fake.caret.notInterested).toHaveBeenCalledWith(tweetForCaret);
 
     (deps.openUrl as AnyFn)("https://example.com");
@@ -609,6 +609,10 @@ describe("content boot (main.tsx)", () => {
     H.fake.hover.targetTweet.mockReturnValue(focused);
     expect(target.tweet()).toBe(focused);
     expect(target.author()).toEqual({ screenName: "a" });
+    H.config.stubbed = true;
+    expect(target.tweet()).toBeNull();
+    expect(target.author()).toBeNull();
+    H.config.stubbed = false;
     H.fake.hover.targetTweet.mockReturnValue(null);
 
     // anchorFor: a caret with a real rect clamps to the viewport; a zero rect → null.
@@ -664,6 +668,11 @@ describe("content boot (main.tsx)", () => {
     // filter feature's scope predicate delegates to the route's isInScope.
     H.cap.filterDeps!.inScope();
     expect(H.spy.isInScope).toHaveBeenCalledWith(location.pathname);
+    const filterInScope = deps.filterInScope as () => boolean;
+    H.spy.isInScope.mockReturnValueOnce(false);
+    expect(filterInScope()).toBe(false); // off-route keys fall through in the controller
+    H.spy.isInScope.mockReturnValueOnce(true);
+    expect(filterInScope()).toBe(true); // and resume on a supported timeline
 
     // ---- the App vnode handed to the UI host exposes a working openUrl ----
     const appVnode = H.fake.uiHost.render.mock.calls[0]![0] as {
@@ -777,6 +786,9 @@ describe("content boot (main.tsx)", () => {
 
     const sel = cellTweet({ avatar: true }).article;
     expect(selectTap.resolveTarget(sel)).toBe(sel);
+    H.config.stubbed = true;
+    expect(selectTap.resolveTarget(sel)).toBeNull();
+    H.config.stubbed = false;
     expect(selectTap.resolveTarget(null)).toBeNull();
     expect(selectTap.resolveTarget(document.body)).toBeNull(); // no enclosing tweet
 
@@ -831,7 +843,10 @@ describe("content boot (main.tsx)", () => {
     expect(H.fake.filter.unmount).toHaveBeenCalledTimes(1);
     expect(H.fake.filterStore.dispose).toHaveBeenCalledTimes(1);
     expect(H.fake.selectTapDispose).toHaveBeenCalledTimes(1);
+    // Mirror and high-contrast hosts release settings observation. The X facade
+    // owns and releases its internal subscription behind one disposer.
     expect(H.fake.highContrastUnsubscribe).toHaveBeenCalledTimes(2);
+    expect(H.fake.xPage.dispose).toHaveBeenCalledOnce();
     expect(H.fake.uiHost.destroy).toHaveBeenCalledTimes(1);
     expect(H.fake.hover.dispose).toHaveBeenCalledTimes(1);
     log.mockRestore();
@@ -971,7 +986,6 @@ describe("content boot (main.tsx)", () => {
     });
     H.fake.settings.get.mockClear();
     H.fake.settings.get.mockImplementationOnce(() => initial);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
     await importMain();
     await vi.waitFor(() => expect(H.fake.settings.get).toHaveBeenCalledTimes(1));
 
@@ -981,13 +995,23 @@ describe("content boot (main.tsx)", () => {
     const messagesBeforeFailure = sendMessage.mock.calls.length;
 
     rejectInitial(new Error("stale initial read"));
-    await vi.waitFor(() =>
-      expect(log).toHaveBeenCalledWith("[Lasso] init failed", expect.any(Error)),
-    );
+    await Promise.resolve();
     expect(sendMessage.mock.calls.slice(messagesBeforeFailure)).not.toContainEqual([
       { type: "lasso:state", state: "asleep" },
     ]);
-    log.mockRestore();
+  });
+
+  it("retries a transient startup settings read and auto-activates without user input", async () => {
+    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    H.fake.settings.get.mockRejectedValueOnce(new Error("storage waking"));
+
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalledOnce());
+
+    expect(H.fake.settings.get.mock.calls.length).toBeGreaterThanOrEqual(3); // failed read, retry, install snapshot
+    expect(H.fake.installFilter).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith({ type: "lasso:state", state: "awake" });
+    expect(sendMessage).not.toHaveBeenCalledWith({ type: "lasso:state", state: "asleep" });
   });
 
   it("wires onTweetRemoved to release the overlay + hover seams, clearing visualHover only on a match", async () => {
@@ -1133,6 +1157,39 @@ describe("content boot (main.tsx)", () => {
     expect(H.cap.keyboardSurfaces!.modalOpen()).toBe(true);
   });
 
+  it("passes synthetic Escape and author-caret lookup into the page driver", async () => {
+    H.config.settings = { backend: "rest", activation: "auto", highContrast: false };
+    await importMain();
+    await vi.waitFor(() => expect(H.fake.scanner.start).toHaveBeenCalled());
+    const driver = H.cap.xPageOptions!;
+    const unusable = document.createElement("article");
+    unusable.setAttribute("data-testid", "tweet");
+    document.body.appendChild(unusable);
+    const article = document.createElement("article");
+    article.setAttribute("data-testid", "tweet");
+    const caret = document.createElement("button");
+    caret.setAttribute("data-testid", "caret");
+    article.appendChild(caret);
+    document.body.appendChild(article);
+    H.spy.extractAuthor.mockImplementation((node) =>
+      node === unusable || node === article ? ({ screenName: "Alice" } as never) : null,
+    );
+
+    // A reused earlier Alice cell without a caret cannot hide a later usable cell.
+    expect(driver.findAuthorCaret("alice")).toBe(caret);
+    expect(driver.findAuthorCaret("missing")).toBeNull();
+    const keydown = vi.fn();
+    article.addEventListener("keydown", keydown);
+    driver.dispatchSyntheticEscape(article);
+    expect(keydown).toHaveBeenCalledWith(expect.objectContaining({ key: "Escape" }));
+    const pageDocument = new Document();
+    const onDocument = vi.fn();
+    pageDocument.addEventListener("keydown", onDocument, { once: true });
+    driver.dispatchSyntheticEscape(pageDocument);
+    expect(onDocument).toHaveBeenCalledWith(expect.objectContaining({ key: "Escape" }));
+    H.spy.extractAuthor.mockReturnValue({ screenName: "a" } as never);
+  });
+
   it("keeps root and late overlay hosts live across high-contrast changes", async () => {
     H.config.settings = {
       backend: "rest",
@@ -1227,18 +1284,13 @@ describe("content boot (main.tsx)", () => {
   });
 
   it("keeps dormant hotkey retryable when the initial settings read fails", async () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
     H.fake.settings.get.mockRejectedValueOnce(new Error("storage dead"));
     await importMain();
-    await vi.waitFor(() =>
-      expect(err).toHaveBeenCalledWith("[Lasso] init failed", expect.any(Error)),
-    );
     const dormant = H.cap.keyboardLayers![0]!;
     expect(dormant.dispose).not.toHaveBeenCalled();
     dormant.run("toggle-select-mode");
     await vi.waitFor(() => expect(H.fake.controller.trySelectMode).toHaveBeenCalledTimes(1));
     expect(dormant.dispose).toHaveBeenCalledTimes(1);
-    err.mockRestore();
   });
 
   it("consults Filter for palette state when no app modal is open", async () => {

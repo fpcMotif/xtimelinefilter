@@ -28,7 +28,7 @@ Conventions used below:
 | thresholds | 100 / 100 / 100 / 100 | the stated goal; no per-file exemptions |
 
 No `/* v8 ignore */` comments are permitted without a written justification in the PR.
-The two live-DOM boundary files (`dom-page-driver.ts`, `caret-actions.ts`) are **not**
+The two live-DOM boundary files (`dom-page-driver.ts`, `tweet-actions/actions.ts`) are **not**
 exempt — they are driven against synthetic x.com fixtures (the existing pattern).
 
 **Testability refactors required to make 100% honest (§11):** `src/content/main.tsx`
@@ -238,36 +238,25 @@ per-key — verify our mock matches); reset between tests. Add a tiny
 |---|---|---|---|
 | DP1 | [gap] `waitFor` timeout path: menu never appears → rejects `/timed out waiting for/` (use injected `timeoutMs: 10`) | the whole MutationObserver/timeout arm is uncovered |
 | DP2 | [gap] async appearance: dialog appended AFTER `openListsDialog` starts → resolves via the observer branch | |
-| DP3 | [gap] menu opens but no row matches `ADD_TO_LISTS_TEXT` → `/menu item not found/` | |
-| DP4 | [gap] screenName match is case-insensitive (`@KIM` tweet, request "kim") | |
+| DP3 | [gap] menu opens but no row matches the private Lists text matcher → `/menu item not found/` | |
+| DP4 | [gap] injected author-caret locator returns null → `/no visible tweet/` | content owns author matching |
 | DP5 | [gap] `rowByName` SUBSTRING hazard: lists "Dev" and "DevOps" — asking for "Dev" must hit the "Dev" row | `includes()` returns the FIRST substring match — with order ["DevOps","Dev"] it toggles the wrong list ⚠ bug-trap; decide exact-trim-match |
 | DP6 | [gap] `isChecked` false when: row missing; checkbox missing; `aria-checked="false"`; `"mixed"` | all falsy branches |
 | DP7 | [gap] `toggleList` unknown name → `/list "X" not found/` | |
 | DP8 | [gap] `commit()` with no Save button → resolves silently (no throw) | encode the “dialog auto-saves” assumption |
-| DP9 | [gap] `close()` dispatches a bubbling Escape keydown on body | listener spy |
+| DP9 | [gap] `close()` calls the injected keyboard-safe Escape dispatcher | adapter spy |
 | DP10 | [gap] `listNames` trims textContent | whitespace-laden fixture |
 | DP11 | [gap] no dialog in DOM → `rows()` → `[]` → `listNames` `[]` | guard branch |
 
-### 4.7 `src/core/x-client/caret-actions.ts` — gaps (file was just modified; suite is good but misses these)
+### 4.7 `src/packages/tweet-actions/actions.ts` — gaps
 
 | # | Case | Expected | Notes |
 |---|---|---|---|
-| C1 | [gap] `mute` WITH a confirmation sheet present → sheet is clicked (the `if-present`+present branch) | only the absent branch is covered |
-| C2 | [gap] `block` when NO sheet appears within `confirmTimeoutMs` → rejects `/expected a confirmation sheet/` | the `required` throw branch |
-| C3 | [gap] caret exists but menu never opens → `/caret menu did not open/` (short `timeoutMs`) | |
-| C4 | [gap] environment without `PointerEvent` (delete it from the view) → `activate()` still completes via mouse events; action succeeds | the `typeof PointerEventCtor !== "function"` early-return |
-| C5 | [gap] `activate()` on an element whose `scrollIntoView`/`focus` are undefined (plain Element) → no throw | optional-call branches |
-| C6 | [gap] `blockMatch` all three tiers independently: descendant `[data-testid="block"]`, row itself `data-testid="block"`, text `"Block @user"`; and NOT matching "Unblock" | `/^\s*block/i` vs "unblock" — verify the anchor actually rejects it |
-| C7 | [gap] `muteMatch` text tier matches "Mute @user" AND "Unmute @user" (regex `(un)?mute`) | encode deliberately: caret menu shows Unmute for already-muted — clicking it UNmutes ⚠ decide if that's wanted |
-| C8 | [gap] `notInterested` when `cellEl` is null AND the menu/row stay connected → rejects `/did not activate/` | null-cell failure arm |
-| C9 | [gap] `notInterested` when `cellEl` is null and menu disconnects → resolves | null-cell success arm |
-| C10 | [gap] follow-up panel: `findShowFewer` prefers localized text over position (panel ordered [undo, X, fewer-by-text]) | byText priority |
-| C11 | [gap] follow-up panel with only 2 buttons (no text match) → no click, but resolves if menu closed | `outside.length >= 3` branch |
-| C12 | [gap] buttons inside a *different* article in the same cell are excluded (`!b.closest("article")`) | filter branch |
-| C13 | [gap] `menuForRow`: row NOT inside Dropdown/menu (orphaned) → falls back to the opened menu | `?? fallback` branch |
-| C14 | [gap] zh-Hant texts: `減少顯示` matches SHOW_FEWER_TEXT, `復原` matches UNDO_TEXT and is never clicked | the verified-live locale |
-| C15 | [gap] error message lists row labels truncated to 24 chars, ` | `-joined | exact format already relied on for debugging |
-| C16 | [gap] `mute`/`block` propagate `openMenu` failure unchanged | |
+| C1 | [gap] caret exists but menu never opens → `/caret menu did not open/` (short `timeoutMs`) | |
+| C2 | [gap] environment without `PointerEvent` → mouse activation still completes | |
+| C3 | [gap] follow-up panel prefers localized post-feedback text over position | |
+| C4 | [gap] zh-Hant `減少顯示` is chosen and `復原` is never clicked | verified-live locale |
+| C5 | [gap] absent row resolves `unavailable` and runs injected menu cleanup | |
 
 ### 4.8 `src/core/x-client/graphql-config.ts` + `factory.ts` + `types.ts`
 
@@ -293,12 +282,7 @@ contract in the extension.
 | # | Case | Expected |
 |---|---|---|
 | SE1 | `PERMALINK_RE`: `/kim/status/123` → ["kim","123"]; 20-char handle OK; **21-char handle rejected**; handle with `-` rejected; `/kim/status/123/photo/1` still captures; `/i/status/1` matches (`i` is a valid capture — encode deliberately, it's X's own namespace ⚠ decide) |
-| SE2 | `ADD_TO_LISTS_TEXT`: "Add/remove from Lists", "Add / remove @kim from Lists", "Add to list" all match; "Add to Bookmarks" doesn't |
-| SE3 | `MUTE_TEXT` anchored: "Mute @kim" ✓, "Unmute" ✓, "Commute" ✗ |
-| SE4 | `UNDO_TEXT` fully anchored: "Undo" ✓, " 復原 " ✓, "Undo this action" ✗ |
-| SE5 | `SHOW_FEWER_TEXT`: all four variants (show fewer / see fewer / 減少顯示 / 减少显示) |
-| SE6 | `NOT_INTERESTED_TEXT` matches "Not interested in this post" |
-| SE7 | Selectors object: every value is a parseable selector (`document.querySelector` doesn't throw) — guards typos in the one-file-to-fix table |
+| SE2 | Selectors object: every value is a parseable selector (`document.querySelector` doesn't throw) — guards typos in the content-owned table |
 
 ### 5.2 `src/content/get-focused-tweet.ts` — gaps
 
@@ -458,7 +442,7 @@ are real modules that work in happy-dom; mock `fetch` on window instead).
 | MN13 | `add-to-list` (Alt+l): selects the author if not selected (and does NOT deselect if already selected — the `isSelected` guard) and bumps the picker tick | both sub-branches |
 | MN14 | `mute` (Alt+m) → POST `mutes/users/create.json` with the author's screen_name via the mocked window.fetch (ct0 cookie pre-seeded) | wiring through auth+rest |
 | MN15 | `block` → `blocks/create.json` | block IS wired in runCommand even though unbound in DEFAULT_KEYMAP — encode that reaching it requires a custom keymap (document the mismatch) |
-| MN16 | `not-interested` (Alt+n) drives the caret flow (fixture menu) | integration through createCaretActions |
+| MN16 | `not-interested` (Alt+n) drives the tweet action (fixture menu) | integration through createTweetActions |
 | MN17 | backend failure inside a command (fetch 403) → `console.error` "[Lasso] action failed", no unhandled rejection | catch arm |
 | MN18 | settings `backend:"dom"` and `"graphql"` pre-seeded → corresponding backend constructed (observable: graphql add hits `/i/api/graphql/`; dom add opens the dialog) | factory wiring through the entry |
 | MN19 | `main()` itself rejecting (make `createSettings().get` blow up by poisoning the storage mock) → `console.error("[Lasso] init failed", …)`, no unhandled rejection | the final `.catch` |

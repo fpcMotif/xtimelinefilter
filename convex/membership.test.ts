@@ -3,6 +3,12 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { api } from "./_generated/api";
+import {
+  MAX_ACTIVE_LISTS,
+  MAX_ASSIGN_RESULTS,
+  MAX_OWNERS,
+  MAX_PERSISTED_STRING_BYTES,
+} from "./membership";
 import schema from "./schema";
 
 // Vite/Vitest + Node globals available at test runtime but absent from the
@@ -39,6 +45,29 @@ const otherOwner = { userId: "200", screenName: "alt" };
 const list = { listId: "L1", name: "Builders", isPrivate: false, memberCount: 3 };
 
 describe("recordAssign", () => {
+  test("rejects multibyte persisted data before it mutates", async () => {
+    const t = convexTest(schema, modules);
+    const overLimit = "é".repeat(MAX_PERSISTED_STRING_BYTES / 2);
+
+    await expect(
+      t.mutation(api.membership.recordAssign, {
+        deviceKey: DEVICE_KEY,
+        owner: { ...owner, screenName: overLimit },
+        list,
+        results: [],
+      }),
+    ).rejects.toThrow(`${MAX_PERSISTED_STRING_BYTES}-byte limit`);
+
+    await expect(
+      t.run(async (ctx) => ({
+        accounts: await ctx.db.query("accounts").collect(),
+        lists: await ctx.db.query("lists").collect(),
+        members: await ctx.db.query("members").collect(),
+        events: await ctx.db.query("events").collect(),
+      })),
+    ).resolves.toEqual({ accounts: [], lists: [], members: [], events: [] });
+  });
+
   test("upserts Owner + List and appends one event per result", async () => {
     const t = convexTest(schema, modules);
 
@@ -52,6 +81,7 @@ describe("recordAssign", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
           observedAt: T0,
         },
         {
@@ -59,6 +89,7 @@ describe("recordAssign", () => {
           memberIdentity: "user:bob",
           action: "add",
           outcome: "already-member",
+          evidence: "server-response",
         },
       ],
     });
@@ -91,6 +122,66 @@ describe("recordAssign", () => {
     for (const e of events) {
       expect(e).toMatchObject({ listId: "L1", ownerUserId: "100", action: "add", at: T0 });
     }
+  });
+
+  test("keeps ui-state and legacy-missing membership claims audit-only", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list,
+      results: [
+        {
+          memberScreenName: "alice",
+          memberIdentity: "user:alice",
+          action: "add",
+          outcome: "added",
+          evidence: "ui-state",
+          observedAt: T0,
+        },
+        {
+          memberScreenName: "bob",
+          memberIdentity: "user:bob",
+          action: "add",
+          outcome: "added",
+          observedAt: T0,
+        },
+      ],
+    });
+
+    expect(await t.query(api.membership.catalog, { deviceKey: DEVICE_KEY })).toEqual([
+      { owner, lists: [] },
+    ]);
+    expect(await t.run((ctx) => ctx.db.query("members").collect())).toEqual([]);
+    expect(
+      (await t.run((ctx) => ctx.db.query("accounts").unique()))?.catalogFactObservedAt,
+    ).toBeUndefined();
+    const events = await t.run((ctx) => ctx.db.query("events").collect());
+    expect(events.find((event) => event.memberScreenName === "alice")).toMatchObject({
+      action: "add",
+      outcome: "added",
+      evidence: "ui-state",
+    });
+    expect(events.find((event) => event.memberScreenName === "bob")?.evidence).toBeUndefined();
+  });
+
+  test("rejects an oversized direct audit batch before it mutates", async () => {
+    const t = convexTest(schema, modules);
+    await expect(
+      t.mutation(api.membership.recordAssign, {
+        deviceKey: DEVICE_KEY,
+        owner,
+        list,
+        results: Array.from({ length: MAX_ASSIGN_RESULTS + 1 }, (_, i) => ({
+          memberScreenName: `person-${i}`,
+          action: "add" as const,
+          outcome: "added",
+          evidence: "server-response" as const,
+        })),
+      }),
+    ).rejects.toThrow(`at most ${MAX_ASSIGN_RESULTS} results`);
+    await expect(t.run((ctx) => ctx.db.query("events").collect())).resolves.toEqual([]);
   });
 
   test("keeps an Owner's known handle when a later account read is blank", async () => {
@@ -127,12 +218,14 @@ describe("recordAssign", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
         },
         {
           memberScreenName: "bob",
           memberIdentity: "user:bob",
           action: "add",
           outcome: "already-member",
+          evidence: "server-response",
         },
       ],
     });
@@ -144,7 +237,7 @@ describe("recordAssign", () => {
     }
   });
 
-  test('sets present:false on "removed"', async () => {
+  test('sets present:false on "removed" and idempotent "already-absent"', async () => {
     const t = convexTest(schema, modules);
 
     // First add, then remove the same member.
@@ -158,6 +251,7 @@ describe("recordAssign", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
         },
       ],
     });
@@ -171,6 +265,7 @@ describe("recordAssign", () => {
           memberIdentity: "user:alice",
           action: "remove",
           outcome: "removed",
+          evidence: "server-response",
         },
       ],
     });
@@ -183,8 +278,63 @@ describe("recordAssign", () => {
     );
     expect(row).toMatchObject({ present: false, source: "extension" });
 
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list,
+      results: [
+        {
+          memberScreenName: "alice",
+          memberIdentity: "user:alice",
+          action: "remove",
+          outcome: "already-absent",
+          evidence: "server-response",
+        },
+      ],
+    });
+    await expect(
+      t.run((ctx) =>
+        ctx.db
+          .query("members")
+          .withIndex("by_list_member", (q) => q.eq("listId", "L1").eq("memberScreenName", "alice"))
+          .unique(),
+      ),
+    ).resolves.toMatchObject({ present: false, source: "extension" });
+
     const events = await t.run((ctx) => ctx.db.query("events").collect());
-    expect(events).toHaveLength(2); // add + remove both logged
+    expect(events).toHaveLength(3); // add + remove + idempotent remove all logged
+  });
+
+  test("keeps a mismatched result audit-only beside a proven membership fact", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list,
+      results: [
+        {
+          memberScreenName: "alice",
+          memberIdentity: "user:alice",
+          action: "add",
+          outcome: "added",
+          evidence: "server-response",
+        },
+        {
+          memberScreenName: "bob",
+          memberIdentity: "user:bob",
+          action: "remove",
+          outcome: "already-member",
+          evidence: "server-response",
+        },
+      ],
+    });
+
+    await expect(t.run((ctx) => ctx.db.query("lists").collect())).resolves.toHaveLength(1);
+    await expect(t.run((ctx) => ctx.db.query("members").collect())).resolves.toMatchObject([
+      { memberIdentity: "user:alice", present: true },
+    ]);
+    await expect(t.run((ctx) => ctx.db.query("events").collect())).resolves.toHaveLength(2);
   });
 
   test("patches memberUserId onto an existing snapshot row when re-recorded with an id", async () => {
@@ -202,6 +352,7 @@ describe("recordAssign", () => {
           memberIdentity: "tweet:1",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
         },
       ],
     });
@@ -216,6 +367,7 @@ describe("recordAssign", () => {
           memberIdentity: "tweet:1",
           action: "add",
           outcome: "already-member",
+          evidence: "server-response",
         },
       ],
     });
@@ -253,6 +405,7 @@ describe("recordAssign", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
         },
       ],
     });
@@ -279,18 +432,21 @@ describe("recordAssign", () => {
           memberIdentity: "user:carol",
           action: "add",
           outcome: "failed",
+          evidence: "server-response",
         },
         {
           memberScreenName: "dave",
           memberIdentity: "user:dave",
           action: "add",
           outcome: "rate-limited",
+          evidence: "server-response",
         },
         {
           memberScreenName: "erin",
           memberIdentity: "user:erin",
           action: "add",
           outcome: "protected",
+          evidence: "server-response",
         },
       ],
     });
@@ -343,6 +499,7 @@ describe("recordAssign", () => {
             memberIdentity: "user:7",
             action: "add",
             outcome: "added",
+            evidence: "server-response",
           },
         ],
       });
@@ -370,12 +527,14 @@ describe("recordAssign", () => {
           memberIdentity: "user:7",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
         },
         {
           memberScreenName: "shared",
           memberIdentity: "user:8",
           action: "remove",
           outcome: "removed",
+          evidence: "server-response",
         },
       ],
     });
@@ -394,6 +553,44 @@ describe("recordAssign", () => {
 });
 
 describe("reconcileAuthor", () => {
+  test("rejects multibyte persisted data before it creates an Owner", async () => {
+    const t = convexTest(schema, modules);
+    const overLimit = "é".repeat(MAX_PERSISTED_STRING_BYTES / 2);
+
+    await expect(
+      t.mutation(api.membership.reconcileAuthor, {
+        deviceKey: DEVICE_KEY,
+        owner,
+        screenName: overLimit,
+        memberIdentity: "user:alice",
+        listIds: [],
+      }),
+    ).rejects.toThrow(`${MAX_PERSISTED_STRING_BYTES}-byte limit`);
+    await expect(
+      t.run(async (ctx) => ({
+        accounts: await ctx.db.query("accounts").collect(),
+        lists: await ctx.db.query("lists").collect(),
+        members: await ctx.db.query("members").collect(),
+        events: await ctx.db.query("events").collect(),
+      })),
+    ).resolves.toEqual({ accounts: [], lists: [], members: [], events: [] });
+  });
+
+  test("rejects an oversized membership answer before it mutates", async () => {
+    const t = convexTest(schema, modules);
+
+    await expect(
+      t.mutation(api.membership.reconcileAuthor, {
+        deviceKey: DEVICE_KEY,
+        owner,
+        screenName: "alice",
+        memberIdentity: "user:alice",
+        listIds: Array.from({ length: MAX_ACTIVE_LISTS + 1 }, (_, index) => `L${index}`),
+      }),
+    ).rejects.toThrow(`at most ${MAX_ACTIVE_LISTS} active Lists`);
+    await expect(t.run((ctx) => ctx.db.query("accounts").collect())).resolves.toEqual([]);
+  });
+
   test("mirrors X's truth: a List dropped from listIds flips present:true -> false", async () => {
     const t = convexTest(schema, modules);
 
@@ -486,7 +683,7 @@ describe("reconcileAuthor", () => {
     expect(accounts[0]).toMatchObject({ userId: owner.userId, screenName: owner.screenName });
   });
 
-  test("treats missing legacy generations as generation zero", async () => {
+  test("reads both missing and explicit generation-zero List rows", async () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
       await ctx.db.insert("accounts", {
@@ -499,6 +696,12 @@ describe("reconcileAuthor", () => {
         name: "Legacy",
         ownerUserId: owner.userId,
       });
+      await ctx.db.insert("lists", {
+        listId: "L2",
+        name: "Explicit zero",
+        ownerUserId: owner.userId,
+        catalogGeneration: 0,
+      });
     });
 
     await t.mutation(api.membership.reconcileAuthor, {
@@ -507,23 +710,48 @@ describe("reconcileAuthor", () => {
       screenName: "alice",
       memberIdentity: "user:alice",
       observedAt: T0,
-      listIds: ["L1"],
+      listIds: ["L1", "L2"],
     });
 
     const catalog = await t.query(api.membership.catalog, { deviceKey: DEVICE_KEY });
-    expect(catalog[0]?.lists).toEqual([{ listId: "L1", name: "Legacy" }]);
+    expect(catalog[0]?.lists.map((item) => item.listId).toSorted()).toEqual(["L1", "L2"]);
     await expect(
       t.query(api.membership.listsContaining, {
         deviceKey: DEVICE_KEY,
         memberIdentity: "user:alice",
       }),
-    ).resolves.toEqual([
-      { listId: "L1", ownerUserId: owner.userId, present: true, lastSeenAt: T0 },
-    ]);
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        { listId: "L1", ownerUserId: owner.userId, present: true, lastSeenAt: T0 },
+        { listId: "L2", ownerUserId: owner.userId, present: true, lastSeenAt: T0 },
+      ]),
+    );
   });
 });
 
 describe("replaceCatalog", () => {
+  test("rejects multibyte persisted data before it creates an Owner", async () => {
+    const t = convexTest(schema, modules);
+    const overLimit = "é".repeat(MAX_PERSISTED_STRING_BYTES / 2);
+
+    await expect(
+      t.mutation(api.membership.replaceCatalog, {
+        deviceKey: DEVICE_KEY,
+        owner,
+        observedAt: T0,
+        lists: [{ listId: "L1", name: overLimit }],
+      }),
+    ).rejects.toThrow(`${MAX_PERSISTED_STRING_BYTES}-byte limit`);
+    await expect(
+      t.run(async (ctx) => ({
+        accounts: await ctx.db.query("accounts").collect(),
+        lists: await ctx.db.query("lists").collect(),
+        members: await ctx.db.query("members").collect(),
+        events: await ctx.db.query("events").collect(),
+      })),
+    ).resolves.toEqual({ accounts: [], lists: [], members: [], events: [] });
+  });
+
   test("an empty complete catalog advances freshness and hides stale rows without deleting audit", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(api.membership.recordAssign, {
@@ -536,6 +764,7 @@ describe("replaceCatalog", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
         },
       ],
     });
@@ -582,6 +811,7 @@ describe("replaceCatalog", () => {
             memberIdentity: `user:member-${candidate.listId}`,
             action: "add",
             outcome: "added",
+            evidence: "server-response",
             observedAt: T0,
           },
         ],
@@ -636,6 +866,7 @@ describe("replaceCatalog", () => {
             memberIdentity,
             action: "add",
             outcome: "added",
+            evidence: "server-response",
             observedAt: T0,
           },
         ],
@@ -670,7 +901,7 @@ describe("replaceCatalog", () => {
     ]);
   });
 
-  test("keeps stale snapshot rows inert for bounded later garbage collection", async () => {
+  test("keeps retained snapshots inert until their List returns", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(api.membership.replaceCatalog, {
       deviceKey: DEVICE_KEY,
@@ -719,6 +950,7 @@ describe("replaceCatalog", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
           observedAt: T0,
         },
       ],
@@ -824,6 +1056,7 @@ describe("replaceCatalog", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "failed",
+          evidence: "server-response",
           observedAt: T0 + 2,
         },
       ],
@@ -845,6 +1078,7 @@ describe("replaceCatalog", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "already-member",
+          evidence: "server-response",
           observedAt: T0 + 3,
         },
       ],
@@ -924,6 +1158,7 @@ describe("causal membership observations", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
           observedAt: T0 + 3,
         },
       ],
@@ -946,6 +1181,7 @@ describe("causal membership observations", () => {
           memberIdentity: "user:alice",
           action: "remove",
           outcome: "removed",
+          evidence: "server-response",
           observedAt: T0 + 5,
         },
       ],
@@ -999,6 +1235,7 @@ describe("causal membership observations", () => {
           memberIdentity: "user:alice",
           action: "remove",
           outcome: "removed",
+          evidence: "server-response",
           observedAt: T0 + 2,
         },
       ],
@@ -1093,6 +1330,7 @@ describe("causal membership observations", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
           observedAt: T0 + 3,
         },
       ],
@@ -1145,6 +1383,7 @@ describe("causal membership observations", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
           observedAt: T0 + 2,
         },
       ],
@@ -1162,6 +1401,124 @@ describe("causal membership observations", () => {
     expect(
       (await t.run((ctx) => ctx.db.query("accounts").unique()))?.catalogFactObservedAt,
     ).toBeUndefined();
+  });
+
+  test("a delayed action for a removed List stays audit-only for membership too", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0 + 3,
+      lists: [],
+    });
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list,
+      results: [
+        {
+          memberScreenName: "alice",
+          memberIdentity: "user:alice",
+          action: "add",
+          outcome: "added",
+          evidence: "server-response",
+          observedAt: T0 + 2,
+        },
+      ],
+    });
+
+    expect(await t.run((ctx) => ctx.db.query("events").collect())).toHaveLength(1);
+    expect(await t.run((ctx) => ctx.db.query("members").collect())).toEqual([]);
+  });
+
+  test("a later List reappearance cannot resurrect a stale action snapshot", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0 + 1,
+      lists: [list],
+    });
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0 + 3,
+      lists: [],
+    });
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list,
+      results: [
+        {
+          memberScreenName: "alice",
+          memberIdentity: "user:alice",
+          action: "add",
+          outcome: "added",
+          evidence: "server-response",
+          observedAt: T0 + 2,
+        },
+      ],
+    });
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0 + 4,
+      lists: [list],
+    });
+
+    expect(await t.run((ctx) => ctx.db.query("members").collect())).toEqual([]);
+    await expect(
+      t.query(api.membership.listsContaining, {
+        deviceKey: DEVICE_KEY,
+        memberIdentity: "user:alice",
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  test("a stale action updates a current List until a newer snapshot fences it", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0 + 3,
+      lists: [list],
+    });
+    const staleAdd = {
+      deviceKey: DEVICE_KEY,
+      owner,
+      list,
+      results: [
+        {
+          memberScreenName: "alice",
+          memberIdentity: "user:alice",
+          action: "add" as const,
+          outcome: "added",
+          evidence: "server-response" as const,
+          observedAt: T0 + 2,
+        },
+      ],
+    };
+    await t.mutation(api.membership.recordAssign, staleAdd);
+    expect(await t.run((ctx) => ctx.db.query("members").unique())).toMatchObject({
+      present: true,
+      observedAt: T0 + 2,
+    });
+
+    await t.mutation(api.membership.reconcileAuthor, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      screenName: "alice",
+      memberIdentity: "user:alice",
+      observedAt: T0 + 4,
+      listIds: [],
+    });
+    await t.mutation(api.membership.recordAssign, staleAdd);
+
+    expect(await t.run((ctx) => ctx.db.query("members").unique())).toMatchObject({
+      present: false,
+      observedAt: T0 + 4,
+    });
   });
 
   test("a late action uses its Owner-read time instead of its result time for profile data", async () => {
@@ -1183,6 +1540,7 @@ describe("causal membership observations", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
           observedAt: T0 + 3,
         },
       ],
@@ -1217,6 +1575,7 @@ describe("causal membership observations", () => {
             memberIdentity: "user:alice",
             action: "add",
             outcome: "added",
+            evidence: "server-response",
             observedAt,
           },
         ],
@@ -1245,6 +1604,7 @@ describe("listsContaining", () => {
           memberIdentity: "user:alice",
           action: "add",
           outcome: "added",
+          evidence: "server-response",
           observedAt: T0,
         },
       ],
@@ -1413,6 +1773,233 @@ describe("catalog", () => {
     const operatorGroup = out.find((g) => g.owner.userId === "100");
     expect(operatorGroup?.owner.screenName).toBe("operator");
     expect(operatorGroup?.lists[0]).toMatchObject({ lastReconciledAt: T0 });
+  });
+});
+
+describe("Mirror capacity", () => {
+  test("rejects a duplicate or oversized complete catalog before it creates an Owner", async () => {
+    const t = convexTest(schema, modules);
+    await expect(
+      t.mutation(api.membership.replaceCatalog, {
+        deviceKey: DEVICE_KEY,
+        owner,
+        observedAt: T0,
+        lists: [
+          { listId: "L1", name: "first" },
+          { listId: "L1", name: "duplicate" },
+        ],
+      }),
+    ).rejects.toThrow("List IDs must be unique");
+    await expect(t.run((ctx) => ctx.db.query("accounts").collect())).resolves.toEqual([]);
+
+    await expect(
+      t.mutation(api.membership.replaceCatalog, {
+        deviceKey: DEVICE_KEY,
+        owner,
+        observedAt: T0,
+        lists: Array.from({ length: MAX_ACTIVE_LISTS + 1 }, (_, i) => ({
+          listId: `L${i}`,
+          name: `List ${i}`,
+        })),
+      }),
+    ).rejects.toThrow(`at most ${MAX_ACTIVE_LISTS} active Lists`);
+    await expect(t.run((ctx) => ctx.db.query("accounts").collect())).resolves.toEqual([]);
+  });
+
+  test("rejects a catalog that would exceed the shared active-List bound", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0,
+      lists: Array.from({ length: MAX_ACTIVE_LISTS }, (_, i) => ({
+        listId: `L${i}`,
+        name: `List ${i}`,
+      })),
+    });
+    await expect(
+      t.mutation(api.membership.replaceCatalog, {
+        deviceKey: DEVICE_KEY,
+        owner: otherOwner,
+        observedAt: T0,
+        lists: [{ listId: "overflow", name: "Overflow" }],
+      }),
+    ).rejects.toThrow(`at most ${MAX_ACTIVE_LISTS} active Lists`);
+  });
+
+  test("rejects a direct proof that would create the next active List", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0,
+      lists: Array.from({ length: MAX_ACTIVE_LISTS }, (_, i) => ({
+        listId: `L${i}`,
+        name: `List ${i}`,
+      })),
+    });
+    await expect(
+      t.mutation(api.membership.recordAssign, {
+        deviceKey: DEVICE_KEY,
+        owner: otherOwner,
+        list: { listId: "overflow", name: "Overflow" },
+        results: [
+          {
+            memberScreenName: "alice",
+            memberIdentity: "user:alice",
+            action: "add",
+            outcome: "added",
+            evidence: "server-response",
+          },
+        ],
+      }),
+    ).rejects.toThrow(`at most ${MAX_ACTIVE_LISTS} active Lists`);
+  });
+
+  test("rejects the thirty-third Owner", async () => {
+    const t = convexTest(schema, modules);
+    for (let i = 0; i < MAX_OWNERS; i++) {
+      await t.mutation(api.membership.replaceCatalog, {
+        deviceKey: DEVICE_KEY,
+        owner: { userId: `${i}`, screenName: `owner-${i}` },
+        observedAt: T0,
+        lists: [],
+      });
+    }
+    await expect(
+      t.mutation(api.membership.replaceCatalog, {
+        deviceKey: DEVICE_KEY,
+        owner: { userId: "overflow", screenName: "overflow" },
+        observedAt: T0,
+        lists: [],
+      }),
+    ).rejects.toThrow(`at most ${MAX_OWNERS} Owners`);
+  });
+
+  test("rejects an overfull legacy generation rather than returning a partial catalog", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("accounts", {
+        userId: owner.userId,
+        screenName: owner.screenName,
+        firstSeenAt: T0,
+        lastSeenAt: T0,
+      });
+      for (let i = 0; i <= MAX_ACTIVE_LISTS; i++) {
+        await ctx.db.insert("lists", {
+          listId: `legacy-${i}`,
+          name: `Legacy ${i}`,
+          ownerUserId: owner.userId,
+        });
+      }
+    });
+    await expect(t.query(api.membership.catalog, { deviceKey: DEVICE_KEY })).rejects.toThrow(
+      `at most ${MAX_ACTIVE_LISTS} active Lists`,
+    );
+  });
+
+  test("rejects a persisted Owner overflow rather than returning a partial catalog", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      for (let i = 0; i <= MAX_OWNERS; i++) {
+        await ctx.db.insert("accounts", {
+          userId: `owner-${i}`,
+          screenName: `owner-${i}`,
+          firstSeenAt: T0,
+          lastSeenAt: T0,
+        });
+      }
+    });
+
+    await expect(t.query(api.membership.catalog, { deviceKey: DEVICE_KEY })).rejects.toThrow(
+      `at most ${MAX_OWNERS} Owners`,
+    );
+  });
+
+  test("rejects an overfull nonzero generation rather than returning a partial catalog", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("accounts", {
+        userId: owner.userId,
+        screenName: owner.screenName,
+        firstSeenAt: T0,
+        lastSeenAt: T0,
+        catalogGeneration: 1,
+      });
+      for (let i = 0; i <= MAX_ACTIVE_LISTS; i++) {
+        await ctx.db.insert("lists", {
+          listId: `generation-one-${i}`,
+          name: `Generation one ${i}`,
+          ownerUserId: owner.userId,
+          catalogGeneration: 1,
+        });
+      }
+    });
+
+    await expect(t.query(api.membership.catalog, { deviceKey: DEVICE_KEY })).rejects.toThrow(
+      `at most ${MAX_ACTIVE_LISTS} active Lists`,
+    );
+  });
+
+  test("combines legacy and explicit zero-generation rows before enforcing the catalog bound", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("accounts", {
+        userId: owner.userId,
+        screenName: owner.screenName,
+        firstSeenAt: T0,
+        lastSeenAt: T0,
+      });
+      for (let i = 0; i < MAX_ACTIVE_LISTS; i++) {
+        await ctx.db.insert("lists", {
+          listId: `legacy-${i}`,
+          name: `Legacy ${i}`,
+          ownerUserId: owner.userId,
+        });
+      }
+      await ctx.db.insert("lists", {
+        listId: "explicit-zero",
+        name: "Explicit zero",
+        ownerUserId: owner.userId,
+        catalogGeneration: 0,
+      });
+    });
+
+    await expect(t.query(api.membership.catalog, { deviceKey: DEVICE_KEY })).rejects.toThrow(
+      `at most ${MAX_ACTIVE_LISTS} active Lists`,
+    );
+  });
+
+  test("permits a direct fact to retain an already-active List at capacity", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.membership.replaceCatalog, {
+      deviceKey: DEVICE_KEY,
+      owner,
+      observedAt: T0,
+      lists: Array.from({ length: MAX_ACTIVE_LISTS }, (_, i) => ({
+        listId: `L${i}`,
+        name: `List ${i}`,
+      })),
+    });
+
+    await t.mutation(api.membership.recordAssign, {
+      deviceKey: DEVICE_KEY,
+      owner: otherOwner,
+      list: { listId: "L0", name: "Ignored direct metadata" },
+      results: [
+        {
+          memberScreenName: "alice",
+          memberIdentity: "user:alice",
+          action: "add",
+          outcome: "added",
+          evidence: "server-response",
+        },
+      ],
+    });
+
+    await expect(t.query(api.membership.catalog, { deviceKey: DEVICE_KEY })).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ owner: otherOwner })]),
+    );
   });
 });
 

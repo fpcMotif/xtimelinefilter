@@ -1,69 +1,48 @@
-import type { StorageLike } from "@/core/storage-areas";
-
 /**
- * Every key Lasso writes, named in one place so the Settings "Privacy & data"
- * surface can truthfully list — and wipe — the browser data it owns (story beat 9).
+ * Every key Lasso writes, named in one place. Privacy clear removes user data;
+ * the migration tombstone remains so legacy sync data cannot resurrect it.
  */
 export const STORAGE_KEYS = {
   /** chrome.storage.local — cached Lists */
   lists: "lasso:lists",
   /** chrome.storage.local — per-List pick counts/recency */
   listUsage: "lasso:list-usage",
-  /** chrome.storage.local — user settings (legacy sync copy is migrated/removed; see settings.ts) */
+  /** chrome.storage.local — user settings; background/data-lifecycle migrates the legacy sync copy */
   settings: "lasso:settings",
+  /** chrome.storage.local — non-user control state: pending | complete | cleared */
+  settingsMigration: "lasso:settings-migration",
   /** chrome.storage.sync — the one global timeline filter (createFilterStore) */
   filter: "lasso:filter",
   /** chrome.storage.local — onboarding + decaying-hint state */
   coach: "lasso:coach",
   /** chrome.storage.local — last Mirror write outcome ({ok, at}; popup's Mirror row) */
   mirrorStatus: "lasso:mirror-status",
+  /** chrome.storage.local — versioned X GraphQL operation-id cache; legacy literal is retained. */
+  graphqlOps: "lasso.graphqlOps.v1",
+  /** chrome.storage.local — complete, metadata-compatible X GraphQL operation catalog. */
+  graphqlCatalog: "lasso.graphqlCatalog.v2",
+  /** chrome.storage.local — private global fence for asynchronous cache observations. */
+  cacheObservation: "lasso:cache-observation",
 } as const;
 
-const LOCAL_KEYS = [
+export const LOCAL_STORAGE_KEYS = [
   STORAGE_KEYS.lists,
   STORAGE_KEYS.listUsage,
   STORAGE_KEYS.settings,
   STORAGE_KEYS.coach,
   STORAGE_KEYS.mirrorStatus,
+  STORAGE_KEYS.graphqlOps,
+  STORAGE_KEYS.graphqlCatalog,
 ];
 // settings stays here too so Clear also wipes any pre-local legacy copy.
-const SYNC_KEYS = [STORAGE_KEYS.filter, STORAGE_KEYS.settings];
+export const SYNC_STORAGE_KEYS = [STORAGE_KEYS.filter, STORAGE_KEYS.settings];
 
-export interface ClearLassoDataResult {
-  localCleared: boolean;
-  syncCleared: boolean;
-}
+export type ManagedStorageArea = "local" | "sync";
 
-const clear = async (area: StorageLike, keys: string[]): Promise<boolean> => {
-  try {
-    if (area.remove) await area.remove(keys);
-    else await area.set(Object.fromEntries(keys.map((key) => [key, undefined])));
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/** Wipes Lasso's browser data, local and sync alike. It never deletes remote Mirror data. */
-export async function clearLassoData(
-  local: StorageLike,
-  sync: StorageLike,
-): Promise<ClearLassoDataResult> {
-  const dynamicLocalKeys = Promise.resolve()
-    .then(() => local.get(null))
-    .then((items) =>
-      Object.keys(items ?? {}).filter(
-        (key) =>
-          key.startsWith(`${STORAGE_KEYS.lists}:`) || key.startsWith(`${STORAGE_KEYS.listUsage}:`),
-      ),
-    )
-    .catch(() => null);
-  const [fixedLocalCleared, syncCleared] = await Promise.all([
-    clear(local, LOCAL_KEYS),
-    clear(sync, SYNC_KEYS),
-  ]);
-  const discoveredKeys = await dynamicLocalKeys;
-  const dynamicLocalCleared =
-    discoveredKeys !== null && (!discoveredKeys.length || (await clear(local, discoveredKeys)));
-  return { localCleared: fixedLocalCleared && dynamicLocalCleared, syncCleared };
+/** Only these transitions need reactive fanout. Cache data is pull-read. */
+export function isReactiveStorageKey(area: ManagedStorageArea, key: string): boolean {
+  return (
+    (area === "local" && (key === STORAGE_KEYS.settings || key === STORAGE_KEYS.mirrorStatus)) ||
+    (area === "sync" && key === STORAGE_KEYS.filter)
+  );
 }

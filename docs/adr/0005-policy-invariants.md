@@ -15,3 +15,11 @@ Internal `/i/api/graphql` endpoints are not a published interface; X's ToS bans 
 ## Consequences
 - The product's bulk differentiator is delivered within conservative, assistive limits.
 - The fully-compliant official API v2 path is reserved as a future `XListApi` strategy (ADR-0001).
+
+## Amendment 2026-07-22 — explicit GraphQL exception
+
+The original no-scraping rule remains the default. The opt-in GraphQL strategy is its narrow exception.
+
+When GraphQL is selected, the content script may fetch X's page HTML and public JavaScript bundles to read current operation IDs for the three supported operations. Results are cached for seven days. A GraphQL endpoint 404 forces one refresh and one retry; then the action fails visibly.
+
+The extension does not observe or replay X requests, bridge MAIN-world network traffic, derive `x-client-transaction-id`, or run this work without a user-requested assignment. Static IDs remain fallback seeds. Settings discloses the bundle parsing before opt-in.

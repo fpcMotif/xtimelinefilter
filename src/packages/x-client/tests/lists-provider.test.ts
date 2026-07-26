@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchMembershipListIds, fetchOwnedLists } from "@/packages/x-client/lists-provider";
+import {
+  fetchMembershipListIds,
+  fetchOwnedLists,
+  MAX_LIST_CURSOR_DIGITS,
+  MAX_LIST_CATALOG_IDS,
+  MAX_LIST_CATALOG_PAGES,
+  MAX_LIST_ID_DIGITS,
+  MAX_LIST_NAME_CODE_POINTS,
+} from "@/packages/x-client/lists-provider";
 
 const creds = { csrf: "ct0", bearer: "B" };
 
@@ -97,6 +105,32 @@ describe("fetchOwnedLists", () => {
     );
   });
 
+  it("accepts the cursor digit boundary", async () => {
+    const cursor = "9".repeat(MAX_LIST_CURSOR_DIGITS);
+    const fetchMock = vi.fn(async (url: string) => {
+      if (new URL(url).searchParams.get("cursor") === "-1") {
+        return jsonResponse({ lists: [], next_cursor_str: cursor });
+      }
+      return jsonResponse({ lists: [], next_cursor: 0 });
+    });
+
+    await expect(
+      fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+    ).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an oversized cursor before another ownership request", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ lists: [], next_cursor_str: "9".repeat(MAX_LIST_CURSOR_DIGITS + 1) }),
+    );
+
+    await expect(
+      fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+    ).rejects.toMatchObject({ kind: "unknown" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("rejects malformed required List rows", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({
@@ -144,8 +178,80 @@ describe("fetchOwnedLists", () => {
   });
 
   it("rejects repeated and invalid cursors", async () => {
-    for (const next_cursor_str of ["-1", "01"]) {
+    for (const next_cursor_str of ["-1", "01", "9".repeat(MAX_LIST_CURSOR_DIGITS + 1)]) {
       const fetchMock = vi.fn(async () => jsonResponse({ lists: [], next_cursor_str }));
+      await expect(
+        fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+      ).rejects.toMatchObject({ kind: "unknown" });
+    }
+  });
+
+  it("bounds unique cursor pages and never returns a partial catalog", async () => {
+    let page = 0;
+    const fetchMock = vi.fn(async () => {
+      page += 1;
+      return jsonResponse({ lists: [], next_cursor_str: String(page) });
+    });
+
+    await expect(
+      fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+    ).rejects.toMatchObject({ kind: "unknown" });
+    expect(fetchMock).toHaveBeenCalledTimes(MAX_LIST_CATALOG_PAGES);
+  });
+
+  it("bounds unique List ids but accepts the documented boundary", async () => {
+    const boundary = Array.from({ length: MAX_LIST_CATALOG_IDS }, (_, index) => ({
+      id_str: String(index + 1),
+      name: "List",
+    }));
+    const atLimit = vi.fn(async () => jsonResponse({ lists: boundary, next_cursor: 0 }));
+
+    await expect(
+      fetchOwnedLists({ fetch: atLimit as unknown as typeof fetch, creds }),
+    ).resolves.toHaveLength(MAX_LIST_CATALOG_IDS);
+
+    const overLimit = vi.fn(async () =>
+      jsonResponse({
+        lists: [...boundary, { id_str: String(MAX_LIST_CATALOG_IDS + 1), name: "One too many" }],
+        next_cursor: 0,
+      }),
+    );
+    await expect(
+      fetchOwnedLists({ fetch: overLimit as unknown as typeof fetch, creds }),
+    ).rejects.toMatchObject({ kind: "unknown" });
+    expect(overLimit).toHaveBeenCalledOnce();
+  });
+
+  it("does not count duplicate List ids against the unique cap", async () => {
+    const lists = Array.from({ length: MAX_LIST_CATALOG_IDS }, (_, index) => ({
+      id_str: String(index + 1),
+      name: "List",
+    }));
+    lists.push({ id_str: "1", name: "Duplicate" });
+    const fetchMock = vi.fn(async () => jsonResponse({ lists, next_cursor: 0 }));
+
+    await expect(
+      fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
+    ).resolves.toHaveLength(MAX_LIST_CATALOG_IDS);
+  });
+
+  it("keeps generous legacy id/name boundaries but rejects oversized rows", async () => {
+    const boundaryId = "1".repeat(MAX_LIST_ID_DIGITS);
+    const boundaryName = "😀".repeat(MAX_LIST_NAME_CODE_POINTS);
+    const atLimit = vi.fn(async () =>
+      jsonResponse({ lists: [{ id_str: boundaryId, name: boundaryName }], next_cursor: 0 }),
+    );
+    await expect(
+      fetchOwnedLists({ fetch: atLimit as unknown as typeof fetch, creds }),
+    ).resolves.toEqual([{ id: boundaryId, name: boundaryName }]);
+
+    const tooLongId = "1".repeat(MAX_LIST_ID_DIGITS + 1);
+    const tooLongName = "x".repeat(MAX_LIST_NAME_CODE_POINTS + 1);
+    for (const row of [
+      { id_str: tooLongId, name: "Valid" },
+      { id_str: "1", name: tooLongName },
+    ]) {
+      const fetchMock = vi.fn(async () => jsonResponse({ lists: [row], next_cursor: 0 }));
       await expect(
         fetchOwnedLists({ fetch: fetchMock as unknown as typeof fetch, creds }),
       ).rejects.toMatchObject({ kind: "unknown" });
@@ -291,6 +397,7 @@ describe("fetchMembershipListIds — the picker's already-in checks", () => {
       { lists: [] },
       { lists: [], next_cursor_str: "-1" },
       { lists: [], next_cursor_str: "not-a-cursor" },
+      { lists: [null], next_cursor: 0 },
       { lists: [{ id_str: 9 }], next_cursor: 0 },
       { lists: [{ name: "No id" }], next_cursor: 0 },
     ]) {
@@ -299,6 +406,73 @@ describe("fetchMembershipListIds — the picker's already-in checks", () => {
         fetchMembershipListIds({ fetch: fetchMock as unknown as typeof fetch, creds }, "jane"),
       ).resolves.toBeNull();
     }
+  });
+
+  it("accepts the membership cursor digit boundary", async () => {
+    const cursor = "9".repeat(MAX_LIST_CURSOR_DIGITS);
+    const fetchMock = vi.fn(async (url: string) => {
+      if (new URL(url).searchParams.get("cursor") === "-1") {
+        return jsonResponse({ lists: [], next_cursor_str: cursor });
+      }
+      return jsonResponse({ lists: [], next_cursor: 0 });
+    });
+
+    await expect(
+      fetchMembershipListIds({ fetch: fetchMock as unknown as typeof fetch, creds }, "jane"),
+    ).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects oversized membership cursors before another request", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ lists: [], next_cursor_str: "9".repeat(MAX_LIST_CURSOR_DIGITS + 1) }),
+    );
+
+    await expect(
+      fetchMembershipListIds({ fetch: fetchMock as unknown as typeof fetch, creds }, "jane"),
+    ).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("bounds unique membership cursor pages and reports unknown membership", async () => {
+    let page = 0;
+    const fetchMock = vi.fn(async () => {
+      page += 1;
+      return jsonResponse({ lists: [], next_cursor_str: String(page) });
+    });
+
+    await expect(
+      fetchMembershipListIds({ fetch: fetchMock as unknown as typeof fetch, creds }, "jane"),
+    ).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(MAX_LIST_CATALOG_PAGES);
+  });
+
+  it("bounds unique membership ids, keeps the boundary, and ignores duplicates", async () => {
+    const ids = Array.from({ length: MAX_LIST_CATALOG_IDS }, (_, index) => ({
+      id_str: String(index + 1),
+    }));
+    const atLimit = vi.fn(async () => jsonResponse({ lists: ids, next_cursor: 0 }));
+    await expect(
+      fetchMembershipListIds({ fetch: atLimit as unknown as typeof fetch, creds }, "jane"),
+    ).resolves.toHaveLength(MAX_LIST_CATALOG_IDS);
+
+    const duplicates = vi.fn(async () =>
+      jsonResponse({ lists: [...ids, { id_str: "1" }], next_cursor: 0 }),
+    );
+    await expect(
+      fetchMembershipListIds({ fetch: duplicates as unknown as typeof fetch, creds }, "jane"),
+    ).resolves.toHaveLength(MAX_LIST_CATALOG_IDS);
+
+    const overLimit = vi.fn(async () =>
+      jsonResponse({
+        lists: [...ids, { id_str: String(MAX_LIST_CATALOG_IDS + 1) }],
+        next_cursor: 0,
+      }),
+    );
+    await expect(
+      fetchMembershipListIds({ fetch: overLimit as unknown as typeof fetch, creds }, "jane"),
+    ).resolves.toBeNull();
+    expect(overLimit).toHaveBeenCalledOnce();
   });
 
   it("accepts a numeric id only when id_str is absent", async () => {

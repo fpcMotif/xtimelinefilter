@@ -22,6 +22,118 @@ describe("watchStorageKey", () => {
     expect(() => off()).not.toThrow();
   });
 
+  it("uses validated runtime events when an extension listener exists", () => {
+    const addListener = vi.fn();
+    const removeListener = vi.fn();
+    const rawAddListener = vi.fn();
+    restore = installOnChanged({ addListener: rawAddListener });
+    const previousRuntime = globalThis.chrome.runtime;
+    globalThis.chrome.runtime = {
+      id: "lasso-id",
+      getManifest: () => ({ background: { service_worker: "worker.js" } }),
+      getURL: (path: string) => `chrome-extension://lasso-id/${path}`,
+      onMessage: { addListener, removeListener },
+    } as unknown as typeof chrome.runtime;
+    const onChange = vi.fn();
+
+    const off = watchStorageKey("sync", "lasso:filter", onChange);
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: chrome.runtime.MessageSender,
+    ) => void;
+    const change = {
+      type: "lasso:storage-changed",
+      area: "sync",
+      key: "lasso:filter",
+      oldValue: 7,
+      newValue: 42,
+    };
+    listener(change, {
+      id: "lasso-id",
+      url: "chrome-extension://lasso-id/worker.js",
+      origin: "chrome-extension://lasso-id",
+    });
+    listener(change, { id: "lasso-id", tab: { id: 7 } as chrome.tabs.Tab });
+    listener(change, {
+      id: "lasso-id",
+      url: "chrome-extension://lasso-id/popup.html",
+    });
+    listener(change, { id: "foreign-id" });
+    listener(
+      {
+        type: "lasso:storage-changed",
+        area: "local",
+        key: "lasso:settings-migration",
+        oldValue: undefined,
+        newValue: "complete",
+      },
+      { id: "lasso-id" },
+    );
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ oldValue: 7, newValue: 42 });
+    expect(rawAddListener).not.toHaveBeenCalled();
+    off();
+    expect(removeListener).toHaveBeenCalledWith(listener);
+    globalThis.chrome.runtime = previousRuntime;
+  });
+
+  it("falls back when no service worker route can be resolved", () => {
+    const listeners: Listener[] = [];
+    restore = installOnChanged({ addListener: (listener) => listeners.push(listener) });
+    const previousRuntime = globalThis.chrome.runtime;
+    globalThis.chrome.runtime = {
+      id: "lasso-id",
+      getManifest: () => ({ background: { service_worker: "" } }),
+      getURL: () => "chrome-extension://lasso-id/worker.js",
+      onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
+    } as unknown as typeof chrome.runtime;
+    const onChange = vi.fn();
+
+    watchStorageKey("sync", "lasso:filter", onChange);
+    listeners[0]!({ "lasso:filter": { oldValue: 1, newValue: 2 } }, "sync");
+
+    expect(onChange).toHaveBeenCalledWith({ oldValue: 1, newValue: 2 });
+    globalThis.chrome.runtime = previousRuntime;
+  });
+
+  it("falls back when the manifest has no background section", () => {
+    const listeners: Listener[] = [];
+    restore = installOnChanged({ addListener: (listener) => listeners.push(listener) });
+    const previousRuntime = globalThis.chrome.runtime;
+    globalThis.chrome.runtime = {
+      id: "lasso-id",
+      getManifest: () => ({}),
+      onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
+    } as unknown as typeof chrome.runtime;
+    const onChange = vi.fn();
+
+    watchStorageKey("sync", "lasso:filter", onChange);
+    listeners[0]!({ "lasso:filter": { newValue: 2 } }, "sync");
+
+    expect(onChange).toHaveBeenCalledWith({ oldValue: undefined, newValue: 2 });
+    globalThis.chrome.runtime = previousRuntime;
+  });
+
+  it("falls back when runtime manifest access throws", () => {
+    const listeners: Listener[] = [];
+    restore = installOnChanged({ addListener: (listener) => listeners.push(listener) });
+    const previousRuntime = globalThis.chrome.runtime;
+    globalThis.chrome.runtime = {
+      id: "lasso-id",
+      getManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+      onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
+    } as unknown as typeof chrome.runtime;
+    const onChange = vi.fn();
+
+    watchStorageKey("local", "lasso:settings", onChange);
+    listeners[0]!({ "lasso:settings": { newValue: 2 } }, "local");
+
+    expect(onChange).toHaveBeenCalledWith({ oldValue: undefined, newValue: 2 });
+    globalThis.chrome.runtime = previousRuntime;
+  });
+
   it("fires onChange only for a matching area + key, ignoring others", () => {
     const listeners: Listener[] = [];
     restore = installOnChanged({

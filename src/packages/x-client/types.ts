@@ -1,5 +1,7 @@
 import type { TweetAuthor } from "@/core/selection-store";
 
+import type { GraphqlOperationCatalog } from "./graphql-contract";
+
 /** Session credentials lifted from the logged-in X page context. */
 export interface Credentials {
   /** ct0 cookie value, sent as x-csrf-token */
@@ -19,6 +21,7 @@ export interface XList {
 
 export type XApiErrorKind =
   | "already-member"
+  | "already-absent"
   | "rate-limited"
   | "protected"
   | "auth"
@@ -40,9 +43,16 @@ export class XApiError extends Error {
 
 export type AssignOutcome = "added" | "already-member" | "protected" | "rate-limited" | "failed";
 
+/** What accepted the mutation. UI state is useful audit evidence, not X server truth. */
+export type MutationEvidence = "server-response" | "ui-state";
+
+/** A remove either changes membership or confirms it was already absent. */
+export type RemoveOutcome = "removed" | "already-absent" | "protected" | "rate-limited" | "failed";
+
 export interface AssignResult {
   author: TweetAuthor;
   outcome: AssignOutcome;
+  evidence: MutationEvidence;
   /** Epoch milliseconds when this backend attempt settled. */
   observedAt: number;
   message?: string;
@@ -52,21 +62,20 @@ export interface AssignResult {
 
 /** The mutation seam every backend implements. */
 export interface XListApi {
+  /** Strength of this adapter's mutation receipt. */
+  readonly evidence: MutationEvidence;
   /** Adds the author to the list; throws {@link XApiError} on failure. */
   addMember(list: XList, author: TweetAuthor): Promise<void>;
   removeMember(list: XList, author: TweetAuthor): Promise<void>;
 }
 
-/** Configuration for the GraphQL backend (query ids drift; keep them here). */
-export interface GraphqlConfig {
-  baseUrl: string;
-  ops: GraphqlOps;
-  features: Record<string, boolean>;
+/** Supplies one stable adapter for each user-initiated membership run. */
+export interface XListApiSource {
+  snapshot(): XListApi;
 }
 
-/** The internal GraphQL operations the list backend depends on. Ids rotate with X deploys. */
-export interface GraphqlOps {
-  ListAddMember: string;
-  ListRemoveMember: string;
-  UserByScreenName: string;
+/** Base URL plus the static, complete fallback catalog. */
+export interface GraphqlClientConfig {
+  baseUrl: string;
+  catalog: GraphqlOperationCatalog;
 }

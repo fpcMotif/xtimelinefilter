@@ -1,359 +1,233 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createListCache, readCachedCatalog } from "@/core/list-cache";
-import type { StorageLike } from "@/core/storage-areas";
-import { STORAGE_KEYS } from "@/core/storage-keys";
+import {
+  createListCache,
+  createWorkerListCatalogPort,
+  isCachedList,
+  listCacheOwnerKey,
+  parseCachedOwnerCatalog,
+  readCachedCatalog,
+  type ListCatalogPort,
+} from "@/core/list-cache";
+import * as protocol from "@/core/protocol";
 import type { Owner } from "@/packages/membership-store/types";
 import type { XList } from "@/packages/x-client/types";
 
 const A: Owner = { userId: "100", screenName: "alice" };
 const B: Owner = { userId: "200", screenName: "bob" };
 const A_LISTS: XList[] = [{ id: "1", name: "Research" }];
-const B_LISTS: XList[] = [{ id: "2", name: "Friends" }];
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
-
-function memoryArea(initial: Record<string, unknown> = {}): StorageLike {
-  const values = { ...initial };
+function catalogPort(overrides: Partial<ListCatalogPort> = {}): ListCatalogPort {
   return {
-    async get() {
-      return { ...values };
-    },
-    async set(items) {
-      Object.assign(values, items);
-    },
+    read: vi.fn(async () => null),
+    all: vi.fn(async () => []),
+    begin: vi.fn(async () => ({ epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 })),
+    commit: vi.fn(async (_owner, _token, lists) => lists),
+    ...overrides,
   };
 }
 
 describe("createListCache", () => {
-  it("uses chrome local storage when no cache area is supplied", async () => {
-    const cache = createListCache(async () => A_LISTS);
+  it("uses the worker transport for each catalog operation", async () => {
+    const sendMessage = vi.fn(async (request: { operation: string }) => {
+      if (request.operation === "all")
+        return { ok: true, catalogs: [{ owner: A, lists: A_LISTS }] };
+      if (request.operation === "begin")
+        return { ok: true, token: { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 } };
+      return { ok: true, lists: request.operation === "read" ? A_LISTS : [] };
+    });
+    const previous = globalThis.chrome;
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+    try {
+      const port = createWorkerListCatalogPort();
 
-    await cache.refresh(A);
-
-    expect(await cache.cached(A)).toEqual(A_LISTS);
+      await expect(port.read(A)).resolves.toEqual(A_LISTS);
+      await expect(port.all()).resolves.toEqual([{ owner: A, lists: A_LISTS }]);
+      await expect(port.begin(A)).resolves.toEqual({
+        epoch: "00000000-0000-4000-8000-000000000001",
+        sequence: 1,
+      });
+      await expect(
+        port.commit(A, { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 }, []),
+      ).resolves.toEqual([]);
+      expect(sendMessage).toHaveBeenCalledTimes(4);
+    } finally {
+      globalThis.chrome = previous;
+    }
   });
 
-  it("isolates cached Lists by Owner", async () => {
-    const loader = vi.fn(async (owner: Owner | null) =>
-      owner?.userId === A.userId ? A_LISTS : B_LISTS,
-    );
-    const cache = createListCache(loader, { area: memoryArea() });
+  it("parses only safe Owner-qualified catalog rows", () => {
+    const row = {
+      schema: 2,
+      owner: A,
+      lists: A_LISTS,
+      refreshedAt: 1,
+      observation: { epoch: "00000000-0000-4000-8000-000000000001", sequence: 0 },
+    } as const;
 
-    expect(await cache.cached(A)).toBeNull();
-    expect(await cache.refresh(A)).toEqual(A_LISTS);
-    expect(await cache.refresh(B)).toEqual(B_LISTS);
-    expect(await cache.cached(A)).toEqual(A_LISTS);
-    expect(loader).toHaveBeenCalledTimes(2);
+    expect(parseCachedOwnerCatalog(null)).toBeNull();
+    expect(parseCachedOwnerCatalog(row)).toEqual(row);
+    expect(parseCachedOwnerCatalog({ ...row, owner: { ...A, userId: "0" } })).toBeNull();
+    expect(parseCachedOwnerCatalog({ ...row, lists: [{ id: "1", name: " " }] })).toBeNull();
+    expect(parseCachedOwnerCatalog({ ...row, refreshedAt: Number.POSITIVE_INFINITY })).toBeNull();
+    expect(
+      parseCachedOwnerCatalog({ ...row, observation: { epoch: "bad", sequence: 0 } }),
+    ).toBeNull();
+    expect(isCachedList({ id: "1", name: "List", memberCount: 0, isPrivate: false })).toBe(true);
+    expect(isCachedList({ id: "0", name: "List", memberCount: -1, isPrivate: "no" })).toBe(false);
+    expect(listCacheOwnerKey("a/b")).toBe("lasso:lists:a%2Fb");
   });
 
-  it("refetches one Owner when forced and stores an authoritative empty result", async () => {
-    let lists = A_LISTS;
-    const cache = createListCache(async () => lists, { area: memoryArea() });
-    await cache.refresh(A);
-    lists = [];
+  it("reads through its catalog port", async () => {
+    const port = catalogPort({ read: vi.fn(async () => A_LISTS) });
+    const cache = createListCache(async () => A_LISTS, { catalog: port });
 
-    expect(await cache.refresh(A)).toEqual([]);
-    expect(await cache.cached(A)).toEqual([]);
+    await expect(cache.cached(A)).resolves.toEqual(A_LISTS);
+    expect(port.read).toHaveBeenCalledWith(A);
+  });
+
+  it("replaces one Owner's cache with X's authoritative empty answer", async () => {
+    const port = catalogPort();
+    const cache = createListCache(async () => [], { catalog: port });
+
+    await expect(cache.refresh(A)).resolves.toEqual([]);
+    expect(port.commit).toHaveBeenCalledWith(A, expect.anything(), []);
   });
 
   it("loads without caching when Owner discovery is unavailable", async () => {
     const loader = vi.fn(async () => A_LISTS);
-    const cache = createListCache(loader, { area: memoryArea() });
+    const port = catalogPort();
+    const cache = createListCache(loader, { catalog: port });
 
-    expect(await cache.cached(null)).toBeNull();
-    expect(await cache.refresh(null)).toEqual(A_LISTS);
-    expect(await cache.cached(A)).toBeNull();
-    expect(loader).toHaveBeenCalledWith(null);
+    await expect(cache.cached(null)).resolves.toBeNull();
+    await expect(cache.refresh(null)).resolves.toEqual(A_LISTS);
+    expect(port.begin).not.toHaveBeenCalled();
+    expect(port.commit).not.toHaveBeenCalled();
   });
 
-  it("never attributes the legacy global cache to an Owner", async () => {
-    const legacy = [{ id: "old", name: "Unknown Owner" }];
-    const loader = vi.fn(async () => A_LISTS);
-    const cache = createListCache(loader, {
-      area: memoryArea({ [STORAGE_KEYS.lists]: legacy }),
-    });
-
-    expect(await cache.cached(A)).toBeNull();
-    expect(await cache.refresh(A)).toEqual(A_LISTS);
-    expect(loader).toHaveBeenCalledOnce();
-  });
-
-  it("reads the Owner-qualified catalog for settings", async () => {
-    const area = memoryArea();
-    const cache = createListCache(
-      async (owner) => (owner?.userId === A.userId ? A_LISTS : B_LISTS),
-      { area },
+  it("uses its default worker catalog", async () => {
+    const sendMessage = vi.fn(async (request: { operation: string }) =>
+      request.operation === "begin"
+        ? { ok: true, token: { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 } }
+        : { ok: true, lists: A_LISTS },
     );
-    await cache.refresh(A);
-    await cache.refresh(B);
-
-    expect(await readCachedCatalog(area)).toEqual([
-      { owner: A, lists: A_LISTS },
-      { owner: B, lists: B_LISTS },
-    ]);
+    const previous = globalThis.chrome;
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+    try {
+      await expect(createListCache(async () => A_LISTS).refresh(A)).resolves.toEqual(A_LISTS);
+    } finally {
+      globalThis.chrome = previous;
+    }
   });
 
-  it("drops malformed Owner-qualified rows", async () => {
-    const area = memoryArea({
-      "lasso:lists:bad": { schema: 1, owner: null, lists: "wrong", refreshedAt: "wrong" },
-      "lasso:lists:array": [],
+  it("returns all worker catalogs for Options", async () => {
+    const all = [{ owner: A, lists: A_LISTS }];
+    await expect(readCachedCatalog(catalogPort({ all: vi.fn(async () => all) }))).resolves.toEqual(
+      all,
+    );
+  });
+
+  it("fails soft when the catalog worker is unavailable", async () => {
+    const unavailable = catalogPort({
+      read: vi.fn(async () => {
+        throw new Error("down");
+      }),
+      all: vi.fn(async () => {
+        throw new Error("down");
+      }),
+      begin: vi.fn(async () => {
+        throw new Error("down");
+      }),
     });
-    expect(await readCachedCatalog(area)).toEqual([]);
+    const cache = createListCache(async () => A_LISTS, { catalog: unavailable });
+
+    await expect(cache.cached(A)).resolves.toBeNull();
+    await expect(cache.refresh(A)).resolves.toEqual(A_LISTS);
+    await expect(readCachedCatalog(unavailable)).resolves.toEqual([]);
+    expect(unavailable.commit).not.toHaveBeenCalled();
   });
 
-  it("returns X's answer when cache persistence fails", async () => {
-    const area: StorageLike = {
-      async get() {
-        return {};
-      },
-      async set() {
-        throw new Error("storage unavailable");
-      },
-    };
-    const cache = createListCache(async () => A_LISTS, { area });
+  it("returns X's answer when the worker rejects a commit", async () => {
+    const port = catalogPort({
+      commit: vi.fn(async () => {
+        throw new Error("down");
+      }),
+    });
+    const cache = createListCache(async () => A_LISTS, { catalog: port });
 
     await expect(cache.refresh(A)).resolves.toEqual(A_LISTS);
   });
 
-  it("persists only the latest same-Owner refresh while returning both answers", async () => {
-    let resolveOld!: (lists: XList[]) => void;
-    let resolveNew!: (lists: XList[]) => void;
-    const oldLists: XList[] = [{ id: "old", name: "Old" }];
-    const newLists: XList[] = [{ id: "new", name: "New" }];
-    const loader = vi
-      .fn<(_: Owner | null) => Promise<XList[]>>()
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveOld = resolve)))
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveNew = resolve)));
-    const cache = createListCache(loader, { area: memoryArea() });
+  it("uses the worker's winning row when another refresh wins the cache race", async () => {
+    const winner: XList[] = [{ id: "2", name: "Newer" }];
+    const port = catalogPort({ commit: vi.fn(async () => winner) });
+    const cache = createListCache(async () => A_LISTS, { catalog: port });
 
-    const oldRefresh = cache.refresh(A);
-    const newRefresh = cache.refresh(A);
-    resolveNew(newLists);
-    await expect(newRefresh).resolves.toEqual(newLists);
-    resolveOld(oldLists);
-    await expect(oldRefresh).resolves.toEqual(oldLists);
-
-    expect(await cache.cached(A)).toEqual(newLists);
+    await expect(cache.refresh(A)).resolves.toEqual(winner);
   });
 
-  it("serializes same-Owner persistence so a blocked R1 cannot overwrite R2", async () => {
-    const firstWrite = deferred<void>();
-    const trace: string[] = [];
-    const values: Record<string, unknown> = {};
-    let writes = 0;
-    const area: StorageLike = {
-      async get() {
-        return { ...values };
-      },
-      async set(items) {
-        writes += 1;
-        const lists = (Object.values(items)[0] as { lists: XList[] }).lists;
-        const label = lists[0]!.name;
-        trace.push(`set:start:${label}`);
-        if (writes === 1) await firstWrite.promise;
-        Object.assign(values, items);
-        trace.push(`set:end:${label}`);
-      },
-    };
-    const oldLists: XList[] = [{ id: "old", name: "R1" }];
-    const newLists: XList[] = [{ id: "new", name: "R2" }];
-    const loader = vi
-      .fn<(_: Owner | null) => Promise<XList[]>>()
-      .mockResolvedValueOnce(oldLists)
-      .mockResolvedValueOnce(newLists);
-    const cache = createListCache(loader, { area });
-
-    const first = cache.refresh(A);
-    await vi.waitFor(() => expect(trace).toEqual(["set:start:R1"]));
-    const second = cache.refresh(A);
-    await Promise.resolve();
-    expect(trace).toEqual(["set:start:R1"]);
-
-    firstWrite.resolve();
-    await expect(Promise.all([first, second])).resolves.toEqual([oldLists, newLists]);
-    expect(trace).toEqual(["set:start:R1", "set:end:R1", "set:start:R2", "set:end:R2"]);
-    expect(await cache.cached(A)).toEqual(newLists);
+  it("keeps the fresh value when a winning cache row is absent", async () => {
+    const port = catalogPort({ commit: vi.fn(async () => null) });
+    await expect(
+      createListCache(async () => A_LISTS, { catalog: port }).refresh(A),
+    ).resolves.toEqual(A_LISTS);
   });
 
-  it("keeps a queued refresh persisting after an earlier same-Owner persist rejects", async () => {
-    const oldLists: XList[] = [{ id: "old", name: "Old" }];
-    const newLists: XList[] = [{ id: "new", name: "New" }];
-    const loader = vi
-      .fn<(_: Owner | null) => Promise<XList[]>>()
-      .mockResolvedValueOnce(oldLists)
-      .mockResolvedValueOnce(newLists);
-    // Only R1's queued persist observes the changed Owner and rejects; R2 must still persist.
-    let ownerCall = 0;
-    const cache = createListCache(loader, {
-      area: memoryArea(),
-      currentOwner: () => (ownerCall++ === 2 ? B : A),
+  it("rejects when Owner changes in the commit window", async () => {
+    let reads = 0;
+    const port = catalogPort();
+    const cache = createListCache(async () => A_LISTS, {
+      catalog: port,
+      currentOwner: () => (reads++ === 0 ? A : B),
     });
 
-    const first = cache.refresh(A);
-    const second = cache.refresh(A);
-
-    await expect(first).rejects.toMatchObject({ name: "ListCacheOwnerChangedError" });
-    await expect(second).resolves.toEqual(newLists);
-    expect(await cache.cached(A)).toEqual(newLists);
+    await expect(cache.refresh(A)).rejects.toMatchObject({ name: "ListCacheOwnerChangedError" });
+    expect(port.commit).not.toHaveBeenCalled();
   });
 
-  it("rejects a queued refresh when Owner changes before persistence starts", async () => {
-    const firstWrite = deferred<void>();
-    const values: Record<string, unknown> = {};
-    const set = vi.fn(async (items: Record<string, unknown>) => {
-      if (set.mock.calls.length === 1) await firstWrite.promise;
-      Object.assign(values, items);
+  it("rejects an anonymous refresh after Owner discovery", async () => {
+    await expect(
+      createListCache(async () => A_LISTS, { currentOwner: () => A }).refresh(null),
+    ).rejects.toMatchObject({ name: "ListCacheOwnerChangedError" });
+  });
+
+  it("defends worker-port response shape at every operation boundary", async () => {
+    const request = vi.spyOn(protocol, "requestListCache");
+    const port = createWorkerListCatalogPort();
+
+    request.mockResolvedValueOnce({
+      ok: true,
+      token: { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 },
     });
-    const area: StorageLike = {
-      async get() {
-        return { ...values };
-      },
-      set,
-    };
-    let currentOwner: Owner | null = A;
-    const loader = vi
-      .fn<(_: Owner | null) => Promise<XList[]>>()
-      .mockResolvedValueOnce(A_LISTS)
-      .mockResolvedValueOnce([{ id: "new", name: "New" }]);
-    const cache = createListCache(loader, { area, currentOwner: () => currentOwner });
-
-    const first = cache.refresh(A);
-    await vi.waitFor(() => expect(set).toHaveBeenCalledOnce());
-    const second = cache.refresh(A);
-    await Promise.resolve();
-    expect(set).toHaveBeenCalledOnce();
-
-    currentOwner = B;
-    firstWrite.resolve();
-    await expect(first).resolves.toEqual(A_LISTS);
-    await expect(second).rejects.toMatchObject({ name: "ListCacheOwnerChangedError" });
-    expect(set).toHaveBeenCalledOnce();
+    await expect(port.read(A)).resolves.toBeNull();
+    request.mockResolvedValueOnce({ ok: true, lists: A_LISTS });
+    await expect(port.all()).resolves.toEqual([]);
+    request.mockResolvedValueOnce({ ok: true, lists: A_LISTS });
+    await expect(port.begin(A)).rejects.toThrow("List cache token unavailable");
+    request.mockResolvedValueOnce({
+      ok: true,
+      token: { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 },
+    });
+    await expect(
+      port.commit(A, { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 }, A_LISTS),
+    ).resolves.toBeNull();
   });
 
-  it("does not suppress a different Owner's refresh", async () => {
-    let resolveA!: (lists: XList[]) => void;
-    let resolveB!: (lists: XList[]) => void;
-    const loader = vi
-      .fn<(_: Owner | null) => Promise<XList[]>>()
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveA = resolve)))
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveB = resolve)));
-    const cache = createListCache(loader, { area: memoryArea() });
-
-    const refreshA = cache.refresh(A);
-    const refreshB = cache.refresh(B);
-    resolveB(B_LISTS);
-    resolveA(A_LISTS);
-    await expect(Promise.all([refreshA, refreshB])).resolves.toEqual([A_LISTS, B_LISTS]);
-
-    await expect(cache.cached(A)).resolves.toEqual(A_LISTS);
-    await expect(cache.cached(B)).resolves.toEqual(B_LISTS);
-  });
-
-  it("rejects an Owner's stale fetch and leaves its cache empty", async () => {
+  it("rejects an Owner's stale fetch before it reaches the worker", async () => {
     let resolve!: (lists: XList[]) => void;
     let currentOwner: Owner | null = A;
-    const area = memoryArea();
-    const cache = createListCache(() => new Promise<XList[]>((done) => (resolve = done)), {
-      area,
+    const port = catalogPort();
+    const cache = createListCache(() => new Promise((done) => (resolve = done)), {
+      catalog: port,
       currentOwner: () => currentOwner,
     });
 
     const refresh = cache.refresh(A);
+    await vi.waitFor(() => expect(port.begin).toHaveBeenCalledWith(A));
     currentOwner = B;
-    resolve(B_LISTS);
+    resolve(A_LISTS);
 
     await expect(refresh).rejects.toMatchObject({ name: "ListCacheOwnerChangedError" });
-    expect(await cache.cached(A)).toBeNull();
-  });
-
-  it("rejects a null-Owner fetch after Owner discovery succeeds", async () => {
-    let resolve!: (lists: XList[]) => void;
-    let currentOwner: Owner | null = null;
-    const cache = createListCache(() => new Promise<XList[]>((done) => (resolve = done)), {
-      area: memoryArea(),
-      currentOwner: () => currentOwner,
-    });
-
-    const refresh = cache.refresh(null);
-    currentOwner = B;
-    resolve(B_LISTS);
-
-    await expect(refresh).rejects.toMatchObject({ name: "ListCacheOwnerChangedError" });
-  });
-
-  it("discards a catalog with an invalid Owner, timestamp, or List", async () => {
-    const C: Owner = { userId: "300", screenName: "casey" };
-    const area = memoryArea({
-      "lasso:lists:100": {
-        schema: 1,
-        owner: A,
-        lists: [...A_LISTS, { id: "broken", name: 1 }],
-        refreshedAt: 1000,
-      },
-      "lasso:lists:200": {
-        schema: 1,
-        owner: { userId: B.userId, screenName: 1 },
-        lists: B_LISTS,
-        refreshedAt: 1000,
-      },
-      "lasso:lists:300": {
-        schema: 1,
-        owner: C,
-        lists: [],
-        refreshedAt: Number.POSITIVE_INFINITY,
-      },
-    });
-    const cache = createListCache(async () => A_LISTS, { area });
-
-    expect(await cache.cached(A)).toBeNull();
-    expect(await readCachedCatalog(area)).toEqual([]);
-  });
-
-  it("rejects malformed optional List fields", async () => {
-    for (const lists of [
-      [{ id: "negative", name: "Negative", memberCount: -1 }],
-      [{ id: "infinite", name: "Infinite", memberCount: Number.POSITIVE_INFINITY }],
-      [{ id: "private", name: "Private", isPrivate: "yes" }],
-    ]) {
-      const area = memoryArea({
-        "lasso:lists:100": { schema: 1, owner: A, lists, refreshedAt: 1000 },
-      });
-      expect(await readCachedCatalog(area)).toEqual([]);
-    }
-  });
-
-  it("fails soft when storage returns a non-record payload", async () => {
-    const area = {
-      async get() {
-        return [] as unknown as Record<string, unknown>;
-      },
-      async set() {},
-    } satisfies StorageLike;
-    const cache = createListCache(async () => A_LISTS, { area });
-
-    await expect(readCachedCatalog(area)).resolves.toEqual([]);
-    await expect(cache.cached(A)).resolves.toBeNull();
-  });
-
-  it("fails soft when cache storage cannot be read", async () => {
-    const area: StorageLike = {
-      async get() {
-        throw new Error("storage unavailable");
-      },
-      async set() {},
-    };
-    const cache = createListCache(async () => A_LISTS, { area });
-
-    await expect(cache.cached(A)).resolves.toBeNull();
-    await expect(readCachedCatalog(area)).resolves.toEqual([]);
+    expect(port.commit).not.toHaveBeenCalled();
   });
 });

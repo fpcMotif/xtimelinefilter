@@ -13,13 +13,13 @@ The Mirror is **additive and optional**: X stays the source of truth, the existi
 | # | Decision | Choice |
 |---|----------|--------|
 | 1 | Convex's role | **Mirror + audit log.** X is source of truth; extension mutates X directly; every change is *also* written to Convex. Convex never drives X. |
-| 2 | Owner identity | Captured **at action time** — the account logged into x.com right then. No registry, no polling. |
+| 2 | Owner identity | Checked before the X run and read again after it completes. A changed Owner stops the run or suppresses its Mirror write. No registry or polling. |
 | 3 | Surface | Backing store **+ live-synced "already in"** powered by the snapshot. |
 | 4 | Snapshot source | **Seed + reconcile from X**, done **per-author, lazily** (X's `memberships.json`), not full per-List rosters. |
 | 5 | Cross-account | Picker shows **all Owners' Lists**; only the **active Owner**'s Lists are writable; foreign Lists are read-only with a "Switch to @owner" hint. UX = **account tabs + search** (prototype verdict below). |
 | 6 | Off-session checks | Cached, shown **"as of last use"**; fresh reconcile only for the active Owner. |
-| 7 | Log scope | **All outcomes**, including failures. Snapshot mutates only on a real membership change. |
-| 8 | Tenancy / auth | **Personal, single-tenant**, one **device key** in `chrome.storage.sync`, validated by every Convex function. |
+| 7 | Log scope | **All outcomes**, including failures. Snapshots use direction-matched facts: add `added`/`already-member`; remove `removed`/`already-absent`. |
+| 8 | Tenancy / auth | **Personal, single-tenant**, one **device key** in `chrome.storage.local`, validated by every Convex function. |
 | 9 | Remove | **Mirror existing removals only** (undo path + any future remove). No new remove UI. |
 | 10 | Git | New branch `claude/convex-mirror` off main; open PR, keep open. |
 | 11 | Topology | Approach 1 — `MembershipStore` seam, Convex client in the content script (reactive WS survives; SW would be killed). |
@@ -60,9 +60,9 @@ Captured in [CONTEXT.md](../../CONTEXT.md): **Owner**, **Mirror**, **MembershipS
 
 Every function takes `deviceKey`, validated first against env `LASSO_DEVICE_KEY`; mismatch throws.
 
-- `recordAssign({ deviceKey, owner, ownerObservedAt, list, results })` *(mutation)* — append one event per result; each result carries its X completion time. A proven X outcome (`added`, `already-member`, `removed`) newer than the complete catalog stamps List existence into the current Owner generation and fences older catalog answers. It never overwrites catalog metadata. Stable identities update causally fenced snapshots; missing identities stay audit-only. Failed-only batches do not advance the catalog fact clock.
+- `recordAssign({ deviceKey, owner, ownerObservedAt, list, results })` *(mutation)* — append one event per result; each result carries its X completion time. A direction-matched fact (add: `added`/`already-member`; remove: `removed`/`already-absent`) newer than the complete catalog stamps List existence into the current Owner generation and fences older catalog answers. It never overwrites catalog metadata. Stable identities update causally fenced snapshots; missing identities and mismatches stay audit-only. Failed-only batches do not advance the catalog fact clock.
 - `reconcileAuthor({ deviceKey, owner, ownerObservedAt, screenName, memberIdentity, observedAt, listIds })` *(mutation)* — write X's truth for one Account across only the current Owner catalog. `observedAt` is membership fetch start. Older rows and snapshots lose. Missing stable identity is a no-op.
-- `replaceCatalog({ deviceKey, owner, ownerObservedAt, observedAt, lists })` *(mutation)* — replace the active Owner's catalog from a complete, terminal-pagination `ownerships.json` result. The millisecond fetch-start `observedAt` rejects older cross-tab answers and answers no newer than a proven direct List fact. Complete-catalog ties use last arrival; equal direct facts win. An accepted answer advances that Owner's catalog generation and stamps reported Lists; older Lists and snapshots become immediately unreadable and remain available for bounded garbage collection. Audit events stay append-only.
+- `replaceCatalog({ deviceKey, owner, ownerObservedAt, observedAt, lists })` *(mutation)* — replace the active Owner's catalog from a complete, terminal-pagination `ownerships.json` result. The millisecond fetch-start `observedAt` rejects older cross-tab answers and answers no newer than a proven direct List fact. Complete-catalog ties use last arrival; equal direct facts win. An accepted answer advances that Owner's catalog generation and stamps reported Lists; older Lists and snapshots become immediately unreadable but remain available if a List returns. Audit events stay append-only.
 - Every write carries `ownerObservedAt`, captured with its Owner handle. Profile data never borrows a later action/fetch clock.
 - `listsContaining({ deviceKey, memberIdentity })` *(query, reactive)* — current-generation `{ listId, ownerUserId, present, lastSeenAt }[]` → drives cached "already in" across Owners. The query enumerates authoritative current Lists, then performs one exact member lookup per List: `O(Owners + current Lists)`, independent of inert history. Generation `0` keeps the legacy fallback. `lastSeenAt` exposes source observation time, with receipt time only as a legacy fallback.
 - `catalog({ deviceKey })` *(query, reactive)* — current-generation Lists grouped by Owner → the cross-account picker.

@@ -266,6 +266,14 @@ describe("FunnelPill", () => {
     expect(style).toContain("234");
   });
 
+  it("clamps a stale persisted position into the current viewport", () => {
+    const { pill } = setup({ position: { x: 1_000_000, y: 1_000_000 } });
+    const container = pill.closest("[data-funnel-pill-root]") as HTMLElement;
+
+    expect(container.style.left).toBe(`${window.innerWidth - 44}px`);
+    expect(container.style.top).toBe(`${window.innerHeight - 44}px`);
+  });
+
   it("accepts parent position updates after mounting", () => {
     const store = createFilterStore({ navLanguages: ["ja"] });
     const onPositionChange = vi.fn();
@@ -353,6 +361,45 @@ describe("FunnelPill", () => {
     fireEvent.keyUp(pill, { key: "ArrowDown" });
 
     expect(onPositionChange).not.toHaveBeenCalled();
+  });
+
+  it("cancels a pending keyboard move when resize clamps its position", () => {
+    const width = window.innerWidth;
+    const onPositionChange = vi.fn();
+    const { r, pill } = setup({ position: { x: 700, y: 100 }, onPositionChange });
+
+    fireEvent.keyDown(pill, { key: "ArrowRight" });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
+    try {
+      fireEvent(window, new Event("resize"));
+      fireEvent.keyUp(pill, { key: "ArrowRight" });
+
+      expect(onPositionChange).not.toHaveBeenCalled();
+      const root = r.container.querySelector("[data-funnel-pill-root]") as HTMLElement;
+      expect(root.style.left).toBe("556px");
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    }
+  });
+
+  it("cancels a moved drag when resize clamps its position", () => {
+    const width = window.innerWidth;
+    const onPositionChange = vi.fn();
+    const { r, pill } = setup({ position: { x: 700, y: 100 }, onPositionChange });
+
+    fireEvent.pointerDown(pill, { clientX: 700, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(document, { clientX: 708, clientY: 100, pointerId: 1 });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
+    try {
+      fireEvent(window, new Event("resize"));
+      fireEvent.pointerUp(document, { clientX: 708, clientY: 100, pointerId: 1 });
+
+      expect(onPositionChange).not.toHaveBeenCalled();
+      const root = r.container.querySelector("[data-funnel-pill-root]") as HTMLElement;
+      expect(root.style.left).toBe("556px");
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    }
   });
 
   it("ignores a non-arrow keydown on the pill: no move, default not prevented", () => {
@@ -447,6 +494,43 @@ describe("FunnelPill", () => {
     fireEvent.pointerUp(document, { clientX: 160, clientY: 140, pointerId: 1 });
 
     expect(onPositionChange).not.toHaveBeenCalled();
+  });
+
+  it("cancels an active drag when an external position update arrives", () => {
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    const onPositionChange = vi.fn();
+    const onOpenChange = vi.fn();
+    const r = render(
+      <FunnelPill
+        store={store}
+        hiddenCount={() => 0}
+        position={{ x: 100, y: 100 }}
+        onPositionChange={onPositionChange}
+        open={false}
+        onOpenChange={onOpenChange}
+      />,
+    );
+    const pill = r.getByRole("button", { name: /timeline filter/i });
+
+    fireEvent.pointerDown(pill, { clientX: 100, clientY: 100, pointerId: 1 });
+    r.rerender(
+      <FunnelPill
+        store={store}
+        hiddenCount={() => 0}
+        position={{ x: 200, y: 100 }}
+        onPositionChange={onPositionChange}
+        open={false}
+        onOpenChange={onOpenChange}
+      />,
+    );
+    fireEvent.pointerMove(document, { clientX: 120, clientY: 100, pointerId: 1 });
+    fireEvent.pointerUp(document, { clientX: 120, clientY: 100, pointerId: 1 });
+
+    expect(onPositionChange).not.toHaveBeenCalled();
+    const root = r.container.querySelector("[data-funnel-pill-root]") as HTMLElement;
+    expect(root.style.left).toBe("200px");
+    fireEvent.click(pill);
+    expect(onOpenChange).toHaveBeenCalledWith(true);
   });
 
   it("a drag does not toggle the popover (the trailing click is suppressed)", () => {

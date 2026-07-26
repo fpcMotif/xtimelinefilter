@@ -111,6 +111,7 @@ describe.each(adapters)("MembershipStore contract: $label", ({ make }) => {
             identity: "user:alice",
             action: "add",
             outcome: "added",
+            evidence: "server-response",
             observedAt: 123,
           },
         ],

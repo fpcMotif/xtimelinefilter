@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createCoach, DECAY_ASSIGNS, DECAY_MS } from "@/core/coach";
 import type { StorageLike } from "@/core/settings";
@@ -21,10 +21,123 @@ function coachAt(now: { t: number }, area = memoryArea()) {
   return createCoach(area, () => now.t);
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe("createCoach", () => {
   it("uses its default storage and clock dependencies", async () => {
     const c = createCoach();
     await expect(c.isOnboarded()).resolves.toBe(false);
+  });
+
+  it("uses semantic worker commands when extension messaging is available", async () => {
+    const previous = globalThis.chrome;
+    const sendMessage = vi.fn(async () => ({ ok: true, result: { kind: "ok" } }));
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      await createCoach().markOnboarded();
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: "lasso:coach",
+        command: { kind: "mark-onboarded" },
+      });
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("submits worker commands in caller order when an assign and tip race", async () => {
+    const previous = globalThis.chrome;
+    const assigned = deferred<{ ok: true; result: { kind: "ok" } }>();
+    let assignCount = DECAY_ASSIGNS - 1;
+    const sendMessage = vi.fn((request: { command: { kind: string } }) => {
+      if (request.command.kind === "record-assign") {
+        return assigned.promise.then((response) => {
+          assignCount += 1;
+          return response;
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { kind: "try-show-tip", show: assignCount < DECAY_ASSIGNS },
+      });
+    });
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const coach = createCoach();
+      const assign = coach.recordAssign();
+      const tip = coach.tryShowTip("post-assign");
+
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: "lasso:coach",
+        command: { kind: "record-assign" },
+      });
+
+      assigned.resolve({ ok: true, result: { kind: "ok" } });
+      await expect(assign).resolves.toBeUndefined();
+      await expect(tip).resolves.toBe(false);
+      expect(sendMessage).toHaveBeenNthCalledWith(2, {
+        type: "lasso:coach",
+        command: { kind: "try-show-tip", tip: "post-assign", max: 1 },
+      });
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("fails soft when worker messaging throws synchronously", async () => {
+    const previous = globalThis.chrome;
+    globalThis.chrome = {
+      ...previous,
+      runtime: {
+        sendMessage() {
+          throw new Error("Extension context invalidated");
+        },
+      },
+    } as unknown as typeof chrome;
+
+    try {
+      const coach = createCoach();
+      await expect(coach.isOnboarded()).resolves.toBe(true);
+      await expect(coach.hintsActive()).resolves.toBe(false);
+      await expect(coach.tryShowTip("first-hover")).resolves.toBe(false);
+      await expect(coach.markOnboarded()).resolves.toBeUndefined();
+      await expect(coach.recordAssign()).resolves.toBeUndefined();
+      await expect(coach.replayIntro()).resolves.toBeUndefined();
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("fails closed when a worker returns a result for the wrong command", async () => {
+    const previous = globalThis.chrome;
+    try {
+      vi.resetModules();
+      vi.doMock("@/core/protocol", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("@/core/protocol")>()),
+        requestCoach: async () => ({ kind: "ok" }),
+      }));
+      const { createCoach: isolatedCreateCoach } = await import("@/core/coach");
+      globalThis.chrome = {
+        ...previous,
+        runtime: { sendMessage: async () => ({ ok: true, result: { kind: "ok" } }) },
+      } as unknown as typeof chrome;
+      const coach = isolatedCreateCoach();
+      await expect(coach.isOnboarded()).resolves.toBe(true);
+      await expect(coach.hintsActive()).resolves.toBe(false);
+      await expect(coach.tryShowTip("unit")).resolves.toBe(false);
+    } finally {
+      globalThis.chrome = previous;
+      vi.doUnmock("@/core/protocol");
+      vi.resetModules();
+    }
   });
 
   it("starts not onboarded; markOnboarded persists", async () => {
@@ -74,6 +187,14 @@ describe("createCoach", () => {
     expect(await c.tryShowTip("unit", 3)).toBe(true);
     expect(await c.tryShowTip("unit", 3)).toBe(true);
     expect(await c.tryShowTip("unit", 3)).toBe(false);
+  });
+
+  it("keeps the public one-show default and rejects unbounded caller limits", async () => {
+    const c = coachAt({ t: T0 });
+    expect(await c.tryShowTip("unit")).toBe(true);
+    expect(await c.tryShowTip("unit")).toBe(false);
+    expect(await c.tryShowTip("post-assign", 4)).toBe(false);
+    expect(await c.tryShowTip("forged-tip" as "unit")).toBe(false);
   });
 
   it("tips stop firing once the hint window has decayed", async () => {

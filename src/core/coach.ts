@@ -1,125 +1,105 @@
-import { blobStore, localArea, type StorageLike } from "@/core/storage-areas";
+import {
+  DECAY_ASSIGNS,
+  DECAY_MS,
+  isCoachCommand,
+  transitionCoach,
+  type CoachCommand,
+  type CoachCommandResult,
+  type TipId,
+  type TipLimit,
+} from "@/core/coach-domain";
+import { requestCoach } from "@/core/protocol";
+import { localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 
-/**
- * Onboarding + decaying-hint state (story beats 3 & 5). Hints are "decaying":
- * they show for 7 days or 5 assigns, whichever comes first, then the UI returns
- * to pure camouflage. "Replay intro" in Settings resets everything for a second
- * pass. Persisted under `lasso:coach` in chrome.storage.local.
- *
- * Coach is cosmetic and best-effort. Its profile-wide storage can race across
- * extension contexts, so exact counts are not an invariant. Product actions
- * never depend on coaching state.
- */
+export { DECAY_ASSIGNS, DECAY_MS };
+export type { TipId };
 
-export const DECAY_MS = 7 * 24 * 60 * 60 * 1000;
-export const DECAY_ASSIGNS = 5;
-
-/** One-shot (or capped) in-product tips. */
-export type TipId = "first-hover" | "unit" | "select-nudge" | "post-assign";
-
-interface CoachState {
-  onboarded?: boolean;
-  installedAt?: number;
-  assignCount?: number;
-  tips?: Partial<Record<TipId, number>>;
-}
-
+/** Cosmetic, fail-soft onboarding and decaying hints. */
 export interface Coach {
   isOnboarded(): Promise<boolean>;
   markOnboarded(): Promise<void>;
-  /** Bump the assign counter that decays the hint window. */
   recordAssign(): Promise<void>;
-  /** True while the decaying-hint window is open; stamps installedAt on first call. */
   hintsActive(): Promise<boolean>;
-  /**
-   * Consume one showing of a tip; true if it should display now. Tips respect
-   * both their own cap (`max`, default 1) and the decay window.
-   */
   tryShowTip(id: TipId, max?: number): Promise<boolean>;
-  /** Settings → Replay intro: welcome card and all hints come back. */
   replayIntro(): Promise<void>;
 }
 
-export function createCoach(area: StorageLike = localArea(), now: () => number = Date.now): Coach {
-  const store = blobStore<CoachState>(area, STORAGE_KEYS.coach, {});
-  let mutationTail: Promise<void> = Promise.resolve();
+type RunCommand = (command: CoachCommand) => Promise<CoachCommandResult>;
 
-  /** Keep read-modify-write updates ordered within this Coach instance. */
-  function mutate<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
-    const result = mutationTail.then(operation, operation);
-    mutationTail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result.catch(() => fallback);
-  }
+const hasRuntimeTransport = (): boolean =>
+  typeof globalThis.chrome?.runtime?.sendMessage === "function";
 
-  function activeHints(state: CoachState & { installedAt: number }): boolean {
-    if ((state.assignCount ?? 0) >= DECAY_ASSIGNS) return false;
-    return now() - state.installedAt <= DECAY_MS;
-  }
+/** Injected storage keeps tests and non-extension hosts on the same reducer. */
+function localCommands(area: StorageLike, now: () => number): RunCommand {
+  return async (command) => {
+    const raw = (await area.get(STORAGE_KEYS.coach))[STORAGE_KEYS.coach];
+    const transition = transitionCoach(raw, command, now());
+    if (transition.changed) await area.set({ [STORAGE_KEYS.coach]: transition.stored });
+    return transition.result;
+  };
+}
 
-  function stampInstalledAt(state: CoachState): CoachState & { installedAt: number } {
-    return state.installedAt === undefined
-      ? { ...state, installedAt: now() }
-      : (state as CoachState & { installedAt: number });
-  }
+function isTipLimit(value: number): value is TipLimit {
+  return value === 1 || value === 2 || value === 3;
+}
 
-  function write(next: CoachState): Promise<CoachState> {
-    return store.set(next);
-  }
-
-  function hintsActive(): Promise<boolean> {
-    return mutate(async () => {
-      const state = await store.get();
-      const withInstalledAt = stampInstalledAt(state);
-      if (withInstalledAt !== state) await write(withInstalledAt);
-      return activeHints(withInstalledAt);
-    }, false);
-  }
+function coachWith(run: RunCommand): Coach {
+  let tail = Promise.resolve<unknown>(undefined);
+  const command = (
+    input: CoachCommand,
+    fallback: CoachCommandResult,
+  ): Promise<CoachCommandResult> => {
+    const operation = (): Promise<CoachCommandResult> =>
+      Promise.resolve()
+        .then(() => run(input))
+        .catch(() => fallback);
+    const result = tail.then(operation, operation);
+    tail = result.then(() => undefined);
+    return result;
+  };
 
   return {
     async isOnboarded() {
-      try {
-        return (await store.get()).onboarded === true;
-      } catch {
-        // A missing answer must not show onboarding on every boot.
-        return true;
-      }
+      const result = await command(
+        { kind: "is-onboarded" },
+        { kind: "is-onboarded", onboarded: true },
+      );
+      return result.kind === "is-onboarded" ? result.onboarded : true;
     },
     async markOnboarded() {
-      await mutate(async () => {
-        const state = await store.get();
-        await write({ ...state, onboarded: true });
-      }, undefined);
+      await command({ kind: "mark-onboarded" }, { kind: "ok" });
     },
     async recordAssign() {
-      await mutate(async () => {
-        const state = await store.get();
-        await write({ ...state, assignCount: (state.assignCount ?? 0) + 1 });
-      }, undefined);
+      await command({ kind: "record-assign" }, { kind: "ok" });
     },
-    hintsActive,
-    async tryShowTip(id, max = 1) {
-      return mutate(async () => {
-        const state = await store.get();
-        const withInstalledAt = stampInstalledAt(state);
-        if (!activeHints(withInstalledAt)) return false;
-        const shown = withInstalledAt.tips?.[id] ?? 0;
-        if (shown >= max) return false;
-        await write({
-          ...withInstalledAt,
-          tips: { ...withInstalledAt.tips, [id]: shown + 1 },
-        });
-        return true;
-      }, false);
+    async hintsActive() {
+      const result = await command(
+        { kind: "hints-active" },
+        { kind: "hints-active", active: false },
+      );
+      return result.kind === "hints-active" ? result.active : false;
+    },
+    async tryShowTip(tip, max = 1) {
+      if (!isTipLimit(max)) return false;
+      const input = { kind: "try-show-tip" as const, tip, max };
+      if (!isCoachCommand(input)) return false;
+      const result = await command(input, { kind: "try-show-tip", show: false });
+      return result.kind === "try-show-tip" ? result.show : false;
     },
     async replayIntro() {
-      await mutate(async () => {
-        const state = await store.get();
-        await write({ ...state, onboarded: false, installedAt: now(), assignCount: 0, tips: {} });
-      }, undefined);
+      await command({ kind: "replay-intro" }, { kind: "ok" });
     },
   };
+}
+
+/** Extension contexts use worker commands; injected storage shares the reducer locally. */
+export function createCoach(area?: StorageLike, now: () => number = Date.now): Coach {
+  return coachWith(
+    area
+      ? localCommands(area, now)
+      : hasRuntimeTransport()
+        ? requestCoach
+        : localCommands(localArea(), now),
+  );
 }

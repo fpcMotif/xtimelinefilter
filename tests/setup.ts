@@ -22,6 +22,7 @@ function createStorageArea() {
     async clear(): Promise<void> {
       data = {};
     },
+    async setAccessLevel(): Promise<void> {},
     __reset(): void {
       data = {};
     },
@@ -31,8 +32,9 @@ function createStorageArea() {
 const local = createStorageArea();
 const sync = createStorageArea();
 
-// @ts-expect-error — minimal shim, not the full chrome typings surface.
-globalThis.chrome = { storage: { local, sync } };
+globalThis.chrome = {
+  storage: { local, sync },
+} as unknown as typeof chrome;
 
 beforeEach(() => {
   local.__reset();

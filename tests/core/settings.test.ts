@@ -3,767 +3,616 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSettings,
   DEFAULT_SETTINGS,
+  encodeSettings,
+  MAX_CONVEX_DEVICE_KEY_LENGTH,
+  MAX_CONVEX_URL_LENGTH,
+  MAX_MIRROR_CONFIG_ID_LENGTH,
+  MAX_PALETTE_HOTKEY_LENGTH,
+  MAX_SETTINGS_ID_LENGTH,
+  mergeSettings,
   normalizeSettings,
+  transitionSettings,
   type LassoSettings,
 } from "@/core/settings";
 import type { StorageLike } from "@/core/storage-areas";
 
-import { createMemoryArea, installOnChanged as installOnChangedFake } from "../helpers/chrome-fake";
+import { createMemoryArea, installOnChanged } from "../helpers/chrome-fake";
 
 const KEY = "lasso:settings";
-const MIRROR_OFF = { convexUrl: undefined, convexDeviceKey: undefined };
+const OFF = { convexUrl: undefined, convexDeviceKey: undefined };
+
+function complete(id = "mirror-a"): LassoSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...OFF,
+    convexUrl: "https://one.convex.cloud",
+    convexDeviceKey: "key-one",
+    mirrorConfigId: id,
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
   });
   return { promise, resolve, reject };
 }
 
-function fakeStorage(seed?: Record<string, unknown>): StorageLike {
-  return createMemoryArea(seed ?? { [KEY]: MIRROR_OFF });
-}
+describe("settings domain", () => {
+  it("reads development credentials from the build environment", async () => {
+    vi.stubEnv("VITE_CONVEX_URL", "https://test.convex.cloud");
+    vi.stubEnv("VITE_LASSO_DEVICE_KEY", "test-key");
+    vi.resetModules();
+    const reloaded = await import("@/core/settings-domain");
 
-function installOnChanged() {
-  const bridge = installOnChangedFake();
-  return {
-    emit: (raw: unknown, area: "local" | "local" = "local", old: unknown = undefined) =>
-      bridge.emit(KEY, raw, area, old),
-    restore: bridge.restore,
-  };
-}
+    expect(reloaded.DEFAULT_SETTINGS).toMatchObject({
+      convexUrl: "https://test.convex.cloud",
+      convexDeviceKey: "test-key",
+    });
 
-describe("DEFAULT_SETTINGS Mirror config from build env", () => {
-  afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
   });
 
-  it("falls back to undefined when the Convex env vars are empty (the falsy `||` branch)", async () => {
-    vi.stubEnv("VITE_CONVEX_URL", "");
-    vi.stubEnv("VITE_LASSO_DEVICE_KEY", "");
-    vi.resetModules();
-    const fresh = await import("@/core/settings");
-    expect(fresh.DEFAULT_SETTINGS.convexUrl).toBeUndefined();
-    expect(fresh.DEFAULT_SETTINGS.convexDeviceKey).toBeUndefined();
-  });
-
-  it("adopts the build-time Convex env when present (the truthy `||` branch)", async () => {
-    vi.stubEnv("VITE_CONVEX_URL", "https://silent-crab-355.convex.cloud");
-    vi.stubEnv("VITE_LASSO_DEVICE_KEY", "device-123");
-    vi.resetModules();
-    const fresh = await import("@/core/settings");
-    expect(fresh.DEFAULT_SETTINGS.convexUrl).toBe("https://silent-crab-355.convex.cloud");
-    expect(fresh.DEFAULT_SETTINGS.convexDeviceKey).toBe("device-123");
-  });
-
-  it("never inlines the Convex credential in production builds (M1 — the dev-gate falsy branch)", async () => {
-    vi.stubEnv("DEV", false);
-    vi.stubEnv("VITE_CONVEX_URL", "https://silent-crab-355.convex.cloud");
-    vi.stubEnv("VITE_LASSO_DEVICE_KEY", "device-123");
-    vi.resetModules();
-    const fresh = await import("@/core/settings");
-    expect(fresh.DEFAULT_SETTINGS.convexUrl).toBeUndefined();
-    expect(fresh.DEFAULT_SETTINGS.convexDeviceKey).toBeUndefined();
-  });
-});
-
-describe("createSettings", () => {
-  it("normalizes absent nested records and explicit Mirror opt-outs", () => {
+  it("normalizes only known fields and keeps explicit credential clears", () => {
     expect(
       normalizeSettings({
-        convexUrl: undefined,
-        convexDeviceKey: undefined,
-        surfaces: null,
-        pillPosition: [],
+        backend: "invalid",
+        convexUrl: null,
+        convexDeviceKey: null,
+        surfaces: { pill: false, extra: true },
+        pillPosition: { x: Infinity },
+        extra: true,
       }),
-    ).toEqual({ ...DEFAULT_SETTINGS, convexUrl: undefined, convexDeviceKey: undefined });
-    expect(normalizeSettings(null)).toEqual({
+    ).toEqual({
       ...DEFAULT_SETTINGS,
-      convexUrl: undefined,
-      convexDeviceKey: undefined,
+      ...OFF,
       defaultList: undefined,
       defaultListId: undefined,
-    });
-  });
-
-  it("keeps a valid internal Mirror id only for a complete configuration", () => {
-    expect(
-      normalizeSettings({
-        convexUrl: "https://mirror.convex.cloud",
-        convexDeviceKey: "secret",
-        mirrorConfigId: "mirror-1",
-      }).mirrorConfigId,
-    ).toBe("mirror-1");
-    expect(
-      normalizeSettings({
-        convexUrl: "https://mirror.convex.cloud",
-        mirrorConfigId: "stale",
-      }).mirrorConfigId,
-    ).toBeUndefined();
-    expect(
-      normalizeSettings({
-        convexUrl: "https://mirror.convex.cloud",
-        convexDeviceKey: "secret",
-        mirrorConfigId: "",
-      }).mirrorConfigId,
-    ).toBeUndefined();
-    expect(
-      normalizeSettings({
-        convexUrl: "https://mirror.convex.cloud",
-        convexDeviceKey: "secret",
-        mirrorConfigId: "   ",
-      }).mirrorConfigId,
-    ).toBeUndefined();
-  });
-
-  it("accepts an explicit undefined area as its default dependency", async () => {
-    expect(await createSettings(undefined, () => "default-id").get()).toEqual({
-      ...DEFAULT_SETTINGS,
-      defaultList: undefined,
-      defaultListId: undefined,
-      mirrorConfigId: "default-id",
-    });
-  });
-
-  it("returns defaults when nothing is stored (DOM backend)", async () => {
-    expect(await createSettings(undefined, () => "default-id").get()).toEqual({
-      ...DEFAULT_SETTINGS,
-      defaultList: undefined,
-      defaultListId: undefined,
-      mirrorConfigId: "default-id",
-    });
-  });
-
-  it("migrates a legacy sync copy into local storage once, then ignores sync", async () => {
-    const local = createMemoryArea();
-    const legacy = createMemoryArea({
-      [KEY]: {
-        backend: "graphql",
-        convexUrl: "https://mirror.convex.cloud",
-        convexDeviceKey: "key-1",
-        mirrorConfigId: "mirror-1",
-      },
-    });
-    const s = createSettings(local, () => "unused-id", legacy);
-
-    expect((await s.get()).backend).toBe("graphql");
-    expect(local.data[KEY]).toMatchObject({ backend: "graphql", mirrorConfigId: "mirror-1" });
-    expect(legacy.data[KEY]).toBeUndefined();
-
-    await legacy.set({ [KEY]: { backend: "dom" } });
-    expect((await s.get()).backend).toBe("graphql"); // local stays authoritative
-  });
-
-  it("keeps an explicit Mirror clear as null so a default credential is not refilled", async () => {
-    const area = fakeStorage({
-      [KEY]: {
-        convexUrl: "https://mirror.convex.cloud",
-        convexDeviceKey: "key-1",
-        mirrorConfigId: "mirror-1",
-      },
-    });
-    const s = createSettings(area, () => "unused-id");
-    await s.get();
-
-    const cleared = await s.set(MIRROR_OFF);
-    expect(cleared.convexUrl).toBeUndefined();
-    expect(cleared.convexDeviceKey).toBeUndefined();
-    expect((area as ReturnType<typeof createMemoryArea>).data[KEY]).toMatchObject({
-      convexUrl: null,
-      convexDeviceKey: null,
-    });
-    expect((await s.get()).convexUrl).toBeUndefined();
-    expect((await s.get()).convexDeviceKey).toBeUndefined();
-  });
-
-  it("persists a patch and merges it over defaults", async () => {
-    const s = createSettings();
-    const next = await s.set({ backend: "graphql" });
-    expect(next.backend).toBe("graphql");
-    expect((await s.get()).backend).toBe("graphql");
-    expect(await s.get()).not.toHaveProperty("hotkeySelectMode");
-  });
-
-  it("get() is a cached read: after the one-time migration probe, it hydrates storage only once", async () => {
-    const area = fakeStorage();
-    const getSpy = vi.spyOn(area, "get");
-    const s = createSettings(area);
-    await s.get();
-    await s.get();
-    expect(getSpy).toHaveBeenCalledTimes(2); // migration probe + the single hydrate
-  });
-
-  it("skips the legacy migration probe when no legacy sync area is provided", async () => {
-    const area = fakeStorage();
-    const getSpy = vi.spyOn(area, "get");
-    const s = createSettings(area, () => "default-id", null);
-    await s.get();
-    await s.get();
-    expect(getSpy).toHaveBeenCalledTimes(1); // no migration probe — only the single hydrate
-  });
-
-  it("normalizes corrupted stored values and strips unknown fields", async () => {
-    const s = createSettings(
-      fakeStorage({
-        [KEY]: {
-          backend: "invalid",
-          defaultList: { ownerUserId: 7, listId: "L1" },
-          defaultListId: 3,
-          hotkeySelectMode: "q",
-          activation: "later",
-          highContrast: "yes",
-          convexUrl: 1,
-          convexDeviceKey: {},
-          surfaces: { pill: false, palette: "no" },
-          pillPosition: { x: Infinity, y: "96" },
-          paletteHotkey: null,
-          extra: true,
-        },
-      }),
-      () => "recovered-id",
-    );
-
-    expect(await s.get()).toEqual({
-      ...DEFAULT_SETTINGS,
-      defaultList: undefined,
-      defaultListId: undefined,
-      mirrorConfigId: "recovered-id",
       surfaces: { pill: false, palette: DEFAULT_SETTINGS.surfaces.palette },
     });
   });
 
-  it("migrates a legacy complete Mirror config to one persisted opaque id", async () => {
-    const area = fakeStorage({
-      [KEY]: {
-        convexUrl: "https://mirror.convex.cloud",
-        convexDeviceKey: "device-key",
-      },
-    });
-    const createId = vi.fn(() => "mirror-legacy");
-    const s = createSettings(area, createId);
-
-    expect((await s.get()).mirrorConfigId).toBe("mirror-legacy");
+  it("repairs oversized persisted strings instead of rewriting them", () => {
     expect(
-      ((area as ReturnType<typeof createMemoryArea>).data[KEY] as LassoSettings).mirrorConfigId,
-    ).toBe("mirror-legacy");
-    expect((await s.get()).mirrorConfigId).toBe("mirror-legacy");
-    expect(createId).toHaveBeenCalledOnce();
-  });
-
-  it("rotates Mirror identity only when its complete configuration changes", async () => {
-    const ids = ["mirror-1", "mirror-2", "mirror-3"];
-    const s = createSettings(fakeStorage(), () => ids.shift()!);
-
-    const partial = await s.set({ convexUrl: "https://one.convex.cloud" });
-    expect(partial.mirrorConfigId).toBeUndefined();
-    const first = await s.set({ convexDeviceKey: "key-1" });
-    expect(first.mirrorConfigId).toBe("mirror-1");
-    expect((await s.set({ highContrast: true })).mirrorConfigId).toBe("mirror-1");
-    expect((await s.set({ convexUrl: "https://two.convex.cloud" })).mirrorConfigId).toBe(
-      "mirror-2",
-    );
-    expect((await s.set({ convexDeviceKey: "key-2" })).mirrorConfigId).toBe("mirror-3");
-    expect((await s.set({ convexDeviceKey: undefined })).mirrorConfigId).toBeUndefined();
-  });
-
-  it("keeps valid stored strings, nested values, and finite positions", async () => {
-    const s = createSettings(
-      fakeStorage({
-        [KEY]: {
-          backend: "graphql",
-          defaultList: { ownerUserId: "42", listId: "L1" },
-          defaultListId: "legacy-L1",
-          // Legacy shortcut configuration is no longer part of the public model.
-          hotkeySelectMode: "q",
-          activation: "on-demand",
-          highContrast: true,
-          convexUrl: "https://mirror.example",
-          convexDeviceKey: "device-key",
-          mirrorConfigId: "mirror-1",
-          surfaces: { pill: false, palette: true },
-          pillPosition: { x: -4, y: 0 },
-          paletteHotkey: "alt+p",
-        },
+      normalizeSettings({
+        defaultList: { ownerUserId: "x".repeat(MAX_SETTINGS_ID_LENGTH + 1), listId: "1" },
+        defaultListId: "x".repeat(MAX_SETTINGS_ID_LENGTH + 1),
+        convexUrl: "x".repeat(MAX_CONVEX_URL_LENGTH + 1),
+        convexDeviceKey: "x".repeat(MAX_CONVEX_DEVICE_KEY_LENGTH + 1),
+        mirrorConfigId: "x".repeat(MAX_MIRROR_CONFIG_ID_LENGTH + 1),
+        paletteHotkey: "x".repeat(MAX_PALETTE_HOTKEY_LENGTH + 1),
+        pillPosition: { x: 1e308, y: -1e308 },
       }),
-    );
-
-    expect(await s.get()).toEqual({
-      backend: "graphql",
-      defaultList: { ownerUserId: "42", listId: "L1" },
-      defaultListId: "legacy-L1",
-      activation: "on-demand",
-      highContrast: true,
-      convexUrl: "https://mirror.example",
-      convexDeviceKey: "device-key",
-      mirrorConfigId: "mirror-1",
-      surfaces: { pill: false, palette: true },
-      pillPosition: { x: -4, y: 0 },
-      paletteHotkey: "alt+p",
+    ).toMatchObject({
+      defaultList: undefined,
+      defaultListId: undefined,
+      convexUrl: DEFAULT_SETTINGS.convexUrl,
+      convexDeviceKey: DEFAULT_SETTINGS.convexDeviceKey,
+      mirrorConfigId: undefined,
+      paletteHotkey: DEFAULT_SETTINGS.paletteHotkey,
+      pillPosition: DEFAULT_SETTINGS.pillPosition,
     });
-    expect(await s.get()).not.toHaveProperty("hotkeySelectMode");
   });
 
-  it("normalizes corrupt external cache before callbacks, reads, and writes", async () => {
+  it("normalizes absent, malformed, and valid persisted shapes", () => {
+    expect(normalizeSettings(null)).toEqual({ ...DEFAULT_SETTINGS, ...OFF });
+    expect(
+      normalizeSettings({
+        defaultList: { ownerUserId: "owner", listId: "list" },
+        defaultListId: "legacy-list",
+        convexUrl: "https://mirror.convex.cloud",
+        convexDeviceKey: "mirror-key",
+        mirrorConfigId: "mirror-id",
+        surfaces: null,
+        pillPosition: null,
+      }),
+    ).toMatchObject({
+      defaultList: { ownerUserId: "owner", listId: "list" },
+      defaultListId: "legacy-list",
+      mirrorConfigId: "mirror-id",
+      surfaces: DEFAULT_SETTINGS.surfaces,
+      pillPosition: DEFAULT_SETTINGS.pillPosition,
+    });
+    expect(
+      normalizeSettings({ defaultList: { ownerUserId: "owner" } }).defaultList,
+    ).toBeUndefined();
+  });
+
+  it("merges nested patches and refuses a caller-supplied Mirror id", () => {
+    const base = complete();
+    const merged = mergeSettings(base, {
+      surfaces: { palette: true },
+      pillPosition: { x: 12 },
+      ...({ mirrorConfigId: "forged" } as object),
+    });
+
+    expect(merged.surfaces).toEqual({ pill: true, palette: true });
+    expect(merged.pillPosition).toEqual({ x: 12, y: 96 });
+    expect(merged.mirrorConfigId).toBe("mirror-a");
+  });
+
+  it("rotates Mirror identity only for credential changes or completion", () => {
+    const base = complete();
+    const mint = vi.fn(() => "mirror-b");
+
+    const unrelated = transitionSettings(base, mint, { highContrast: true });
+    expect(unrelated.settings.mirrorConfigId).toBe("mirror-a");
+    expect(mint).not.toHaveBeenCalled();
+
+    const changed = transitionSettings(base, mint, { convexUrl: "https://two.convex.cloud" });
+    expect(changed.settings.mirrorConfigId).toBe("mirror-b");
+    expect(mint).toHaveBeenCalledOnce();
+
+    const incomplete = { ...base, convexDeviceKey: null, mirrorConfigId: undefined };
+    const completed = transitionSettings(incomplete, () => "mirror-c", {
+      convexDeviceKey: "key-two",
+    });
+    expect(completed.settings.mirrorConfigId).toBe("mirror-c");
+  });
+
+  it("preserves null tombstones for an explicit dev-default credential clear", () => {
+    const before = complete();
+    const transition = transitionSettings(before, () => "unused", {
+      convexUrl: undefined,
+      convexDeviceKey: undefined,
+    });
+
+    expect(transition.settings).toMatchObject(OFF);
+    expect(transition.settings.mirrorConfigId).toBeUndefined();
+    expect(transition.stored).toMatchObject({ convexUrl: null, convexDeviceKey: null });
+    expect(encodeSettings(transition.settings, transition.stored)).toMatchObject({
+      convexUrl: null,
+      convexDeviceKey: null,
+    });
+  });
+
+  it("encodes optional fields and only keeps credential tombstones when asked", () => {
+    const settings = {
+      ...complete(),
+      defaultList: { ownerUserId: "owner", listId: "list" },
+      defaultListId: "legacy-list",
+    };
+    expect(encodeSettings(settings, null)).toMatchObject({
+      defaultList: settings.defaultList,
+      defaultListId: "legacy-list",
+      convexUrl: settings.convexUrl,
+      convexDeviceKey: settings.convexDeviceKey,
+    });
+    expect(encodeSettings({ ...DEFAULT_SETTINGS, ...OFF }, {})).not.toHaveProperty("convexUrl");
+    expect(encodeSettings({ ...DEFAULT_SETTINGS, ...OFF }, {})).not.toHaveProperty(
+      "convexDeviceKey",
+    );
+  });
+
+  it("repairs a stale external Mirror id and rejects an empty minted id", () => {
+    const before = complete("mirror-a");
+    const stale = { ...before, convexUrl: "https://two.convex.cloud" };
+    const repaired = transitionSettings(stale, () => "mirror-b", undefined, before);
+    expect(repaired.settings.mirrorConfigId).toBe("mirror-b");
+
+    expect(() => transitionSettings({ ...before, mirrorConfigId: undefined }, () => "")).toThrow(
+      "Mirror config identity must not be empty.",
+    );
+    expect(transitionSettings(null, () => "unused").settings).toMatchObject({
+      ...DEFAULT_SETTINGS,
+      mirrorConfigId: "unused",
+    });
+  });
+});
+
+describe("injected settings storage", () => {
+  it("uses the worker transition policy for direct test storage", async () => {
+    const area = createMemoryArea({ [KEY]: complete() });
+    const settings = createSettings(area, () => "mirror-b");
+
+    await settings.set({ surfaces: { palette: true } });
+    expect((await settings.get()).mirrorConfigId).toBe("mirror-a");
+
+    await settings.set({ convexDeviceKey: "key-two" });
+    expect((await settings.get()).mirrorConfigId).toBe("mirror-b");
+  });
+
+  it("keeps direct explicit clears as null in storage", async () => {
+    const area = createMemoryArea({ [KEY]: complete() });
+    const settings = createSettings(area, () => "unused");
+
+    await settings.set(OFF);
+
+    expect(area.data[KEY]).toMatchObject({ convexUrl: null, convexDeviceKey: null });
+    expect(await settings.get()).toMatchObject(OFF);
+  });
+
+  it("publishes normalized external snapshots", async () => {
     const bridge = installOnChanged();
     try {
-      const area = createMemoryArea({ [KEY]: MIRROR_OFF });
-      const s = createSettings(area);
-      await s.get(); // freeze the generic store cache before corrupting it externally
-      const cb = vi.fn();
-      s.subscribe(cb);
+      const area = createMemoryArea({ [KEY]: { ...DEFAULT_SETTINGS, ...OFF } });
+      const settings = createSettings(area, () => "unused");
+      await settings.get();
+      const seen = vi.fn();
+      settings.subscribe(seen);
+
       bridge.emit(
-        {
-          backend: "not-a-backend",
-          surfaces: { pill: "no" },
-          extra: true,
-          ...MIRROR_OFF,
-        },
+        KEY,
+        { ...DEFAULT_SETTINGS, ...OFF, backend: "graphql" },
         "local",
-        { ...DEFAULT_SETTINGS, ...MIRROR_OFF },
+        area.data[KEY],
       );
 
-      expect(cb).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, ...MIRROR_OFF });
-      expect(await s.get()).toEqual({ ...DEFAULT_SETTINGS, ...MIRROR_OFF });
-      await s.set({ highContrast: true });
-      expect(area.data[KEY] as LassoSettings).toEqual({
+      expect(seen).toHaveBeenCalledWith(
+        expect.objectContaining({ backend: "graphql", ...OFF }),
+        "external",
+      );
+    } finally {
+      bridge.restore();
+    }
+  });
+
+  it("avoids redundant writes, stops its watcher, and accepts canonical external state", async () => {
+    const bridge = installOnChanged();
+    try {
+      const base = encodeSettings(
+        { ...DEFAULT_SETTINGS, ...OFF },
+        {
+          convexUrl: null,
+          convexDeviceKey: null,
+        },
+      );
+      const area = createMemoryArea({ [KEY]: base });
+      const set = vi.spyOn(area, "set");
+      const settings = createSettings(area, () => "unused");
+      await settings.get();
+      const seen = vi.fn();
+      const first = settings.subscribe(seen);
+      const second = settings.subscribe(vi.fn());
+
+      await expect(settings.set({ backend: "rest" })).resolves.toEqual({
         ...DEFAULT_SETTINGS,
-        ...MIRROR_OFF,
-        highContrast: true,
+        ...OFF,
       });
+      expect(seen).not.toHaveBeenCalled();
+      expect(set).not.toHaveBeenCalled();
+
+      const external = encodeSettings({ ...DEFAULT_SETTINGS, ...OFF, backend: "graphql" }, base);
+      bridge.emit(KEY, external, "local", base);
+      expect(seen).toHaveBeenCalledWith(
+        expect.objectContaining({ backend: "graphql" }),
+        "external",
+      );
+      expect(set).not.toHaveBeenCalled();
+
+      first();
+      second();
+      second();
     } finally {
       bridge.restore();
     }
   });
 
-  it("set() rejects when storage rejects — the settings face is not fail-soft (ADR-0009)", async () => {
-    const area: StorageLike = {
-      get: async () => ({ [KEY]: MIRROR_OFF }),
-      set: () => Promise.reject(new Error("boom")),
-    };
-    const s = createSettings(area);
-    await expect(s.set({ backend: "dom" })).rejects.toThrow("boom");
-  });
-
-  it("returns and notifies external Q when stale local P settles after Q", async () => {
+  it("keeps newer external authority when a direct write races it", async () => {
     const bridge = installOnChanged();
-    const settled = deferred<void>();
-    const area: StorageLike = {
-      get: async () => ({ [KEY]: MIRROR_OFF }),
-      set: vi.fn(() => settled.promise),
-    };
     try {
-      const s = createSettings(area);
-      await s.get();
-      const seen: LassoSettings[] = [];
-      s.subscribe((snapshot) => seen.push(snapshot));
+      const base = encodeSettings(
+        { ...DEFAULT_SETTINGS, ...OFF },
+        {
+          convexUrl: null,
+          convexDeviceKey: null,
+        },
+      );
+      const pendingSet = deferred<void>();
+      const set = vi.fn(() => pendingSet.promise);
+      const area: StorageLike = {
+        get: async () => ({ [KEY]: base }),
+        set,
+      };
+      const settings = createSettings(area, () => "unused");
+      await settings.get();
+      const seen = vi.fn();
+      settings.subscribe(seen);
 
-      const p = s.set({ backend: "dom" });
-      await vi.waitFor(() => expect(area.set).toHaveBeenCalledTimes(1));
-      const q = { ...DEFAULT_SETTINGS, ...MIRROR_OFF, backend: "graphql" as const };
-      bridge.emit(q, "local", { ...DEFAULT_SETTINGS, ...MIRROR_OFF });
-      settled.resolve();
+      const local = settings.set({ backend: "dom" });
+      await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+      const external = encodeSettings({ ...DEFAULT_SETTINGS, ...OFF, backend: "graphql" }, base);
+      bridge.emit(KEY, external, "local", base);
+      pendingSet.resolve();
 
-      await expect(p).resolves.toEqual(q);
-      expect(seen).toEqual([q]);
-      expect(await s.get()).toEqual(q);
+      await expect(local).resolves.toMatchObject({ backend: "graphql" });
+      expect(seen).toHaveBeenLastCalledWith(
+        expect.objectContaining({ backend: "graphql" }),
+        "external",
+      );
     } finally {
       bridge.restore();
     }
   });
 
-  it("lets queued P2 become authority after external Q, then returns P2", async () => {
+  it("keeps an external stale-id repair out of callers when persistence fails", async () => {
     const bridge = installOnChanged();
-    const first = deferred<void>();
-    const second = deferred<void>();
-    let calls = 0;
-    const area: StorageLike = {
-      get: async () => ({ [KEY]: MIRROR_OFF }),
-      set: vi.fn(() => (++calls === 1 ? first.promise : second.promise)),
-    };
     try {
-      const s = createSettings(area);
-      await s.get();
-      const p1 = s.set({ highContrast: true });
-      const p2 = s.set({ backend: "dom" });
+      const base = encodeSettings(complete(), {});
+      const area: StorageLike = {
+        get: async () => ({ [KEY]: base }),
+        set: vi.fn(() => Promise.reject(new Error("repair unavailable"))),
+      };
+      const settings = createSettings(area, () => "mirror-b");
+      await settings.get();
+      const seen = vi.fn();
+      settings.subscribe(seen);
+
+      bridge.emit(KEY, { ...base, convexUrl: "https://two.convex.cloud" }, "local", base);
+
       await vi.waitFor(() => expect(area.set).toHaveBeenCalledTimes(1));
-
-      const p1Value = { ...DEFAULT_SETTINGS, ...MIRROR_OFF, highContrast: true };
-      const q = { ...DEFAULT_SETTINGS, ...MIRROR_OFF, backend: "graphql" as const };
-      bridge.emit(q, "local", p1Value);
-      first.resolve();
-      await vi.waitFor(() => expect(area.set).toHaveBeenCalledTimes(2));
-      second.resolve();
-
-      const p2Value = { ...p1Value, backend: "dom" as const };
-      await expect(p1).resolves.toEqual(q);
-      await expect(p2).resolves.toEqual(p2Value);
-      expect(await s.get()).toEqual(p2Value);
+      expect(seen).toHaveBeenCalledWith(
+        expect.objectContaining({ mirrorConfigId: "mirror-b" }),
+        "external",
+      );
     } finally {
       bridge.restore();
     }
   });
 
-  it("a rejected set() leaves no trace: get() returns the pre-write value and a later set() cannot re-persist the rejected patch", async () => {
-    // set() merges each patch over the cached current() — so a failed write that
-    // poisoned the cache would leak its values into the NEXT set()'s storage write.
-    let fail = true;
-    const written: Record<string, unknown>[] = [];
+  it("rejects direct storage failures", async () => {
     const area: StorageLike = {
-      get: async () => ({ [KEY]: MIRROR_OFF }),
-      set: async (items) => {
-        if (fail) throw new Error("boom");
-        written.push(items);
+      get: async () => ({ [KEY]: { ...DEFAULT_SETTINGS, ...OFF } }),
+      set: async () => {
+        throw new Error("storage unavailable");
       },
     };
-    const s = createSettings(area);
-    await expect(s.set({ backend: "dom" })).rejects.toThrow("boom");
-    expect((await s.get()).backend).toBe(DEFAULT_SETTINGS.backend); // failure never reads as success
-
-    fail = false; // storage recovers; an unrelated save must not smuggle `backend: "dom"` along
-    await s.set({ highContrast: true });
-    const persisted = written[0]?.[KEY] as { backend: string } | undefined;
-    expect(persisted?.backend).toBe(DEFAULT_SETTINGS.backend);
-  });
-
-  it("notifies subscribers on set and stops after unsubscribe", async () => {
-    const s = createSettings();
-    const cb = vi.fn();
-    const off = s.subscribe(cb);
-    await s.set({ defaultList: { ownerUserId: "100", listId: "L1" } });
-    expect(cb).toHaveBeenCalledWith(
-      expect.objectContaining({ defaultList: { ownerUserId: "100", listId: "L1" } }),
+    await expect(createSettings(area).set({ backend: "dom" })).rejects.toThrow(
+      "storage unavailable",
     );
-    off();
-    await s.set({ defaultList: { ownerUserId: "100", listId: "L2" } });
-    expect(cb).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("worker settings client", () => {
+  let previousChrome: typeof chrome;
+
+  afterEach(() => {
+    globalThis.chrome = previousChrome;
   });
 
-  describe("cross-context onChanged bridge", () => {
-    let bridge: ReturnType<typeof installOnChanged> | undefined;
-    afterEach(() => {
-      bridge?.restore();
-      bridge = undefined;
+  it("uses read/patch commands, encodes clears, and drops its duplicate local echo", async () => {
+    previousChrome = globalThis.chrome;
+    let onMessage: ((message: unknown, sender: chrome.runtime.MessageSender) => void) | undefined;
+    const initial = { ...DEFAULT_SETTINGS, ...OFF };
+    const changed = { ...initial, backend: "dom" as const };
+    const sendMessage = vi.fn(async (message: unknown) => {
+      if (
+        typeof message === "object" &&
+        message !== null &&
+        "operation" in message &&
+        message.operation === "patch"
+      ) {
+        onMessage?.(
+          {
+            type: "lasso:storage-changed",
+            area: "local",
+            key: KEY,
+            oldValue: initial,
+            newValue: changed,
+          },
+          {
+            id: "lasso-id",
+            url: "chrome-extension://lasso-id/worker.js",
+            origin: "chrome-extension://lasso-id",
+          },
+        );
+        return { ok: true, settings: changed };
+      }
+      return { ok: true, settings: initial };
     });
+    globalThis.chrome = {
+      ...previousChrome,
+      runtime: {
+        id: "lasso-id",
+        getManifest: () => ({ background: { service_worker: "worker.js" } }),
+        getURL: (path: string) => `chrome-extension://lasso-id/${path}`,
+        sendMessage,
+        onMessage: {
+          addListener: (
+            listener: (message: unknown, sender: chrome.runtime.MessageSender) => void,
+          ) => (onMessage = listener),
+          removeListener: () => {},
+        },
+      },
+    } as unknown as typeof chrome;
 
-    it("notifies subscribers when another context writes settings", () => {
-      bridge = installOnChanged();
-      const s = createSettings(fakeStorage());
-      const cb = vi.fn();
-      s.subscribe(cb);
-      bridge.emit({ backend: "graphql", ...MIRROR_OFF });
-      expect(cb).toHaveBeenCalledWith(
-        expect.objectContaining({ ...DEFAULT_SETTINGS, ...MIRROR_OFF, backend: "graphql" }),
-      );
+    const settings = createSettings();
+    const seen = vi.fn();
+    settings.subscribe(seen);
+    await expect(settings.get()).resolves.toEqual(initial);
+    await expect(settings.set({ backend: "dom" })).resolves.toEqual(changed);
+
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(seen).toHaveBeenCalledWith(changed, "local");
+    expect(sendMessage).toHaveBeenNthCalledWith(1, { type: "lasso:settings", operation: "read" });
+    expect(sendMessage).toHaveBeenNthCalledWith(2, {
+      type: "lasso:settings",
+      operation: "patch",
+      patch: { backend: "dom" },
     });
+  });
 
-    it("merges a missing (undefined) external value over defaults", () => {
-      bridge = installOnChanged();
-      const s = createSettings(fakeStorage(), () => "default-id");
-      const cb = vi.fn();
-      s.subscribe(cb);
-      bridge.emit({ backend: "graphql", ...MIRROR_OFF });
-      cb.mockClear();
-      bridge.emit(undefined, "local", { backend: "graphql", ...MIRROR_OFF });
-      expect(cb).toHaveBeenCalledWith({
-        ...DEFAULT_SETTINGS,
-        defaultList: undefined,
-        defaultListId: undefined,
-        mirrorConfigId: "default-id",
-      });
-    });
+  it("fences a stale read behind a subscribed external snapshot", async () => {
+    previousChrome = globalThis.chrome;
+    let onMessage: ((message: unknown, sender: chrome.runtime.MessageSender) => void) | undefined;
+    let resolveRead!: (value: unknown) => void;
+    const read = new Promise<unknown>((resolve) => (resolveRead = resolve));
+    globalThis.chrome = {
+      ...previousChrome,
+      runtime: {
+        id: "lasso-id",
+        getManifest: () => ({ background: { service_worker: "worker.js" } }),
+        getURL: (path: string) => `chrome-extension://lasso-id/${path}`,
+        sendMessage: vi.fn(() => read),
+        onMessage: {
+          addListener: (
+            listener: (message: unknown, sender: chrome.runtime.MessageSender) => void,
+          ) => (onMessage = listener),
+          removeListener: () => {},
+        },
+      },
+    } as unknown as typeof chrome;
+    const settings = createSettings();
+    const latest = { ...DEFAULT_SETTINGS, ...OFF, backend: "graphql" as const };
+    settings.subscribe(() => {});
 
-    it("get() reflects an external onChanged from the cache (the deliberate cached-read change)", async () => {
-      bridge = installOnChanged();
-      const s = createSettings();
-      const current = await s.get(); // hydrate
-      bridge.emit({ backend: "graphql" }, "local", current); // another context writes (not into our area mock)
-      expect((await s.get()).backend).toBe("graphql"); // served from the live cache, not a re-read
-    });
+    const pending = settings.get();
+    onMessage?.(
+      {
+        type: "lasso:storage-changed",
+        area: "local",
+        key: KEY,
+        oldValue: null,
+        newValue: latest,
+      },
+      {
+        id: "lasso-id",
+        url: "chrome-extension://lasso-id/worker.js",
+        origin: "chrome-extension://lasso-id",
+      },
+    );
+    resolveRead({ ok: true, settings: { ...DEFAULT_SETTINGS, ...OFF } });
 
-    it("repairs an external credential change that reuses the prior Mirror id", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      const area = fakeStorage({ [KEY]: a });
-      const set = vi.spyOn(area, "set");
-      const createId = vi.fn(() => "mirror-b");
-      const s = createSettings(area, createId);
-      await s.get();
-      const cb = vi.fn();
-      s.subscribe(cb);
+    await expect(pending).resolves.toEqual(latest);
+  });
 
-      const staleB = { ...a, convexUrl: "https://b.convex.cloud" };
-      bridge.emit(staleB, "local", a);
-
-      await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-      expect(await s.get()).toEqual({ ...staleB, mirrorConfigId: "mirror-b" });
-      expect(cb).toHaveBeenLastCalledWith({ ...staleB, mirrorConfigId: "mirror-b" });
-      expect(createId).toHaveBeenCalledOnce();
-    });
-
-    it("notifies the credential-stripped snapshot when a fresh Mirror id cannot be minted", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      const area = fakeStorage({ [KEY]: a });
-      const set = vi.spyOn(area, "set");
-      const s = createSettings(area, () => ""); // id factory yields an empty identity
-      await s.get();
-      const cb = vi.fn();
-      s.subscribe(cb);
-
-      const staleB = { ...a, convexUrl: "https://b.convex.cloud" };
-      bridge.emit(staleB, "local", a);
-
-      // The mint failure is caught: subscribers still see a truthful, id-less snapshot…
-      expect(cb).toHaveBeenCalledWith({ ...staleB, mirrorConfigId: undefined });
-      // …and no repair write is attempted.
-      expect(set).not.toHaveBeenCalled();
-    });
-
-    it("does not let a queued stale repair overwrite newer external settings", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      const firstSet = deferred<void>();
-      const set = vi.fn(() => firstSet.promise);
-      const area: StorageLike = {
-        get: async () => ({ [KEY]: a }),
-        set,
-      };
-      const createId = vi.fn(() => "repair-b");
-      const s = createSettings(area, createId);
-      await s.get();
-
-      const localValue = { ...a, highContrast: true };
-      const local = s.set({ highContrast: true });
-      await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-      const staleB = { ...localValue, convexUrl: "https://b.convex.cloud" };
-      bridge.emit(staleB, "local", localValue);
-      const freshC = {
-        ...staleB,
-        convexUrl: "https://c.convex.cloud",
-        mirrorConfigId: "mirror-c",
-      };
-      bridge.emit(freshC, "local", staleB);
-      firstSet.resolve();
-
-      await expect(local).resolves.toEqual(freshC);
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(set).toHaveBeenCalledTimes(1);
-      expect(await s.get()).toEqual(freshC);
-      expect(createId).toHaveBeenCalledOnce();
-    });
-
-    it("keeps a failed stale-id repair quarantined until get can persist a fresh id", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      const area = fakeStorage({ [KEY]: a });
-      const set = vi.spyOn(area, "set").mockRejectedValueOnce(new Error("sync unavailable"));
-      const ids = ["repair-b", "repair-b-retry"];
-      const s = createSettings(area, () => ids.shift()!);
-      await s.get();
-      const cb = vi.fn();
-      s.subscribe(cb);
-
-      const staleB = { ...a, convexUrl: "https://b.convex.cloud" };
-      bridge.emit(staleB, "local", a);
-      await vi.waitFor(() =>
-        expect(cb).toHaveBeenLastCalledWith({ ...staleB, mirrorConfigId: undefined }),
-      );
-
-      expect(await s.get()).toEqual({ ...staleB, mirrorConfigId: "repair-b-retry" });
-      expect(set).toHaveBeenCalledTimes(2);
-    });
-
-    it("drops a failed stale-id repair's notify once newer external settings have already won", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      // The repair write's set() stays in flight until we reject it by hand, so a
-      // newer external value can win the authority race meanwhile.
-      const repairSet = deferred<void>();
-      const set = vi.fn(() => repairSet.promise);
-      const area: StorageLike = {
-        get: async () => ({ [KEY]: a }),
-        set,
-      };
-      const createId = vi.fn(() => "repair-b");
-      const s = createSettings(area, createId);
-      await s.get();
-      const cb = vi.fn();
-      s.subscribe(cb);
-
-      // An external writer reuses the prior Mirror id → quarantine + repair write.
-      const staleB = { ...a, convexUrl: "https://b.convex.cloud" };
-      bridge.emit(staleB, "local", a);
-      await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-
-      // A newer, self-consistent external value wins before the repair settles;
-      // syncedStore confirms it as the new authority.
-      const freshC = { ...a, convexUrl: "https://c.convex.cloud", mirrorConfigId: "mirror-c" };
-      bridge.emit(freshC, "local", staleB);
-
-      // Now the repair fails. Its recovered authority is freshC, which no longer
-      // matches the stale `current` it was repairing, so the failure notify is
-      // skipped — the stale, id-stripped snapshot must never reach subscribers.
-      repairSet.reject(new Error("sync unavailable"));
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-
-      expect(cb.mock.calls.map(([snapshot]) => snapshot)).toEqual([
-        { ...staleB, mirrorConfigId: "repair-b" },
-        freshC,
-      ]);
-      expect(await s.get()).toEqual(freshC);
-      expect(set).toHaveBeenCalledTimes(1);
-      expect(createId).toHaveBeenCalledOnce();
-    });
-
-    it("retries quarantine instead of exposing a stale id on an unrelated external edit", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      const area = fakeStorage({ [KEY]: a });
-      const set = vi.spyOn(area, "set").mockRejectedValueOnce(new Error("sync unavailable"));
-      const ids = ["repair-b", "repair-b-external"];
-      const s = createSettings(area, () => ids.shift()!);
-      await s.get();
-      const cb = vi.fn();
-      s.subscribe(cb);
-
-      const staleB = { ...a, convexUrl: "https://b.convex.cloud" };
-      bridge.emit(staleB, "local", a);
-      await vi.waitFor(() =>
-        expect(cb).toHaveBeenLastCalledWith({ ...staleB, mirrorConfigId: undefined }),
-      );
-
-      const unrelated = { ...staleB, highContrast: true };
-      bridge.emit(unrelated, "local", staleB);
-      await vi.waitFor(() =>
-        expect(cb).toHaveBeenLastCalledWith({
-          ...unrelated,
-          mirrorConfigId: "repair-b-external",
-        }),
-      );
-      expect(
-        cb.mock.calls.some(
-          ([snapshot]) =>
-            snapshot.convexUrl === "https://b.convex.cloud" &&
-            snapshot.mirrorConfigId === "mirror-a",
+  it("fences a stale read behind a later local patch response", async () => {
+    previousChrome = globalThis.chrome;
+    let resolveRead!: (value: unknown) => void;
+    const read = new Promise<unknown>((resolve) => (resolveRead = resolve));
+    const initial = { ...DEFAULT_SETTINGS, ...OFF };
+    const changed = { ...initial, highContrast: true };
+    let calls = 0;
+    globalThis.chrome = {
+      ...previousChrome,
+      runtime: {
+        sendMessage: vi.fn(() =>
+          ++calls === 1 ? read : Promise.resolve({ ok: true, settings: changed }),
         ),
-      ).toBe(false);
-      expect(await s.get()).toEqual({ ...unrelated, mirrorConfigId: "repair-b-external" });
-      expect(set).toHaveBeenCalledTimes(2);
+        onMessage: { addListener: () => {}, removeListener: () => {} },
+      },
+    } as unknown as typeof chrome;
+    const settings = createSettings();
+
+    const pending = settings.get();
+    await expect(settings.set({ highContrast: true })).resolves.toEqual(changed);
+    resolveRead({ ok: true, settings: initial });
+
+    await expect(pending).resolves.toEqual(changed);
+  });
+
+  it("keeps a subscribed external authority when a patch response arrives late", async () => {
+    previousChrome = globalThis.chrome;
+    let onMessage: ((message: unknown, sender: chrome.runtime.MessageSender) => void) | undefined;
+    const patch = deferred<unknown>();
+    const initial = { ...DEFAULT_SETTINGS, ...OFF };
+    const external = { ...initial, backend: "graphql" as const };
+    const sendMessage = vi.fn((message: { operation: "read" | "patch" }) =>
+      message.operation === "read"
+        ? Promise.resolve({ ok: true, settings: initial })
+        : patch.promise,
+    );
+    globalThis.chrome = {
+      ...previousChrome,
+      runtime: {
+        id: "lasso-id",
+        getManifest: () => ({ background: { service_worker: "worker.js" } }),
+        getURL: (path: string) => `chrome-extension://lasso-id/${path}`,
+        sendMessage,
+        onMessage: {
+          addListener: (
+            listener: (message: unknown, sender: chrome.runtime.MessageSender) => void,
+          ) => (onMessage = listener),
+          removeListener: () => {},
+        },
+      },
+    } as unknown as typeof chrome;
+    const settings = createSettings();
+    settings.subscribe(() => {});
+    await settings.get();
+
+    const local = settings.set({ backend: "dom" });
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    onMessage?.(
+      {
+        type: "lasso:storage-changed",
+        area: "local",
+        key: KEY,
+        oldValue: initial,
+        newValue: external,
+      },
+      {
+        id: "lasso-id",
+        url: "chrome-extension://lasso-id/worker.js",
+        origin: "chrome-extension://lasso-id",
+      },
+    );
+    patch.resolve({ ok: true, settings: { ...initial, backend: "dom" } });
+
+    await expect(local).resolves.toEqual(external);
+  });
+
+  it("retries a failed worker patch and tears down the final subscription", async () => {
+    previousChrome = globalThis.chrome;
+    const removeListener = vi.fn();
+    let calls = 0;
+    globalThis.chrome = {
+      ...previousChrome,
+      runtime: {
+        id: "lasso-id",
+        getManifest: () => ({ background: { service_worker: "worker.js" } }),
+        getURL: (path: string) => `chrome-extension://lasso-id/${path}`,
+        sendMessage: vi.fn(() =>
+          ++calls === 1
+            ? Promise.reject(new Error("worker unavailable"))
+            : Promise.resolve({ ok: true, settings: { ...DEFAULT_SETTINGS, ...OFF } }),
+        ),
+        onMessage: { addListener: () => {}, removeListener },
+      },
+    } as unknown as typeof chrome;
+    const settings = createSettings();
+    const dispose = settings.subscribe(() => {});
+    const second = settings.subscribe(() => {});
+    await expect(settings.set({ backend: "dom" })).rejects.toThrow("worker unavailable");
+    await expect(settings.set({ backend: "rest" })).resolves.toEqual({
+      ...DEFAULT_SETTINGS,
+      ...OFF,
     });
+    dispose();
+    second();
+    expect(removeListener).toHaveBeenCalledTimes(1);
+  });
 
-    it("repairs and persists an external complete Mirror config with no id", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      const area = fakeStorage({ [KEY]: a });
-      const set = vi.spyOn(area, "set");
-      const createId = vi.fn(() => "mirror-b");
-      const s = createSettings(area, createId);
-      await s.get();
+  it("uses local storage when no worker transport exists", async () => {
+    previousChrome = globalThis.chrome;
+    const area = createMemoryArea();
+    globalThis.chrome = {
+      ...previousChrome,
+      runtime: {},
+      storage: { local: area },
+    } as unknown as typeof chrome;
 
-      const untaggedB = {
-        ...a,
-        convexUrl: "https://b.convex.cloud",
-        mirrorConfigId: undefined,
-      };
-      bridge.emit(untaggedB, "local", a);
+    const settings = createSettings(undefined, () => "unused");
+    await expect(settings.set({ backend: "dom" })).resolves.toMatchObject({ backend: "dom" });
+    expect(area.data[KEY]).toMatchObject({ backend: "dom" });
+  });
 
-      await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-      expect(await s.get()).toEqual({ ...untaggedB, mirrorConfigId: "mirror-b" });
-      expect(createId).toHaveBeenCalledOnce();
+  it("mints a default Mirror identity only when the injected credentials become complete", async () => {
+    previousChrome = globalThis.chrome;
+    const area = createMemoryArea({
+      [KEY]: { convexUrl: null, convexDeviceKey: null },
     });
+    globalThis.chrome = { ...previousChrome, runtime: {} } as typeof chrome;
 
-    it("accepts a fresh external Mirror id without starting a repair loop", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      const area = fakeStorage({ [KEY]: a });
-      const set = vi.spyOn(area, "set");
-      const createId = vi.fn(() => "unexpected-repair");
-      const s = createSettings(area, createId);
-      await s.get();
-      const cb = vi.fn();
-      s.subscribe(cb);
-
-      const freshB = {
-        ...a,
-        convexUrl: "https://b.convex.cloud",
-        mirrorConfigId: "mirror-b",
-      };
-      bridge.emit(freshB, "local", a);
-
-      expect(await s.get()).toEqual(freshB);
-      expect(cb).toHaveBeenCalledWith(freshB);
-      expect(set).not.toHaveBeenCalled();
-      expect(createId).not.toHaveBeenCalled();
+    const settings = createSettings(area);
+    const next = await settings.set({
+      convexUrl: "https://mirror.convex.cloud",
+      convexDeviceKey: "mirror-key",
     });
-
-    it("strips a retained Mirror id when an external writer clears a credential", async () => {
-      bridge = installOnChanged();
-      const a = normalizeSettings({
-        convexUrl: "https://a.convex.cloud",
-        convexDeviceKey: "key-a",
-        mirrorConfigId: "mirror-a",
-      });
-      const area = fakeStorage({ [KEY]: a });
-      const set = vi.spyOn(area, "set");
-      const s = createSettings(area);
-      await s.get();
-
-      const staleClear = { ...a, convexDeviceKey: undefined };
-      bridge.emit(staleClear, "local", a);
-
-      await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-      expect((await s.get()).convexDeviceKey).toBeUndefined();
-      expect((await s.get()).mirrorConfigId).toBeUndefined();
-      expect(
-        ((area as ReturnType<typeof createMemoryArea>).data[KEY] as LassoSettings).mirrorConfigId,
-      ).toBeUndefined();
-    });
-
-    it("drops the echo of our own write (no redundant notify)", async () => {
-      bridge = installOnChanged();
-      const s = createSettings();
-      const next = await s.set({ backend: "dom" });
-      const cb = vi.fn();
-      s.subscribe(cb);
-      bridge.emit(next); // identical to what we just wrote → ignored
-      expect(cb).not.toHaveBeenCalled();
-    });
+    expect(next.mirrorConfigId).toEqual(expect.any(String));
   });
 });

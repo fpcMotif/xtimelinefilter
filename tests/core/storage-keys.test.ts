@@ -1,26 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { StorageLike } from "@/core/storage-areas";
-import { clearLassoData, STORAGE_KEYS } from "@/core/storage-keys";
-
-const LOCAL_KEYS = [
-  STORAGE_KEYS.lists,
-  STORAGE_KEYS.listUsage,
-  STORAGE_KEYS.settings,
-  STORAGE_KEYS.coach,
-  STORAGE_KEYS.mirrorStatus,
-];
-const SYNC_KEYS = [STORAGE_KEYS.filter, STORAGE_KEYS.settings];
+import { clearLassoData } from "@/core/storage-clear";
+import { LOCAL_STORAGE_KEYS, STORAGE_KEYS, SYNC_STORAGE_KEYS } from "@/core/storage-keys";
 
 describe("STORAGE_KEYS", () => {
-  it("namespaces every key under lasso:", () => {
-    expect(Object.values(STORAGE_KEYS).every((k) => k.startsWith("lasso:"))).toBe(true);
+  it("keeps stable names, including the legacy GraphQL cache literal", () => {
+    expect(
+      Object.entries(STORAGE_KEYS)
+        .filter(([name]) => name !== "graphqlOps" && name !== "graphqlCatalog")
+        .every(([, key]) => key.startsWith("lasso:")),
+    ).toBe(true);
     // Pins the wire-format literals — settings.ts and filter-store.ts import
     // these directly now (no more duplicated hardcoded key), so a change here
     // is a real storage-format change, not just an internal rename.
     expect(STORAGE_KEYS.settings).toBe("lasso:settings");
     expect(STORAGE_KEYS.filter).toBe("lasso:filter");
     expect(STORAGE_KEYS.mirrorStatus).toBe("lasso:mirror-status");
+    expect(STORAGE_KEYS.graphqlOps).toBe("lasso.graphqlOps.v1");
+    expect(STORAGE_KEYS.graphqlCatalog).toBe("lasso.graphqlCatalog.v2");
   });
 });
 
@@ -29,10 +27,19 @@ describe("clearLassoData", () => {
     const local: StorageLike = { get: vi.fn(), set: vi.fn(), remove: vi.fn(async () => {}) };
     const sync: StorageLike = { get: vi.fn(), set: vi.fn(), remove: vi.fn(async () => {}) };
     await clearLassoData(local, sync);
-    expect(local.remove).toHaveBeenCalledWith(LOCAL_KEYS);
-    expect(sync.remove).toHaveBeenCalledWith(SYNC_KEYS);
+    expect(local.remove).toHaveBeenCalledWith(LOCAL_STORAGE_KEYS);
+    expect(sync.remove).toHaveBeenCalledWith(SYNC_STORAGE_KEYS);
     expect(local.set).not.toHaveBeenCalled();
     expect(sync.set).not.toHaveBeenCalled();
+  });
+
+  it("clears the existing GraphQL operation cache key", async () => {
+    const local: StorageLike = { get: vi.fn(), set: vi.fn(), remove: vi.fn(async () => {}) };
+    const sync: StorageLike = { get: vi.fn(), set: vi.fn(), remove: vi.fn(async () => {}) };
+
+    await clearLassoData(local, sync);
+
+    expect(local.remove).toHaveBeenCalledWith(expect.arrayContaining([STORAGE_KEYS.graphqlOps]));
   });
 
   it("falls back to set(undefined) when remove is unavailable", async () => {
@@ -40,9 +47,11 @@ describe("clearLassoData", () => {
     const sync: StorageLike = { get: vi.fn(), set: vi.fn(async () => {}) };
     await clearLassoData(local, sync);
     expect(local.set).toHaveBeenCalledWith(
-      Object.fromEntries(LOCAL_KEYS.map((k) => [k, undefined])),
+      Object.fromEntries(LOCAL_STORAGE_KEYS.map((k) => [k, undefined])),
     );
-    expect(sync.set).toHaveBeenCalledWith(Object.fromEntries(SYNC_KEYS.map((k) => [k, undefined])));
+    expect(sync.set).toHaveBeenCalledWith(
+      Object.fromEntries(SYNC_STORAGE_KEYS.map((k) => [k, undefined])),
+    );
   });
 
   it("also removes Owner-qualified cache and usage keys", async () => {
@@ -79,8 +88,8 @@ describe("clearLassoData", () => {
       localCleared: false,
       syncCleared: true,
     });
-    expect(local.remove).toHaveBeenCalledWith(LOCAL_KEYS);
-    expect(sync.remove).toHaveBeenCalledWith(SYNC_KEYS);
+    expect(local.remove).toHaveBeenCalledWith(LOCAL_STORAGE_KEYS);
+    expect(sync.remove).toHaveBeenCalledWith(SYNC_STORAGE_KEYS);
   });
 
   it("reports local failure when removing discovered Owner-qualified keys fails", async () => {
@@ -99,9 +108,9 @@ describe("clearLassoData", () => {
       localCleared: false,
       syncCleared: true,
     });
-    expect(local.remove).toHaveBeenNthCalledWith(1, LOCAL_KEYS);
+    expect(local.remove).toHaveBeenNthCalledWith(1, LOCAL_STORAGE_KEYS);
     expect(local.remove).toHaveBeenNthCalledWith(2, [dynamicKey]);
-    expect(sync.remove).toHaveBeenCalledWith(SYNC_KEYS);
+    expect(sync.remove).toHaveBeenCalledWith(SYNC_STORAGE_KEYS);
   });
 
   it("attempts fixed local and sync clears independently and reports their failures", async () => {
@@ -120,7 +129,7 @@ describe("clearLassoData", () => {
       localCleared: false,
       syncCleared: true,
     });
-    expect(local.remove).toHaveBeenCalledWith(LOCAL_KEYS);
-    expect(sync.remove).toHaveBeenCalledWith(SYNC_KEYS);
+    expect(local.remove).toHaveBeenCalledWith(LOCAL_STORAGE_KEYS);
+    expect(sync.remove).toHaveBeenCalledWith(SYNC_STORAGE_KEYS);
   });
 });

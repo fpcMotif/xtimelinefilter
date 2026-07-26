@@ -10,7 +10,6 @@ import type { Coach } from "@/core/coach";
 import type { FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
 import type { ListUsage } from "@/core/list-usage";
-import type { MirrorStatus } from "@/core/mirror-status";
 import type { PickerController, PickerEffect } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
 import type { SettingsStore } from "@/core/settings";
@@ -36,7 +35,7 @@ import type { ToastAction, ToastSpec, ToastStore } from "@/core/toast-store";
 import { UNDO_WINDOW_MS, type UndoRegistry } from "@/core/undo";
 import { membershipIdentityOf, NullMembershipStore } from "@/packages/membership-store";
 import type { MembershipChange, MembershipStore, Owner } from "@/packages/membership-store/types";
-import type { XList, XListApi } from "@/packages/x-client/types";
+import type { XList, XListApi, XListApiSource } from "@/packages/x-client/types";
 
 export { UNDO_WINDOW_MS };
 
@@ -80,7 +79,7 @@ export interface ControllerDeps {
   toasts: ToastStore;
   undo: UndoRegistry;
   coach: Coach;
-  backend: XListApi;
+  backend: XListApiSource;
   cache: ListCache;
   settings: SettingsStore;
   /** Off-to-the-side Mirror (ADR-0009); absent ⇒ NullMembershipStore ⇒ X flow unchanged. */
@@ -95,10 +94,12 @@ export interface ControllerDeps {
    * the user inferring it from a once-only console.warn. Fire-and-forget like the
    * write itself — never load-bearing (ADR-0009).
    */
-  onMirrorResult?: (result: MirrorStatus) => void | Promise<void>;
+  onMirrorResult?: (result: { ok: boolean; configId: string }) => void | Promise<void>;
   usage?: ListUsage;
   /** The one global filter store; absent ⇒ filter commands are no-ops (ADR-0010 — never load-bearing). */
   filter?: FilterStore;
+  /** Filter commands only operate on supported timeline routes. */
+  filterInScope?: () => boolean;
   quick: QuickActions;
   target: TargetResolver;
   openUrl(url: string): void;
@@ -143,9 +144,10 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const membershipStore = deps.membershipStore ?? new NullMembershipStore();
   const currentOwner = deps.currentOwner ?? ((): Owner | null => null);
   const filter = deps.filter;
+  const filterInScope = deps.filterInScope ?? (() => true);
   let stopRequested = false;
-  let activeAssignment: symbol | null = null;
-  let activeUndo: symbol | null = null;
+  let activeAssignment = false;
+  let activeUndo = false;
   let lastSource: AssignSource = "pointer";
   let individualSelections = 0; // session-scoped, feeds the select-mode nudge
   let mirrorWarned = false; // C1: first Mirror failure is surfaced once, then silent
@@ -178,7 +180,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     const report = (ok: boolean): void => {
       if (!configId) return;
       try {
-        const result = deps.onMirrorResult?.({ ok, at: now(), configId });
+        const result = deps.onMirrorResult?.({ ok, configId });
         void Promise.resolve(result).catch(() => {});
       } catch {
         // A status sink cannot alter the optional Mirror or X result.
@@ -210,13 +212,17 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     void picker.open(selection.list());
   }
 
-  async function undoAdds(authors: TweetAuthor[], owner: Owner | null, list: XList): Promise<void> {
+  async function undoAdds(
+    authors: TweetAuthor[],
+    owner: Owner | null,
+    list: XList,
+    api: XListApi,
+  ): Promise<void> {
     if (!ownsTarget(owner, currentOwner())) return;
     if (activeAssignment || activeUndo) return;
-    const undoRun = Symbol("undo");
-    activeUndo = undoRun;
+    activeUndo = true;
     try {
-      const results = await removeAuthorsFromList(authors, list, backend, {
+      const results = await removeAuthorsFromList(authors, list, api, {
         ...deps.assignOpts,
         now,
         shouldStop: () => !ownsTarget(owner, currentOwner()),
@@ -227,6 +233,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         identity: membershipIdentityOf(r.author),
         action: "remove",
         outcome: r.outcome,
+        evidence: r.evidence,
         observedAt: r.observedAt,
       }));
       const n = results.filter((r) => r.outcome === "removed").length;
@@ -237,10 +244,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       }
       toasts.show({ kind: "info", title: removedLine(n, list.name) });
     } finally {
-      // activeUndo is set atomically right after the entry guard, so a second
-      // undo returns before claiming it; the mismatch arm is unreachable here.
-      /* v8 ignore next */
-      if (activeUndo === undoRun) activeUndo = null;
+      activeUndo = false;
     }
   }
 
@@ -250,12 +254,14 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     source: AssignSource,
   ): Promise<void> {
     if (authors.length === 0 || activeAssignment || activeUndo) return;
-    const assignment = Symbol("assignment");
-    activeAssignment = assignment;
+    activeAssignment = true;
     try {
       const actingOwner = currentOwner();
       if (!ownsTarget(listTarget.owner, actingOwner)) return;
       const { list } = listTarget;
+      // One run is deliberately pinned to one adapter. A settings change takes
+      // effect for the next user action, never halfway through this paced loop.
+      const api = backend.snapshot();
       app.pickerOpen.value = false;
       app.reviewOpen.value = false;
       stopRequested = false;
@@ -263,22 +269,16 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       if (actingOwner && deps.usage)
         fireAndForget(() => deps.usage!.record(actingOwner.userId, list.id));
 
-      // activeAssignment is claimed atomically after the entry guard, so no other
-      /* v8 ignore next -- run can supersede it mid-flight; the mismatch arm is dead */
-      if (activeAssignment === assignment) {
-        app.running.value = {
-          current: 0,
-          total: authors.length,
-          listName: list.name,
-        };
-      }
-      const results = await assignAuthorsToList(authors, list, backend, {
+      app.running.value = {
+        current: 0,
+        total: authors.length,
+        listName: list.name,
+      };
+      const results = await assignAuthorsToList(authors, list, api, {
         ...deps.assignOpts,
         now,
         onProgress: (current, total) => {
-          /* v8 ignore next -- the lock is held for this whole run, so the mismatch arm is dead */
-          if (activeAssignment === assignment)
-            app.running.value = { current, total, listName: list.name };
+          app.running.value = { current, total, listName: list.name };
         },
         shouldStop: () => {
           if (!ownsTarget(listTarget.owner, currentOwner())) ownerChanged = true;
@@ -292,6 +292,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         identity: membershipIdentityOf(r.author),
         action: "add" as const,
         outcome: r.outcome,
+        evidence: r.evidence,
         observedAt: r.observedAt,
       }));
       const mirrorOwner = currentOwner();
@@ -310,7 +311,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       void coach.recordAssign();
 
       if (fb.actions.includes("undo") && fb.undoable.length > 0) {
-        undo.arm(() => void undoAdds(fb.undoable, listTarget.owner, list), UNDO_WINDOW_MS);
+        undo.arm(() => void undoAdds(fb.undoable, listTarget.owner, list, api), UNDO_WINDOW_MS);
       }
       const actions: ToastAction[] = fb.actions.map((kind) => {
         if (kind === "view-list") {
@@ -335,20 +336,19 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       });
       toasts.show({ ...fb.toast, actions });
 
-      if (
-        source === "pointer" &&
-        fb.toast.kind === "success" &&
-        (await coach.tryShowTip("post-assign"))
-      ) {
-        toasts.show({ kind: "info", title: POST_ASSIGN_TIP });
+      if (source === "pointer" && fb.toast.kind === "success") {
+        // Coaching is cosmetic. Never hold the assignment lock—or reject the
+        // completed X action—while its storage read settles.
+        void coach
+          .tryShowTip("post-assign")
+          .then((show) => {
+            if (show) toasts.show({ kind: "info", title: POST_ASSIGN_TIP });
+          })
+          .catch(() => {});
       }
     } finally {
-      // Only this run holds activeAssignment until it clears it here, so the
-      /* v8 ignore next -- mismatch arm is unreachable defensive code */
-      if (activeAssignment === assignment) {
-        app.running.value = null;
-        activeAssignment = null;
-      }
+      app.running.value = null;
+      activeAssignment = false;
     }
   }
 
@@ -518,7 +518,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
    * swallowed here and cannot reach the X flow's shared state (undo/toasts/selection).
    */
   function filterCommand(run: (filter: FilterStore) => void): void {
-    if (!filter) return;
+    if (!filter || !filterInScope()) return;
     const before = filter.state.value;
     try {
       run(filter);
@@ -578,12 +578,12 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       // The two filter keys return false when no filter store is wired, so the
       // bare keys fall through to X untouched (ADR-0010 — never load-bearing).
       case "toggle-filter": {
-        if (!filter) return false;
+        if (!filter || !filterInScope()) return false;
         filterCommand((f) => f.setEnabled(!f.state.value.enabled));
         return true;
       }
       case "toggle-reveal": {
-        if (!filter) return false;
+        if (!filter || !filterInScope()) return false;
         filterCommand((f) => f.setRevealed(!f.revealed.value));
         return true;
       }

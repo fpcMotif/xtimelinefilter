@@ -127,8 +127,8 @@ sequenceDiagram
 | Module | Responsibility | Interface | Depends on |
 |---|---|---|---|
 | `core/x-client/types.ts` | The single mutation seam every strategy implements + typed errors | `XListApi {addMember, removeMember}`, `XApiError`, `AssignResult`, `GraphqlConfig` | `selection-store` (`TweetAuthor`) |
-| `core/x-client/dom-api.ts` | Conservative alternate. Drives sanctioned UI (caret→Add/remove from Lists→toggle→save). Idempotent (checks `aria-checked`). No bearer/queryId/ct0. | implements `XListApi`; injected `PageDriver` | `types`, `page-driver`, `content/selectors` |
-| `core/x-client/page-driver.ts` | Thin, fixture-testable DOM driver (`waitForElem`, role/text find, click, human-settle sleep) | `PageDriver {waitForElem, clickCaret, openListsMenu, toggleListRow, commit}` | `content/selectors` |
+| `core/x-client/dom-api.ts` | Conservative alternate. Drives sanctioned UI (caret→Add/remove from Lists→toggle→save). Idempotent (checks `aria-checked`). No bearer/queryId/ct0. | implements `XListApi`; injected `PageDriver` | `types`, `page-driver` |
+| `core/x-client/page-driver.ts` | Thin, fixture-testable Lists driver (`waitForElem`, role/text find, click, human-settle sleep) | `PageDriver {openListsDialog, toggleList, commit}`; injected author-caret lookup and synthetic Escape dispatch | Lists dialog hooks only |
 | `core/x-client/graphql-api.ts` | **Opt-in.** Internal GraphQL; maps HTTP/error envelopes to `XApiError` kinds | implements `XListApi`; `Auth` + `GraphqlConfig` | `types`, `auth`, `graphql-config` |
 | `core/x-client/auth.ts` | Reads `ct0` from `document.cookie`; supplies public web bearer. Never reads `auth_token` (HttpOnly, browser-attached) | `Auth {credentials(): {csrf, bearer}}` | `types` |
 | `core/x-client/graphql-config.ts` | Static, drift-prone queryIds + features; rotated IDs fail typed and visibly | `GraphqlConfig` | `types` |

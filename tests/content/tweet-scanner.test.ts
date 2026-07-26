@@ -170,26 +170,61 @@ describe("virtualization pruning — onTweetRemoved (overlay disposal hook)", ()
     scanner.stop();
   });
 
-  it("ignores removed nodes it never reported (and non-element removals)", async () => {
+  it("detects a tweet hydrated by attribute change and later disposes it", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const onTweet = vi.fn();
+    const onTweetRemoved = vi.fn();
+    const scanner = createTweetScanner(root, onTweet, { onTweetRemoved });
+    scanner.start();
+
+    const stealth = document.createElement("article");
+    root.appendChild(stealth);
+    await tick();
+    stealth.setAttribute("data-testid", "tweet");
+    await tick();
+
+    expect(onTweet).toHaveBeenCalledWith(stealth);
+
+    root.removeChild(stealth);
+    await tick();
+    expect(onTweetRemoved).toHaveBeenCalledWith(stealth);
+    scanner.stop();
+  });
+
+  it("forgets a seen tweet when hydration removes its tweet marker", async () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     const onTweetRemoved = vi.fn();
     const scanner = createTweetScanner(root, () => {}, { onTweetRemoved });
+    const article = document.createElement("article");
+    article.setAttribute("data-testid", "tweet");
+    root.appendChild(article);
     scanner.start();
 
-    // A childList-only observer never sees this article: it enters the DOM as a
-    // plain <article> and only *then* gains the tweet testid (attribute change).
-    const stealth = document.createElement("article");
-    root.appendChild(stealth);
-    const text = document.createTextNode("noise");
-    root.appendChild(text);
+    article.removeAttribute("data-testid");
     await tick();
-    stealth.setAttribute("data-testid", "tweet");
 
-    root.removeChild(stealth);
-    root.removeChild(text);
+    expect(onTweetRemoved).toHaveBeenCalledWith(article);
+    scanner.stop();
+  });
+
+  it("ignores untracked attribute and removed-node noise", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const scanner = createTweetScanner(root, () => {});
+    scanner.start();
+    const article = document.createElement("article");
+    const text = document.createTextNode("noise");
+    root.append(article, text);
     await tick();
-    expect(onTweetRemoved).not.toHaveBeenCalled();
+
+    article.setAttribute("data-testid", "not-a-tweet");
+    await tick();
+    article.remove();
+    text.remove();
+    await tick();
+
     scanner.stop();
   });
 

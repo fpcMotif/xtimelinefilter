@@ -54,6 +54,14 @@ describe("surface preferences", () => {
     expect(got.paletteHotkey).toBe(DEFAULT_SETTINGS.paletteHotkey);
   });
 
+  it("merges one nested surface key without resetting its sibling", async () => {
+    const s = createSettings(fakeStorage({ [KEY]: { surfaces: { pill: false, palette: false } } }));
+
+    await s.set({ surfaces: { palette: true } });
+
+    expect((await s.get()).surfaces).toEqual({ pill: false, palette: true });
+  });
+
   it("yields surface defaults when a stored object lacks the new keys (migration)", async () => {
     const legacy: Partial<LassoSettings> & { hotkeySelectMode?: string } = {
       backend: "dom",

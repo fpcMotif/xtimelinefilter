@@ -106,7 +106,6 @@ export function createLiveMembershipStore(
   };
 
   const connect = (observation: Observation): void => {
-    /* v8 ignore next -- callers only connect live observations; disposal and stop disconnect them first. */
     if (disposed || !observation.active) return;
     if (!active) {
       publish(observation, emptySnapshot());
@@ -174,14 +173,13 @@ export function createLiveMembershipStore(
     if (!configured(current)) return Promise.resolve();
 
     const ready = loading;
-    /* v8 ignore next -- a configured facade creates its loading promise before it is returned. */
     if (!ready) return Promise.reject(unavailable ?? new MirrorUnavailableError());
     return ready.then((store) => {
       if (disposed || revision !== operationRevision || !configured(current)) {
         throw new MirrorUnavailableError();
       }
-      /* v8 ignore next -- a current failed build records unavailable; stale null is fenced above. */
-      if (!store) throw unavailable ?? new MirrorUnavailableError();
+      // A current null result can only come from the build catch, which records this error.
+      if (!store) throw unavailable!;
       return operation(store);
     });
   };

@@ -1,4 +1,6 @@
-# The Filter hides posts by collapsing the cell to a reversible stub, never by removing it
+# ADR-0010 — Filter hides cells through a reversible stub, never removal
+
+Status: Accepted · 2026-06-14 · updated 2026-06-17 and 2026-07-22
 
 The Filter's job is to make unwanted posts go away while you read Home, a List, or a profile. The obvious move — `display:none` on the post's `div[data-testid="cellInnerDiv"]` — is exactly the kind of change that passes every local test and then misbehaves on live x.com, which is the failure class MISSION.md exists to prevent. X's timeline is virtualized: it measures cell heights to position the scroll thumb and to decide when to fetch the next page (the scanner already notes this — "virtualized timeline mounts/unmounts them"). A height-0 cell can trip infinite-scroll into over-fetching and can jump the scroll anchor as cells above the viewport collapse. None of that shows up in happy-dom.
 
@@ -10,6 +12,7 @@ Concretely (`content/filter-applier.ts`):
 - **Re-classify on every mount; never trust a cached verdict on a recycled node.** X mounts/unmounts cells as you scroll; a stub state must be recomputed from the current Tweet's Facets, or a recycled node would carry the wrong verdict.
 - **Fail open.** A post whose Facets can't be read, or any throw in the applier, is shown — the Filter never hides a post it couldn't classify, and never hides the whole feed if its selectors break (a breakage-health guard watches for an implausible all-hidden distribution).
 - **Never load-bearing.** A Filter failure leaves the page and the List-assign flow byte-for-byte unchanged (same posture as the Mirror, ADR-0009).
+- **Hidden means inert, not unmounted.** The retained selection overlay stays inside the collapsed article so restoration needs no scanner remount. Collapse CSS removes it from display; pointer and keyboard target seams also reject the hidden cell.
 
 Trade-off accepted: a stub is visually less clean than a post vanishing entirely, and a row of stubs in a heavily-filtered feed is its own kind of clutter. We chose that over the live-virtualization risk of `display:none`. Full `display:none` stays open as a future upgrade **only** behind a live-DOM verification note (`verify-filter-virtualization-dom.md`) proving real x.com tolerates height-0 cells without over-fetch or scroll jumps — assumption is not proof (MISSION.md).
 

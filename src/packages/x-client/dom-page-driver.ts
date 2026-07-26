@@ -1,14 +1,7 @@
-import {
-  ADD_TO_LISTS_TEXT,
-  DriverSelectors,
-  Selectors,
-  SYNTHETIC_EVENT_FLAG,
-} from "@/content/selectors";
 import type { TweetAuthor } from "@/core/selection-store";
-import * as tweetRead from "@/packages/tweet-read";
 
 import type { PageDriver } from "./lib/page-driver";
-import type { XList } from "./types";
+import { XApiError, type XList } from "./types";
 
 // page-driver is private plumbing (lib/); intra-package code imports it directly.
 // This re-export exists so co-located tests can reach the contract through an
@@ -17,6 +10,12 @@ export type { PageDriver } from "./lib/page-driver";
 
 const click = (el: Element): void => (el as HTMLElement).click();
 const textOf = (el: Element): string => el.textContent as string;
+const MENU = '[role="menu"]';
+const MENUITEM = '[role="menuitem"]';
+const DIALOG = '[role="dialog"]';
+const CHECKBOX = '[role="checkbox"], input[type="checkbox"]';
+const SAVE = '[data-testid="confirmationSheetConfirm"]';
+const ADD_TO_LISTS_TEXT = /add\s*\/\s*remove.*lists|add to list/i;
 
 /**
  * Real PageDriver that automates X's sanctioned "Add/remove from Lists" UI
@@ -25,30 +24,36 @@ const textOf = (el: Element): string => el.textContent as string;
  * be verified live (blueprint §8). Human-paced settle delays keep it assistive.
  */
 export interface DomPageDriverOptions {
+  /** Finds the visible author's tweet caret in the content-script DOM. */
+  findAuthorCaret(screenName: string): Element | null;
+  /** Sends an Escape that the content keyboard layer must ignore. */
+  dispatchSyntheticEscape(target: Document | Element): void;
   doc?: Document;
   timeoutMs?: number;
   settle?: (ms: number) => Promise<void>;
 }
 
-export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver {
+export function createDomPageDriver(opts: DomPageDriverOptions): PageDriver {
   const doc = opts.doc ?? document;
   const timeoutMs = opts.timeoutMs ?? 4000;
   const settle = opts.settle ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   let activeDialog: Element | null = null;
+  let activeMenu: Element | null = null;
 
-  function findAuthorCaret(screenName: string): Element | null {
-    for (const article of doc.querySelectorAll(Selectors.TWEET)) {
-      const author = tweetRead.author(article);
-      if (author?.screenName.toLowerCase() === screenName.toLowerCase()) {
-        return article.querySelector(DriverSelectors.CARET);
-      }
+  function assertEnglishInterface(): void {
+    const language = doc.documentElement.lang;
+    const baseLanguage = language.split("-", 1)[0]?.trim().toLowerCase();
+    if (language && baseLanguage !== "en") {
+      throw new XApiError(
+        "unknown",
+        "Lasso's DOM backend currently requires X in English. Switch X's display language to English, or use the REST or GraphQL backend.",
+      );
     }
-    return null;
   }
 
   function rows(): HTMLElement[] {
     if (!activeDialog?.isConnected) return [];
-    return [...activeDialog.querySelectorAll(DriverSelectors.MENUITEM)] as HTMLElement[];
+    return [...activeDialog.querySelectorAll(MENUITEM)] as HTMLElement[];
   }
 
   function rowHasName(row: HTMLElement, name: string): boolean {
@@ -83,78 +88,192 @@ export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver
     const byId = available.filter((row) => rowListIds(row).has(list.id));
     if (byId.length === 1) return byId[0]!;
     if (byId.length > 1) {
-      throw new Error(`Lasso: list "${list.name}" (${list.id}) is ambiguous in dialog`);
+      throw new XApiError(
+        "unknown",
+        `Lasso: list "${list.name}" (${list.id}) is ambiguous in dialog`,
+      );
     }
 
     const byName = available.filter((row) => rowHasName(row, list.name));
     if (byName.length > 1) {
-      throw new Error(`Lasso: list "${list.name}" (${list.id}) is ambiguous in dialog`);
+      throw new XApiError(
+        "unknown",
+        `Lasso: list "${list.name}" (${list.id}) is ambiguous in dialog`,
+      );
     }
     const only = byName[0];
     if (only && rowListIds(only).size === 0) return only;
-    throw new Error(`Lasso: list "${list.name}" (${list.id}) not found in dialog`);
+    throw new XApiError("unknown", `Lasso: list "${list.name}" (${list.id}) not found in dialog`);
   }
 
   function snapshot(selector: string): ReadonlySet<Element> {
     return new Set(doc.querySelectorAll(selector));
   }
 
-  function waitForFresh(selector: string, existing: ReadonlySet<Element>): Promise<Element> {
-    const fresh = (): Element | undefined =>
-      [...doc.querySelectorAll(selector)].find((candidate) => !existing.has(candidate));
-    const immediate = fresh();
+  function surfaceSnapshot(selector: string): ReadonlyMap<Element, Element> {
+    return new Map(
+      [...doc.querySelectorAll(selector)].map((surface) => [
+        surface,
+        surface.cloneNode(true) as Element,
+      ]),
+    );
+  }
+
+  function waitForChanged(
+    selector: string,
+    existing: ReadonlyMap<Element, Element>,
+  ): Promise<Element> {
+    const changed = (): Element | undefined =>
+      [...doc.querySelectorAll(selector)].find((candidate) => {
+        const before = existing.get(candidate);
+        return before === undefined || !before.isEqualNode(candidate);
+      });
+    const immediate = changed();
     if (immediate) return Promise.resolve(immediate);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         obs.disconnect();
-        reject(new Error(`Lasso: timed out waiting for ${selector}`));
+        reject(new XApiError("unknown", `Lasso: timed out waiting for ${selector}`));
       }, timeoutMs);
       const obs = new MutationObserver(() => {
-        const el = fresh();
+        const el = changed();
         if (el) {
           clearTimeout(timer);
           obs.disconnect();
           resolve(el);
         }
       });
-      obs.observe(doc.body, { childList: true, subtree: true });
+      obs.observe(doc.body, {
+        attributes: true,
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
     });
   }
 
+  function explicitCommitControl(dialog: Element): Element | undefined {
+    return (
+      dialog.querySelector(SAVE) ??
+      [...dialog.querySelectorAll('button, [role="button"]')].find((candidate) =>
+        /^(?:done|save)$/i.test(textOf(candidate).trim()),
+      )
+    );
+  }
+
+  function waitForExplicitCommit(
+    dialog: Element,
+    priorConfirmations: ReadonlySet<Element>,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const finish = (error?: Error): void => {
+        clearTimeout(timer);
+        observer.disconnect();
+        if (error) reject(error);
+        else resolve();
+      };
+      const inspect = (): void => {
+        const confirmation = [...doc.querySelectorAll(SAVE)].find(
+          (candidate) => !priorConfirmations.has(candidate) && !dialog.contains(candidate),
+        );
+        if (confirmation) {
+          finish(
+            new XApiError(
+              "unknown",
+              "Lasso: an unowned confirmation appeared while committing the Lists dialog",
+            ),
+          );
+          return;
+        }
+        if (!dialog.isConnected) {
+          finish();
+        }
+      };
+      const timer = setTimeout(
+        () =>
+          finish(
+            new XApiError(
+              "unknown",
+              "Timed out waiting for X to close the Lists dialog after explicit commit",
+            ),
+          ),
+        timeoutMs,
+      );
+      const observer = new MutationObserver(inspect);
+      observer.observe(doc.body, { childList: true, subtree: true });
+      inspect();
+    });
+  }
+
+  function hasUnknownCommitControl(dialog: Element): boolean {
+    return [...dialog.querySelectorAll('button, [role="button"]')].some((control) => {
+      if (control.closest(MENUITEM)) return false;
+      return !/^(?:close|cancel|back)$/i.test(textOf(control).trim());
+    });
+  }
+
+  function listsMenuItem(menu: Element): Element | undefined {
+    return [...menu.querySelectorAll(MENUITEM)].find((el) => ADD_TO_LISTS_TEXT.test(textOf(el)));
+  }
+
   async function dismissOpenMenus(): Promise<void> {
-    if (doc.querySelector(DriverSelectors.MENU) === null) return;
-    const init = { key: "Escape", bubbles: true, cancelable: true, composed: true };
-    const Event = doc.defaultView?.KeyboardEvent ?? KeyboardEvent;
+    // This is the one deliberate global dismissal: it runs before the caret
+    // click and fresh-surface snapshot, so an existing menu cannot be mistaken
+    // for this attempt's menu. Later cleanup targets only owned surfaces.
+    if (doc.querySelector(MENU) === null) return;
     for (const node of [doc, doc.body]) {
-      const event = new Event("keydown", init);
-      (event as unknown as Record<string, unknown>)[SYNTHETIC_EVENT_FLAG] = true;
-      node.dispatchEvent(event);
+      opts.dispatchSyntheticEscape(node);
     }
     await settle(80);
   }
 
   return {
     async openListsDialog(author: TweetAuthor) {
-      const caret = findAuthorCaret(author.screenName);
-      if (!caret) throw new Error(`Lasso: no visible tweet for @${author.screenName}`);
+      assertEnglishInterface();
+      const caret = opts.findAuthorCaret(author.screenName);
+      if (!caret) {
+        throw new XApiError("unknown", `Lasso: no visible tweet for @${author.screenName}`);
+      }
       await dismissOpenMenus();
-      const priorMenus = snapshot(DriverSelectors.MENU);
+      const priorMenus = surfaceSnapshot(MENU);
       click(caret);
-      const menu = await waitForFresh(DriverSelectors.MENU, priorMenus);
-      const item = [...menu.querySelectorAll(DriverSelectors.MENUITEM)].find((el) =>
-        ADD_TO_LISTS_TEXT.test(textOf(el)),
-      );
-      if (!item) throw new Error("Lasso: 'Add/remove from Lists' menu item not found");
+      const menu = await waitForChanged(MENU, priorMenus);
+      activeMenu = menu;
+      const item = listsMenuItem(menu);
+      if (!item) {
+        throw new XApiError("unknown", "Lasso: 'Add/remove from Lists' menu item not found");
+      }
       await settle(120);
-      const priorDialogs = snapshot(DriverSelectors.DIALOG);
-      click(item);
-      activeDialog = await waitForFresh(DriverSelectors.DIALOG, priorDialogs);
+      if (!menu.isConnected) {
+        throw new XApiError(
+          "unknown",
+          "Lasso: caret menu changed before its Lists item could be used",
+        );
+      }
+      const currentItem = listsMenuItem(menu);
+      if (!currentItem?.isConnected) {
+        throw new XApiError(
+          "unknown",
+          "Lasso: 'Add/remove from Lists' menu item changed before use",
+        );
+      }
+      const priorDialogs = surfaceSnapshot(DIALOG);
+      click(currentItem);
+      activeDialog = await waitForChanged(DIALOG, priorDialogs);
+      activeMenu = null;
       await settle(120);
     },
     async isChecked(list: XList) {
       const row = rowFor(list);
-      const box = row.querySelector(DriverSelectors.CHECKBOX);
-      return box?.getAttribute("aria-checked") === "true";
+      const box = row.querySelector(CHECKBOX);
+      if (box?.matches('input[type="checkbox"]')) return (box as HTMLInputElement).checked;
+      const ariaChecked =
+        box?.getAttribute("aria-checked") ??
+        row.getAttribute("aria-checked") ??
+        row.querySelector("[aria-checked]")?.getAttribute("aria-checked");
+      if (ariaChecked === "true") return true;
+      if (ariaChecked === "false") return false;
+      throw new XApiError("unknown", `Lasso: list "${list.name}" has no readable checked state`);
     },
     async toggleList(list: XList) {
       const row = rowFor(list);
@@ -162,12 +281,34 @@ export function createDomPageDriver(opts: DomPageDriverOptions = {}): PageDriver
       await settle(120);
     },
     async commit() {
-      const save = activeDialog?.querySelector(DriverSelectors.SAVE);
-      if (save) click(save);
       await settle(120);
+      const dialog = activeDialog;
+      if (!dialog?.isConnected) {
+        throw new XApiError("unknown", "Lists dialog closed before its change could be committed");
+      }
+      const control = explicitCommitControl(dialog);
+      if (!control) {
+        if (hasUnknownCommitControl(dialog)) {
+          throw new XApiError("unknown", "Lasso: Lists dialog has an unrecognized commit control");
+        }
+        return "immediate";
+      }
+
+      const priorConfirmations = snapshot(SAVE);
+      click(control);
+      await waitForExplicitCommit(dialog, priorConfirmations);
+      return "explicit";
     },
     async close() {
-      doc.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      const surface = activeDialog?.isConnected
+        ? activeDialog
+        : activeMenu?.isConnected
+          ? activeMenu
+          : null;
+      activeDialog = null;
+      activeMenu = null;
+      if (!surface) return;
+      opts.dispatchSyntheticEscape(surface);
       await settle(80);
     },
   };

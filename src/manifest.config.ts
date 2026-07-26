@@ -3,20 +3,18 @@ import { defineManifest } from "@crxjs/vite-plugin";
 type ContentScript = NonNullable<chrome.runtime.ManifestV3["content_scripts"]>[number];
 
 const mainWorldContentScript = {
-  // X auth cookies and the authenticated web APIs are same-origin. Keep the
-  // injection scope canonical: a twitter.com document cannot call x.com as
-  // its session origin.
+  // Keep the page bridge on the canonical origin. A twitter.com document
+  // cannot exercise the x.com interaction path.
   matches: ["https://x.com/*"],
   js: ["src/content/main-world.ts"],
   run_at: "document_start",
   world: "MAIN",
 } as unknown as ContentScript;
 
-// Authenticated x.com calls run in the content script (same-origin) per ADR-0002,
-// so cookies/ct0 attach automatically — no host permission needed for X. The one
-// host_permission is the optional Convex Mirror (ADR-0009): a cross-origin POST to
-// the user's own *.convex.cloud deployment, gated by a device key. Absent a key the
-// Mirror never connects. Store-listing copy lives in docs/store-listing.md.
+// X requests run from x.com's content script per ADR-0002; they need no X host
+// permission. Live authenticated mutation proof remains open. The one host
+// permission is the optional Convex Mirror (ADR-0009), gated by a device key.
+// Without a key the Mirror never connects. Store copy lives in docs/store-listing.md.
 export default defineManifest({
   manifest_version: 3,
   name: "Lasso — add people to your X Lists from the timeline",

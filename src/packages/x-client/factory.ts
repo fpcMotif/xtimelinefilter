@@ -4,9 +4,9 @@ import { DomXListApi } from "./dom-api";
 import { GraphqlXListApi } from "./graphql-api";
 import { DEFAULT_GRAPHQL_CONFIG } from "./graphql-config";
 import {
-  createGraphqlOpsResolver,
-  createMemoryOpsCache,
-  type GraphqlOpsResolver,
+  createGraphqlCatalogResolver,
+  createMemoryCatalogCache,
+  type GraphqlCatalogResolver,
 } from "./graphql-ops";
 import type { PageDriver } from "./lib/page-driver";
 import { RestXListApi } from "./rest-api";
@@ -22,7 +22,7 @@ export interface XListApiRuntime {
    * fresh ids from X's current bundles (memory-cached here; the extension passes
    * a chrome.storage-backed one) with the static config as fallback.
    */
-  graphqlOps?: GraphqlOpsResolver;
+  graphqlCatalog?: GraphqlCatalogResolver;
 }
 
 /**
@@ -37,12 +37,12 @@ export function createXListApi(strategy: BackendStrategy, runtime: XListApiRunti
     return new GraphqlXListApi(runtime.credentials, {
       fetch: runtime.fetch,
       config: DEFAULT_GRAPHQL_CONFIG,
-      ops:
-        runtime.graphqlOps ??
-        createGraphqlOpsResolver({
+      catalog:
+        runtime.graphqlCatalog ??
+        createGraphqlCatalogResolver({
           fetch: runtime.fetch,
-          cache: createMemoryOpsCache(),
-          fallback: DEFAULT_GRAPHQL_CONFIG.ops,
+          cache: createMemoryCatalogCache(),
+          fallback: DEFAULT_GRAPHQL_CONFIG.catalog,
         }),
     });
   }
