@@ -16,6 +16,20 @@ export const MAX_FILTER_LINK_RULES = 256;
 export const MAX_FILTER_PRESETS = 128;
 export const MAX_FILTER_NAME_LENGTH = 120;
 export const MAX_FILTER_ID_LENGTH = 128;
+export const MAX_FILTER_SCOPE_BINDINGS = 128;
+
+/**
+ * Exactly the keys {@link bindingKey} can produce — Home, a numeric List id, or
+ * a case-folded handle. Validating the grammar (not merely "some bounded
+ * string") matters because an unreachable key is never self-healed the way a
+ * dangling preset id is: no navigation can ever resolve to it, so a forged or
+ * replayed command would park junk in the bounded map forever. It also rejects
+ * an un-folded `profile:Jack`, which would otherwise shadow the real binding.
+ */
+const SCOPE_KEY = /^(?:home|list:\d{1,20}|profile:[a-z0-9_]{1,15})$/;
+
+const isScopeKey = (value: unknown): value is FilterScopeKey =>
+  typeof value === "string" && SCOPE_KEY.test(value);
 
 const NEXT_MODE: Record<FilterMode, FilterMode> = { off: "only", only: "hide", hide: "off" };
 
@@ -49,6 +63,8 @@ export type FilterCommand =
   | { type: "apply-preset"; id: string }
   | { type: "rename-preset"; id: string; name: string }
   | { type: "delete-preset"; id: string }
+  | { type: "bind-scope"; key: FilterScopeKey; presetId: string }
+  | { type: "unbind-scope"; key: FilterScopeKey }
   | { type: "restore"; state: FilterState };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -80,6 +96,7 @@ export function defaultFilterState(navLanguages: readonly string[]): FilterState
     linkRules: [],
     presets: [],
     compactHidden: false,
+    scopeBindings: {},
   };
 }
 
@@ -139,9 +156,32 @@ function normalizePresets(raw: unknown): FilterPreset[] {
     .slice(0, MAX_FILTER_PRESETS);
 }
 
+/**
+ * Bindings are decoded against the presets that survived decoding, so a pointer
+ * to a preset that is gone — deleted on another device, or dropped by preset
+ * normalization here — is pruned rather than left dangling. That is what makes
+ * deleting a bound preset fall its scopes back to the shared selection.
+ */
+function normalizeScopeBindings(
+  raw: unknown,
+  presets: readonly FilterPreset[],
+): Record<FilterScopeKey, string> {
+  if (!isRecord(raw)) return {};
+  const known = new Set(presets.map((preset) => preset.id));
+  const bindings: Record<FilterScopeKey, string> = {};
+  for (const [key, presetId] of Object.entries(raw)) {
+    if (!isScopeKey(key)) continue;
+    if (!isBoundedString(presetId, MAX_FILTER_ID_LENGTH) || !known.has(presetId)) continue;
+    bindings[key] = presetId;
+    if (Object.keys(bindings).length === MAX_FILTER_SCOPE_BINDINGS) break;
+  }
+  return bindings;
+}
+
 /** Decode persisted state at the worker/client storage seam. */
 export function normalizeFilterState(raw: unknown, defaults: FilterState): FilterState {
   const value = isRecord(raw) ? raw : {};
+  const presets = normalizePresets(value.presets);
   return {
     enabled: typeof value.enabled === "boolean" ? value.enabled : defaults.enabled,
     criteria: normalizeCriteria(value.criteria),
@@ -149,9 +189,10 @@ export function normalizeFilterState(raw: unknown, defaults: FilterState): Filte
       typeof value.onlyMyLanguages === "boolean" ? value.onlyMyLanguages : defaults.onlyMyLanguages,
     myLanguages: normalizeLanguages(value.myLanguages, defaults.myLanguages),
     linkRules: normalizeLinkRules(value.linkRules),
-    presets: normalizePresets(value.presets),
+    presets,
     compactHidden:
       typeof value.compactHidden === "boolean" ? value.compactHidden : defaults.compactHidden,
+    scopeBindings: normalizeScopeBindings(value.scopeBindings, presets),
   };
 }
 
@@ -227,6 +268,18 @@ const isPreset = (value: unknown): value is FilterPreset =>
   typeof value.onlyMyLanguages === "boolean" &&
   (value.myLanguages === undefined || isLanguages(value.myLanguages));
 
+/**
+ * Shape only, deliberately: a binding naming an absent preset is still a
+ * well-formed snapshot, and {@link normalizeFilterState} prunes it. Rejecting
+ * the whole snapshot over one stale pointer would throw away a valid Undo.
+ */
+const isScopeBindings = (value: unknown): value is Record<FilterScopeKey, string> =>
+  isRecord(value) &&
+  Object.keys(value).length <= MAX_FILTER_SCOPE_BINDINGS &&
+  Object.entries(value).every(
+    ([key, presetId]) => isScopeKey(key) && isBoundedString(presetId, MAX_FILTER_ID_LENGTH),
+  );
+
 /** Strict, bounded wire snapshot validation. */
 export function isFilterState(value: unknown): value is FilterState {
   if (
@@ -240,8 +293,10 @@ export function isFilterState(value: unknown): value is FilterState {
         "linkRules",
         "presets",
         "compactHidden",
+        "scopeBindings",
       ].includes(key),
     ) ||
+    !isScopeBindings(value.scopeBindings) ||
     typeof value.enabled !== "boolean" ||
     !isCriteria(value.criteria) ||
     typeof value.onlyMyLanguages !== "boolean" ||
@@ -299,6 +354,19 @@ export function isFilterCommand(value: unknown): value is FilterCommand {
       return (
         isBoundedString(value.id, MAX_FILTER_ID_LENGTH) &&
         Object.keys(value).every((key) => key === "type" || key === "id")
+      );
+    case "bind-scope":
+      return (
+        isScopeKey(value.key) &&
+        isBoundedString(value.presetId, MAX_FILTER_ID_LENGTH) &&
+        Object.keys(value).every(
+          (field) => field === "type" || field === "key" || field === "presetId",
+        )
+      );
+    case "unbind-scope":
+      return (
+        isScopeKey(value.key) &&
+        Object.keys(value).every((field) => field === "type" || field === "key")
       );
     case "restore":
       return (
@@ -369,8 +437,35 @@ export function applyFilterCommand(state: FilterState, command: FilterCommand): 
           preset.id === command.id ? { ...preset, name: command.name } : preset,
         ),
       };
-    case "delete-preset":
-      return { ...state, presets: state.presets.filter((preset) => preset.id !== command.id) };
+    case "delete-preset": {
+      const presets = state.presets.filter((preset) => preset.id !== command.id);
+      // Prune here rather than waiting for the next decode, so those scopes fall
+      // back to the shared selection immediately and no surface ever renders a
+      // binding pointing at a preset that is gone. Decoding prunes too — that
+      // path guards state written by another device, not by this command.
+      return {
+        ...state,
+        presets,
+        scopeBindings: normalizeScopeBindings(state.scopeBindings, presets),
+      };
+    }
+    case "bind-scope": {
+      // The worker must protect its bounded map from a forged or replayed
+      // command, and a binding may only ever point at a preset that exists.
+      if (!state.presets.some((preset) => preset.id === command.presetId)) return state;
+      const isNew = !Object.hasOwn(state.scopeBindings, command.key);
+      if (isNew && Object.keys(state.scopeBindings).length >= MAX_FILTER_SCOPE_BINDINGS)
+        return state;
+      return {
+        ...state,
+        scopeBindings: { ...state.scopeBindings, [command.key]: command.presetId },
+      };
+    }
+    case "unbind-scope": {
+      if (!Object.hasOwn(state.scopeBindings, command.key)) return state;
+      const { [command.key]: _removed, ...scopeBindings } = state.scopeBindings;
+      return { ...state, scopeBindings };
+    }
     case "restore":
       return normalizeFilterState(command.state, state);
   }

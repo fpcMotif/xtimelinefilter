@@ -87,7 +87,7 @@ async function persistOnlyJa(): Promise<void> {
 /**
  * Drives the real `installFilterFeature` end-to-end: a synthetic timeline cell in
  * `document`, a real persisted SettingsStore (createSettings over the chrome.storage
- * mock), and an `inScope()` fake. Asserts the page <style> + Shadow host wiring,
+ * mock), and a `scope()` fake. Asserts the page <style> + Shadow host wiring,
  * that classify/isStubbed delegate to the live applier, that sync() reapplies, and
  * that unmount() removes everything it added.
  */
@@ -125,7 +125,7 @@ describe("installFilterFeature", () => {
     const feature = await installFilterFeature({
       settings,
       highContrastHosts,
-      inScope: () => true,
+      scope: () => ({ kind: "home" }),
     });
     await flush(); // let the surface manager settle its async settings.get() and mount the pill
 
@@ -165,7 +165,7 @@ describe("installFilterFeature", () => {
     const feature = await installFilterFeature({
       settings,
       highContrastHosts,
-      inScope: () => true,
+      scope: () => ({ kind: "home" }),
     });
 
     feature.classify(articleOf(cell));
@@ -195,7 +195,7 @@ describe("installFilterFeature", () => {
     const feature = await installFilterFeature({
       settings,
       highContrastHosts,
-      inScope: () => true,
+      scope: () => ({ kind: "home" }),
       store,
     });
 
@@ -220,7 +220,7 @@ describe("installFilterFeature", () => {
     const feature = await installFilterFeature({
       settings,
       highContrastHosts,
-      inScope: () => true,
+      scope: () => ({ kind: "home" }),
     });
     const surfaceHost = host()!;
     expect(surfaceHost.hasAttribute("data-hc")).toBe(false);
@@ -234,7 +234,7 @@ describe("installFilterFeature", () => {
     highContrastHosts.dispose();
   });
 
-  it("is inert out of scope: classify never collapses while inScope() is false", async () => {
+  it("is inert out of scope: classify never collapses while scope() is null", async () => {
     await persistOnlyJa();
     const settings = createSettings();
     const cell = addCell("en");
@@ -242,7 +242,7 @@ describe("installFilterFeature", () => {
     const feature = await installFilterFeature({
       settings,
       highContrastHosts,
-      inScope: () => false,
+      scope: () => null,
     });
     feature.classify(articleOf(cell));
     expect(feature.isStubbed(cell)).toBe(false);
@@ -259,7 +259,7 @@ describe("installFilterFeature", () => {
       const feature = await installFilterFeature({
         settings,
         highContrastHosts,
-        inScope: () => true,
+        scope: () => ({ kind: "home" }),
         store,
       });
 
@@ -273,6 +273,38 @@ describe("installFilterFeature", () => {
     }
   });
 
+  /**
+   * The production apply-on-navigation path (spec #35): sync() is what a route
+   * change calls, so this drives it rather than calling store.enterScope
+   * directly — otherwise the wiring itself is only ever covered by line count.
+   */
+  it("applies a scope's bound preset when a route change syncs it", async () => {
+    const settings = createSettings();
+    const highContrastHosts = createHighContrastHosts(settings, false);
+    const store = createFilterStore({ navLanguages: ["en"] });
+    store.setMode("kind:link", "only");
+    const preset = store.savePreset("Links only");
+    store.setMode("kind:link", "off");
+    store.bindScope("list:123", preset);
+
+    let scope = { kind: "home" } as ReturnType<Parameters<typeof installFilterFeature>[0]["scope"]>;
+    const feature = await installFilterFeature({
+      settings,
+      highContrastHosts,
+      scope: () => scope,
+      store,
+    });
+    await flush();
+    expect(store.state.value.criteria).toEqual({}); // Home is unbound
+
+    scope = { kind: "list", listId: "123" };
+    feature.sync();
+    expect(store.state.value.criteria).toEqual({ "kind:link": "only" });
+
+    feature.unmount();
+    highContrastHosts.dispose();
+  });
+
   it("forwards palette intents to its surface manager", async () => {
     const settings = createSettings();
     await settings.set({ surfaces: { pill: false, palette: true }, paletteHotkey: "alt+p" });
@@ -280,7 +312,7 @@ describe("installFilterFeature", () => {
     const feature = await installFilterFeature({
       settings,
       highContrastHosts,
-      inScope: () => true,
+      scope: () => ({ kind: "home" }),
     });
     await flush();
 
@@ -306,7 +338,7 @@ describe("installFilterFeature", () => {
     };
 
     await expect(
-      installFilterFeature({ settings, highContrastHosts, inScope: () => true }),
+      installFilterFeature({ settings, highContrastHosts, scope: () => ({ kind: "home" }) }),
     ).rejects.toThrow("host unavailable");
 
     expect(collapseStyle()).toBeNull();
@@ -325,7 +357,7 @@ describe("installFilterFeature", () => {
 
     try {
       await expect(
-        installFilterFeature({ settings, highContrastHosts, inScope: () => true }),
+        installFilterFeature({ settings, highContrastHosts, scope: () => ({ kind: "home" }) }),
       ).rejects.toThrow("surface unavailable");
       expect(unregister).toHaveBeenCalledTimes(1);
       expect(collapseStyle()).toBeNull();
@@ -355,7 +387,7 @@ describe("installFilterFeature", () => {
 
     try {
       await expect(
-        installFilterFeature({ settings, highContrastHosts, inScope: () => true }),
+        installFilterFeature({ settings, highContrastHosts, scope: () => ({ kind: "home" }) }),
       ).rejects.toThrow("sync unavailable");
       expect(unmount).toHaveBeenCalledOnce();
       expect(collapseStyle()).toBeNull();
@@ -376,7 +408,12 @@ describe("installFilterFeature", () => {
 
     try {
       await expect(
-        installFilterFeature({ settings, highContrastHosts, inScope: () => true, store }),
+        installFilterFeature({
+          settings,
+          highContrastHosts,
+          scope: () => ({ kind: "home" }),
+          store,
+        }),
       ).rejects.toThrow("load unavailable");
       expect(dispose).not.toHaveBeenCalled();
       expect(collapseStyle()).toBeNull();

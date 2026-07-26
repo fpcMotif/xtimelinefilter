@@ -9,10 +9,12 @@ import {
   MAX_FILTER_LANGUAGE_LENGTH,
   MAX_FILTER_LINK_RULES,
   MAX_FILTER_PRESETS,
+  MAX_FILTER_SCOPE_BINDINGS,
   normalizeFilterState,
   normalizeLangs,
   selectionChanged,
 } from "@/core/filter-domain";
+import type { FilterState } from "@/core/filter-types";
 
 /**
  * A scope's binding key (spec #31). Null is a policy answer, not a missing name:
@@ -37,6 +39,220 @@ describe("bindingKey", () => {
       bindingKey({ kind: "profile", handle: "1" }),
     ];
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+/** Default state carrying one saved preset, "p1", for bindings to point at. */
+const withPreset = (): FilterState =>
+  applyFilterCommand(defaultFilterState(["en"]), {
+    type: "save-preset",
+    id: "p1",
+    name: "Links only",
+  });
+
+/**
+ * Scope bindings (spec #31): a scope key points at a preset id. A binding is a
+ * pointer, never a second copy of the criteria, so the durable shape stores only
+ * the id and every apply goes back through the preset catalog.
+ */
+describe("scope bindings", () => {
+  it("binds a scope to a preset and unbinds it again", () => {
+    const bound = applyFilterCommand(withPreset(), {
+      type: "bind-scope",
+      key: "list:123",
+      presetId: "p1",
+    });
+    expect(bound.scopeBindings).toEqual({ "list:123": "p1" });
+
+    const unbound = applyFilterCommand(bound, { type: "unbind-scope", key: "list:123" });
+    expect(unbound.scopeBindings).toEqual({});
+  });
+
+  it("refuses to bind a preset that does not exist", () => {
+    const state = withPreset();
+    const next = applyFilterCommand(state, {
+      type: "bind-scope",
+      key: "home",
+      presetId: "ghost",
+    });
+    expect(next).toBe(state);
+  });
+
+  it("rebinds an existing scope to a different preset", () => {
+    const two = applyFilterCommand(withPreset(), {
+      type: "save-preset",
+      id: "p2",
+      name: "Media only",
+    });
+    const bound = applyFilterCommand(two, { type: "bind-scope", key: "home", presetId: "p1" });
+    const rebound = applyFilterCommand(bound, {
+      type: "bind-scope",
+      key: "home",
+      presetId: "p2",
+    });
+    expect(rebound.scopeBindings).toEqual({ home: "p2" });
+  });
+
+  it("leaves state untouched when unbinding a scope that was never bound", () => {
+    const state = withPreset();
+    expect(applyFilterCommand(state, { type: "unbind-scope", key: "home" })).toBe(state);
+  });
+
+  it("drops bindings to a preset when that preset is deleted", () => {
+    const bound = applyFilterCommand(withPreset(), {
+      type: "bind-scope",
+      key: "home",
+      presetId: "p1",
+    });
+    const deleted = applyFilterCommand(bound, { type: "delete-preset", id: "p1" });
+    expect(deleted.presets).toEqual([]);
+    expect(deleted.scopeBindings).toEqual({});
+  });
+
+  it("binding never touches the global toggles or the live selection", () => {
+    // Each global is moved off its default first, so "unaffected" is a real
+    // claim rather than one a no-op would also satisfy.
+    let state = applyFilterCommand(withPreset(), { type: "set-compact-hidden", on: true });
+    state = applyFilterCommand(state, { type: "set-enabled", on: false });
+    state = applyFilterCommand(state, {
+      type: "set-link-rules",
+      rules: [{ host: "lobste.rs", dest: "hn" }],
+    });
+    const bound = applyFilterCommand(state, {
+      type: "bind-scope",
+      key: "home",
+      presetId: "p1",
+    });
+    expect(bound.enabled).toBe(false);
+    expect(bound.compactHidden).toBe(true);
+    expect(bound.linkRules).toEqual([{ host: "lobste.rs", dest: "hn" }]);
+    expect(bound.criteria).toEqual(state.criteria);
+    expect(bound.onlyMyLanguages).toBe(state.onlyMyLanguages);
+  });
+
+  /**
+   * An unreachable key is worse than a dangling preset id: no navigation can
+   * ever resolve to it, and decoding cannot tell it apart from a real one by
+   * looking at the preset catalog. So the grammar is the gate, at both the wire
+   * and the storage boundary.
+   */
+  it("rejects scope keys outside the grammar bindingKey produces", () => {
+    for (const key of [
+      "",
+      "garbage",
+      "bookmarks", // a real Filter scope, but deliberately not bindable
+      "profile:Jack", // un-folded; would shadow the real profile:jack binding
+      "profile:has-a-dash",
+      "profile:this_handle_is_too_long",
+      "list:abc",
+      "list:",
+      "home:extra",
+    ]) {
+      expect(isFilterCommand({ type: "bind-scope", key, presetId: "p1" })).toBe(false);
+      expect(isFilterCommand({ type: "unbind-scope", key })).toBe(false);
+      expect(isFilterState({ ...defaultFilterState([]), scopeBindings: { [key]: "p1" } })).toBe(
+        false,
+      );
+    }
+  });
+
+  it("drops storage bindings whose key is outside the grammar", () => {
+    const decoded = normalizeFilterState(
+      {
+        presets: [{ id: "p1", name: "Kept", criteria: {}, onlyMyLanguages: false }],
+        scopeBindings: { home: "p1", "profile:Jack": "p1", garbage: "p1", "": "p1" },
+      },
+      defaultFilterState([]),
+    );
+    expect(decoded.scopeBindings).toEqual({ home: "p1" });
+  });
+
+  it("holds bindings at the cap and refuses to grow past it", () => {
+    let state = withPreset();
+    for (let i = 0; i < MAX_FILTER_SCOPE_BINDINGS; i++) {
+      state = applyFilterCommand(state, {
+        type: "bind-scope",
+        key: `list:${i}`,
+        presetId: "p1",
+      });
+    }
+    expect(Object.keys(state.scopeBindings)).toHaveLength(MAX_FILTER_SCOPE_BINDINGS);
+
+    const overflowed = applyFilterCommand(state, {
+      type: "bind-scope",
+      key: "home",
+      presetId: "p1",
+    });
+    expect(overflowed).toBe(state);
+
+    // At the cap, replacing an existing key is a swap, not growth — still allowed.
+    const swapped = applyFilterCommand(state, {
+      type: "bind-scope",
+      key: "list:0",
+      presetId: "p1",
+    });
+    expect(Object.keys(swapped.scopeBindings)).toHaveLength(MAX_FILTER_SCOPE_BINDINGS);
+  });
+
+  it("decodes bindings from storage, dropping ones whose preset is gone", () => {
+    const decoded = normalizeFilterState(
+      {
+        presets: [{ id: "p1", name: "Kept", criteria: {}, onlyMyLanguages: false }],
+        scopeBindings: {
+          home: "p1",
+          "list:9": "vanished", // preset no longer in the catalog
+          "profile:jack": 42, // not even an id
+          [`list:${"9".repeat(200)}`]: "p1", // key outside the scope-key grammar
+        },
+      },
+      defaultFilterState([]),
+    );
+    expect(decoded.scopeBindings).toEqual({ home: "p1" });
+  });
+
+  it("decodes a missing or malformed binding map to no bindings", () => {
+    const defaults = defaultFilterState([]);
+    expect(normalizeFilterState({}, defaults).scopeBindings).toEqual({});
+    expect(normalizeFilterState({ scopeBindings: "nope" }, defaults).scopeBindings).toEqual({});
+    expect(normalizeFilterState({ scopeBindings: [] }, defaults).scopeBindings).toEqual({});
+  });
+
+  it("truncates a decoded binding map past the cap", () => {
+    const scopeBindings: Record<string, string> = {};
+    for (let i = 0; i < MAX_FILTER_SCOPE_BINDINGS + 10; i++) scopeBindings[`list:${i}`] = "p1";
+    const decoded = normalizeFilterState(
+      {
+        presets: [{ id: "p1", name: "Kept", criteria: {}, onlyMyLanguages: false }],
+        scopeBindings,
+      },
+      defaultFilterState([]),
+    );
+    expect(Object.keys(decoded.scopeBindings)).toHaveLength(MAX_FILTER_SCOPE_BINDINGS);
+  });
+
+  it("accepts well-formed bind/unbind wire commands and rejects malformed ones", () => {
+    expect(isFilterCommand({ type: "bind-scope", key: "home", presetId: "p1" })).toBe(true);
+    expect(isFilterCommand({ type: "unbind-scope", key: "home" })).toBe(true);
+
+    expect(isFilterCommand({ type: "bind-scope", key: "home" })).toBe(false); // no preset
+    expect(isFilterCommand({ type: "bind-scope", key: 1, presetId: "p1" })).toBe(false);
+    expect(isFilterCommand({ type: "bind-scope", key: "home", presetId: 1 })).toBe(false);
+    expect(isFilterCommand({ type: "bind-scope", key: "home", presetId: "p1", extra: true })).toBe(
+      false,
+    );
+    expect(isFilterCommand({ type: "unbind-scope", key: "home", extra: true })).toBe(false);
+    expect(isFilterCommand({ type: "bind-scope", key: "x".repeat(1000), presetId: "p1" })).toBe(
+      false,
+    );
+  });
+
+  it("validates the binding map as a wire snapshot by shape, leaving repair to decoding", () => {
+    const base = { ...defaultFilterState([]), scopeBindings: { home: "p1" } };
+    // A binding naming an absent preset is still a well-formed snapshot: strict
+    // wire validation checks shape, and normalizeFilterState prunes the dangler.
+    expect(isFilterState(base)).toBe(true);
+    expect(isFilterState({ ...defaultFilterState([]), scopeBindings: { home: 1 } })).toBe(false);
+    expect(isFilterState({ ...defaultFilterState([]), scopeBindings: "nope" })).toBe(false);
   });
 });
 

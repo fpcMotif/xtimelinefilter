@@ -2,13 +2,21 @@ import { signal, type ReadonlySignal } from "@preact/signals-core";
 
 import {
   applyFilterCommand,
+  bindingKey,
   defaultFilterState,
   normalizeFilterState,
   normalizeLangs,
   selectionChanged,
   type FilterCommand,
 } from "@/core/filter-domain";
-import type { CriterionId, FilterMode, FilterState, LinkRule } from "@/core/filter-types";
+import type {
+  CriterionId,
+  FilterMode,
+  FilterScope,
+  FilterScopeKey,
+  FilterState,
+  LinkRule,
+} from "@/core/filter-types";
 import { requestFilterCommand, requestFilterRead } from "@/core/protocol";
 import { syncArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
@@ -35,6 +43,15 @@ export interface FilterStore {
   applyPreset(id: string): void;
   renamePreset(id: string, name: string): void;
   deletePreset(id: string): void;
+  /** Make the scope keyed by `key` carry `presetId`; no-op if it does not exist. */
+  bindScope(key: FilterScopeKey, presetId: string): void;
+  /** Drop that scope's binding, returning it to the shared selection. */
+  unbindScope(key: FilterScopeKey): void;
+  /**
+   * Arrive at a timeline: if it carries a binding, apply that preset. Called on
+   * every SPA route change, so it must stay cheap and idempotent.
+   */
+  enterScope(scope: FilterScope | null): void;
   load(): Promise<void>;
   /** Intentional full replacement used by the conductor's one-entry undo. */
   restore(state: FilterState): void;
@@ -70,6 +87,10 @@ const resumesFiltering = (
     case "save-preset":
     case "rename-preset":
     case "delete-preset":
+    // Binding a scope only records which preset it carries; the live selection
+    // is untouched until the user actually arrives at that scope.
+    case "bind-scope":
+    case "unbind-scope":
       return false;
   }
 };
@@ -174,6 +195,27 @@ export function createFilterStore(deps: FilterStoreDeps = {}): FilterStore {
     applyPreset: (id) => dispatch({ type: "apply-preset", id }),
     renamePreset: (id, name) => dispatch({ type: "rename-preset", id, name }),
     deletePreset: (id) => dispatch({ type: "delete-preset", id }),
+    bindScope: (key, presetId) => dispatch({ type: "bind-scope", key, presetId }),
+    unbindScope: (key) => dispatch({ type: "unbind-scope", key }),
+    enterScope(scope) {
+      if (scope === null) return;
+      const key = bindingKey(scope);
+      if (key === null) return;
+      const presetId = state.value.scopeBindings[key];
+      if (presetId === undefined) return;
+      const command: FilterCommand = { type: "apply-preset", id: presetId };
+      // x.com fires route changes constantly, and re-applying a preset that is
+      // already showing would persist an identical snapshot every time — the
+      // sync-quota burn that reads to the user as UI latency. So apply locally
+      // first purely as a predicate: authority re-applies the command itself, so
+      // this result must be discarded either way, and only a real change is
+      // worth a dispatch.
+      if (!selectionChanged(state.value, applyFilterCommand(state.value, command))) return;
+      // Deliberately not routed through the controller's fail-open wall: that
+      // wall arms shared Undo, and arming it on every navigation would evict the
+      // user's one real Undo entry. Arrival is not a user command.
+      dispatch(command);
+    },
     async load() {
       if (workerBacked) {
         const startedAt = state.value;

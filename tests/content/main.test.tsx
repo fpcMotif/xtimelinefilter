@@ -40,7 +40,7 @@ type Caps = {
   filterDeps?: {
     settings: unknown;
     highContrastHosts: unknown;
-    inScope: AnyFn;
+    scope: AnyFn;
   };
   highContrastListener?: (settings: { highContrast: boolean }) => void;
   settingsListeners?: AnyFn[];
@@ -154,6 +154,7 @@ const H = vi.hoisted(() => {
       getFocusedTweet: vi.fn(() => null as Element | null),
       extractAuthor: vi.fn((_article: Element) => ({ screenName: "a" }) as unknown),
       isInScope: vi.fn(() => true),
+      resolveScope: vi.fn(() => ({ kind: "home" }) as const),
       buildConvex: vi.fn(),
     },
   };
@@ -213,6 +214,7 @@ vi.mock("@/content/overlay-lifecycle", () => ({
 }));
 vi.mock("@/content/route", () => ({
   isInScope: H.spy.isInScope,
+  resolveScope: H.spy.resolveScope,
   onRouteChange: (cb: AnyFn) => {
     H.cap.routeCb = cb;
     return H.fake.routeDispose;
@@ -665,9 +667,10 @@ describe("content boot (main.tsx)", () => {
     H.cap.healthOnBreakage!();
     expect(H.fake.controller.reportBreakage).toHaveBeenCalled();
 
-    // filter feature's scope predicate delegates to the route's isInScope.
-    H.cap.filterDeps!.inScope();
-    expect(H.spy.isInScope).toHaveBeenCalledWith(location.pathname);
+    // filter feature resolves which timeline it is on via the route module, so a
+    // bound scope's preset can be applied on arrival (spec #31).
+    H.cap.filterDeps!.scope();
+    expect(H.spy.resolveScope).toHaveBeenCalledWith(location.pathname);
     const filterInScope = deps.filterInScope as () => boolean;
     H.spy.isInScope.mockReturnValueOnce(false);
     expect(filterInScope()).toBe(false); // off-route keys fall through in the controller

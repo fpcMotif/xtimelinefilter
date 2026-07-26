@@ -66,7 +66,11 @@ export interface FilterPreset {
   myLanguages?: string[];
 }
 
-/** The whole persisted filter configuration (one global filter in v1; storage.sync). */
+/**
+ * The whole persisted filter configuration (storage.sync). One shared selection,
+ * plus per-scope overrides: a scope named in `scopeBindings` carries its own
+ * preset, and every other scope uses the shared one (spec #31).
+ */
 export interface FilterState {
   enabled: boolean;
   criteria: Record<CriterionId, FilterMode>;
@@ -85,6 +89,14 @@ export interface FilterState {
    * (popup toggle), pending live-DOM verification.
    */
   compactHidden: boolean;
+  /**
+   * Which preset each bindable scope carries, keyed by {@link FilterScopeKey}
+   * (spec #31). A binding stores only the preset's id — it is a pointer into
+   * `presets`, never a second copy of the criteria — so a renamed or edited
+   * preset stays in sync everywhere it is bound. A scope with no entry uses the
+   * shared selection above, which is every scope's behavior before #31.
+   */
+  scopeBindings: Record<FilterScopeKey, string>;
 }
 
 export type FilterVerdict = "show" | "hide";

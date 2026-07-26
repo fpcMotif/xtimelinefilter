@@ -352,6 +352,7 @@ describe("worker Filter protocol", () => {
       linkRules: [],
       presets: [],
       compactHidden: false,
+      scopeBindings: {},
     };
     const sendMessage = vi
       .fn()

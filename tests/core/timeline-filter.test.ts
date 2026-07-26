@@ -24,6 +24,7 @@ const BASE_STATE: FilterState = {
   linkRules: [],
   presets: [],
   compactHidden: false,
+  scopeBindings: {},
 };
 const st = (p: Partial<FilterState>): FilterState => ({ ...BASE_STATE, ...p });
 

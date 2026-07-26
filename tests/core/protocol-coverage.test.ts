@@ -193,6 +193,7 @@ describe("filter request wrapper", () => {
     linkRules: [],
     presets: [],
     compactHidden: false,
+    scopeBindings: {},
   };
 
   it("copies defaults, validates responses, and carries transport rejection", async () => {

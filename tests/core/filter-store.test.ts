@@ -33,6 +33,53 @@ describe("createFilterStore", () => {
     }
   });
 
+  it("binds a scope and applies it on arrival through the worker (spec #31)", async () => {
+    const previous = globalThis.chrome;
+    let authority = defaultFilterState(["en"]);
+    const sendMessage = vi.fn((request: unknown) => {
+      const command = (request as { command?: Parameters<typeof applyFilterCommand>[1] }).command;
+      if (command) authority = applyFilterCommand(authority, command);
+      return Promise.resolve({ ok: true, state: authority });
+    });
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const s = createFilterStore({ navLanguages: ["en"] });
+      s.setMode("kind:link", "only");
+      const preset = s.savePreset("Links only");
+      s.setMode("kind:link", "off");
+      s.bindScope("list:123", preset);
+      await vi.waitFor(() => expect(authority.scopeBindings).toEqual({ "list:123": preset }));
+
+      // The binding reached worker authority as a real command, so arriving at
+      // the scope applies it the same way the injected-storage path does.
+      s.enterScope({ kind: "list", listId: "123" });
+      expect(s.state.value.criteria).toEqual({ "kind:link": "only" });
+      await vi.waitFor(() => expect(authority.criteria).toEqual({ "kind:link": "only" }));
+
+      // Drift is live-only: editing here must not rewrite the binding at
+      // authority, and returning must discard the edit.
+      s.setMode("kind:video", "hide");
+      await vi.waitFor(() => expect(authority.criteria["kind:video"]).toBe("hide"));
+      expect(authority.scopeBindings).toEqual({ "list:123": preset });
+      s.enterScope({ kind: "home" });
+      s.enterScope({ kind: "list", listId: "123" });
+      expect(s.state.value.criteria).toEqual({ "kind:link": "only" });
+
+      // Unbind crosses the wire too, after which arrival stops applying.
+      s.unbindScope("list:123");
+      await vi.waitFor(() => expect(authority.scopeBindings).toEqual({}));
+      s.setMode("kind:link", "off");
+      s.setMode("kind:photo", "hide");
+      const beforeArrival = s.state.value.criteria;
+      s.enterScope({ kind: "list", listId: "123" });
+      expect(s.state.value.criteria).toEqual(beforeArrival);
+      expect(s.state.value.criteria).toEqual({ "kind:photo": "hide" });
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
   it("adopts worker authority, but never lets a stale read erase a newer local edit", async () => {
     const previous = globalThis.chrome;
     let resolveRead!: (value: unknown) => void;
@@ -220,6 +267,7 @@ describe("createFilterStore", () => {
       linkRules: [],
       presets: [],
       compactHidden: false,
+      scopeBindings: {},
     });
   });
 
@@ -242,6 +290,7 @@ describe("createFilterStore", () => {
       linkRules: [{ host: "lemmy.world", dest: "reddit" }],
       presets: [],
       compactHidden: false,
+      scopeBindings: {},
     });
   });
 
@@ -608,6 +657,7 @@ describe("createFilterStore", () => {
       linkRules: [],
       presets: [],
       compactHidden: false,
+      scopeBindings: {},
     };
     expect(
       normalizeFilterState(
@@ -652,6 +702,7 @@ describe("createFilterStore", () => {
         },
       ],
       compactHidden: false,
+      scopeBindings: {},
     });
   });
 
@@ -664,6 +715,7 @@ describe("createFilterStore", () => {
       linkRules: [],
       presets: [],
       compactHidden: false,
+      scopeBindings: {},
     };
 
     expect(normalizeFilterState(null, defaults)).toEqual(defaults);
@@ -695,6 +747,7 @@ describe("createFilterStore", () => {
       linkRules: [],
       presets: [],
       compactHidden: false,
+      scopeBindings: {},
     });
 
     s.setEnabled(false);
@@ -707,6 +760,7 @@ describe("createFilterStore", () => {
       linkRules: [],
       presets: [],
       compactHidden: false,
+      scopeBindings: {},
     });
   });
 
@@ -731,6 +785,7 @@ describe("createFilterStore", () => {
         linkRules: [{ host: "lobste.rs", dest: "hn" }],
         presets: [],
         compactHidden: true,
+        scopeBindings: {},
       });
 
       s.dispose();
@@ -756,6 +811,7 @@ describe("createFilterStore", () => {
       linkRules: [],
       presets: [],
       compactHidden: false,
+      scopeBindings: {},
     });
   });
 });

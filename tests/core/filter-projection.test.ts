@@ -13,6 +13,7 @@ function makeState(over: Partial<FilterState> = {}): FilterState {
     linkRules: [],
     presets: [],
     compactHidden: false,
+    scopeBindings: {},
     ...over,
   };
 }

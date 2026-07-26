@@ -51,6 +51,7 @@ const BASE_STATE: FilterState = {
   linkRules: [],
   presets: [],
   compactHidden: false,
+  scopeBindings: {},
 };
 
 describe("criterion matchers", () => {

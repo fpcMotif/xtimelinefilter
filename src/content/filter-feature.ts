@@ -3,6 +3,7 @@ import { FilterAttributes } from "@/content/filter-attributes";
 import type { HighContrastHosts } from "@/content/high-contrast-hosts";
 import { mountFilterSurfaces, type SurfaceManager } from "@/content/surface-mount";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
+import type { FilterScope } from "@/core/filter-types";
 import type { SettingsStore } from "@/core/settings";
 import { createUiRoot } from "@/ui/mount";
 
@@ -17,7 +18,10 @@ export interface FilterFeature {
    * Accepts either the article or its enclosing cell.
    */
   isStubbed(el: Element): boolean;
-  /** Re-evaluate surfaces + re-apply collapses (call on SPA route change). */
+  /**
+   * Arrive at the current route: apply the scope's bound preset if it has one,
+   * then re-evaluate surfaces and re-apply collapses. Call on SPA route change.
+   */
   sync(): void;
   /** Explicit keyboard intents; content/keyboard remains the only key listener. */
   paletteHotkey(): string | null;
@@ -31,8 +35,13 @@ export interface FilterFeature {
 export interface FilterFeatureDeps {
   settings: SettingsStore;
   highContrastHosts: HighContrastHosts;
-  /** True on Home / List / profile timelines — the Filter is inert elsewhere. */
-  inScope: () => boolean;
+  /**
+   * Which timeline the page is on, or null off a Filter timeline — the Filter is
+   * inert elsewhere. Richer than a boolean because arriving at a bound scope
+   * applies its preset (spec #31); the in-scope test is derived from it, so the
+   * two can never disagree.
+   */
+  scope: () => FilterScope | null;
   /** Shared filter store (so the controller conducts the same one the surfaces show); omit ⇒ the feature creates its own. */
   store?: FilterStore;
   /** Route in-page Filter commands through the controller's fail-open wall; omit ⇒ surfaces edit the store directly. */
@@ -59,7 +68,8 @@ export const COLLAPSE_CSS =
  * does nothing until the user sets a chip, and fails open.
  */
 export async function installFilterFeature(deps: FilterFeatureDeps): Promise<FilterFeature> {
-  const { settings, highContrastHosts, inScope } = deps;
+  const { settings, highContrastHosts, scope } = deps;
+  const inScope = (): boolean => scope() !== null;
 
   const store = deps.store ?? createFilterStore();
   const ownsStore = deps.store === undefined;
@@ -111,6 +121,9 @@ export async function installFilterFeature(deps: FilterFeatureDeps): Promise<Fil
   }
 
   const sync = (): void => {
+    // Arriving first: a bound scope's preset becomes the live selection before
+    // the surfaces render it and the applier re-collapses against it.
+    store.enterScope(scope());
     surfaces!.update();
     applier.reapplyAll();
   };

@@ -13,7 +13,7 @@ import { installHoverTracker } from "@/content/hover-tracker";
 import { DEFAULT_KEYMAP, installKeyboardLayer } from "@/content/keyboard";
 import { outermostTweet } from "@/content/outermost-tweet";
 import { createOverlayLifecycle } from "@/content/overlay-lifecycle";
-import { isInScope, onRouteChange } from "@/content/route";
+import { isInScope, onRouteChange, resolveScope } from "@/content/route";
 import { createScannerHealth } from "@/content/scanner-health";
 import { installSelectTap } from "@/content/select-tap";
 import { Selectors, SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
@@ -250,7 +250,7 @@ async function install(
     const filter = await installFilterFeature({
       settings: settingsStore,
       highContrastHosts,
-      inScope: () => isInScope(location.pathname),
+      scope: () => resolveScope(location.pathname),
       store: filterStore,
       conduct: controller.filterCommand,
     });

@@ -46,7 +46,7 @@ These terms define the product. Architecture lives in
 - **Filter mode** — `off`, `only`, or `hide`.
 - **Filter projection** — the derived badge count and palette catalog in `core/filter-projection.ts`. Surfaces consume one policy.
 - **Filter command** — a temporary, reversible in-page action. The controller conducts it behind a fail-open wall and may arm shared Undo.
-- **Filter preference** — durable configuration: criteria, link rules, languages, presets, surfaces, compact mode, and the master toggle.
+- **Filter preference** — durable configuration: criteria, link rules, languages, presets, scope bindings, surfaces, compact mode, and the master toggle.
 - **Hidden cell** — a filtered timeline cell collapsed to a reversible stub, never removed. Its overlay and pointer/keyboard targets are inert until shown.
 - **Compact mode** — the opt-in mode that also hides the stub. It remains experimental pending live X verification.
 
