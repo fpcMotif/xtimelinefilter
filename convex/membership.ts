@@ -209,6 +209,8 @@ export const recordAssign = mutation({
   handler: async (ctx, args) => {
     assertDeviceKey(args.deviceKey);
     const now = Date.now();
+    const { listId } = args.list;
+    const { userId: ownerUserId } = args.owner;
 
     const ownerState = await upsertOwner(ctx, args.owner, now, args.ownerObservedAt ?? 0);
     const provenResults = args.results.filter(
@@ -223,7 +225,7 @@ export const recordAssign = mutation({
         (result.observedAt ?? 0) >= ownerState.catalogObservedAt,
     );
     if (currentProofs.length > 0) {
-      await proveListCurrent(ctx, args.list, args.owner.userId, ownerState.catalogGeneration);
+      await proveListCurrent(ctx, args.list, ownerUserId, ownerState.catalogGeneration);
       const catalogFactObservedAt = Math.max(
         ownerState.catalogFactObservedAt ?? 0,
         ...currentProofs.map((result) => result.observedAt ?? 0),
@@ -237,8 +239,8 @@ export const recordAssign = mutation({
       const observedAt = result.observedAt ?? 0;
       // Audit log: always one event per result, every outcome.
       await ctx.db.insert("events", {
-        listId: args.list.listId,
-        ownerUserId: args.owner.userId,
+        listId,
+        ownerUserId,
         memberScreenName: result.memberScreenName,
         memberUserId: result.memberUserId,
         ...(result.memberIdentity !== undefined ? { memberIdentity: result.memberIdentity } : {}),
@@ -254,7 +256,7 @@ export const recordAssign = mutation({
       // Snapshot mutates only on a real membership change.
       if (result.outcome === "added" || result.outcome === "already-member") {
         await setSnapshot(ctx, {
-          listId: args.list.listId,
+          listId,
           memberScreenName: result.memberScreenName,
           memberUserId: result.memberUserId,
           memberIdentity: result.memberIdentity,
@@ -265,7 +267,7 @@ export const recordAssign = mutation({
         });
       } else if (result.outcome === "removed") {
         await setSnapshot(ctx, {
-          listId: args.list.listId,
+          listId,
           memberScreenName: result.memberScreenName,
           memberUserId: result.memberUserId,
           memberIdentity: result.memberIdentity,

@@ -127,7 +127,7 @@ test.describe("content UI (real bundle, chrome stubbed)", () => {
     await expect(page.getByText("Lasso is ready")).toBeHidden();
 
     // Beat 4 — checks are hidden until hover; click selects the PERSON.
-    const overlay = page.getByRole("button", { name: /select this author/i });
+    const overlay = page.getByRole("button", { name: "Select @jack" });
     await page.hover("article");
     await expect(overlay).toBeVisible();
     await overlay.click();

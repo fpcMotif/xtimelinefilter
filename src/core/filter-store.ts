@@ -65,9 +65,13 @@ export interface FilterStoreDeps {
 /** "ja-JP" → "ja"; lowercased, trimmed, empties dropped, deduped (order-preserving). */
 export function normalizeLangs(langs: readonly string[]): string[] {
   const out: string[] = [];
+  const seen = new Set<string>();
   for (const raw of langs) {
     const base = raw.split("-")[0]?.toLowerCase().trim();
-    if (base && !out.includes(base)) out.push(base);
+    if (base && !seen.has(base)) {
+      seen.add(base);
+      out.push(base);
+    }
   }
   return out;
 }

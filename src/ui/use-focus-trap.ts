@@ -59,9 +59,8 @@ function previouslyFocusedElement(container: HTMLElement): HTMLElement | null {
  * an open Shadow DOM, and a container-level listener works across that boundary
  * without depending on event retargeting.
  */
-export function useFocusTrap(containerRef: RefObject<HTMLElement>, active = true): void {
+export function useFocusTrap(containerRef: RefObject<HTMLElement>): void {
   useEffect(() => {
-    if (!active) return;
     const container = containerRef.current;
     if (!container) return;
 
@@ -101,5 +100,5 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement>, active = true
       container.removeEventListener("keydown", onKeyDown);
       if (previouslyFocused?.isConnected) focusWithoutScroll(previouslyFocused);
     };
-  }, [containerRef, active]);
+  }, [containerRef]);
 }

@@ -92,21 +92,21 @@ export async function ensureOk(res: Response, profile: ErrorProfile): Promise<un
     ?.errors;
   if (Array.isArray(errors) && errors.length > 0) {
     const message = errors.map((e) => e.message ?? "").join(profile.joinSeparator);
-    const codes = errors.map((e) => e.code);
+    const codes = new Set(errors.map((e) => e.code));
     for (const rule of profile.rules) {
       if (rule.kind === "already-member" && rule.messageMatch.test(message)) {
         throw new XApiError("already-member", message);
       }
       if (
         rule.kind === "protected" &&
-        (rule.codes.some((c) => codes.includes(c)) || (rule.messageMatch?.test(message) ?? false))
+        (rule.codes.some((c) => codes.has(c)) || (rule.messageMatch?.test(message) ?? false))
       ) {
         throw new XApiError("protected", message);
       }
-      if (rule.kind === "rate-limited" && rule.codes.some((c) => codes.includes(c))) {
+      if (rule.kind === "rate-limited" && rule.codes.some((c) => codes.has(c))) {
         throw new XApiError("rate-limited", message, { resetAt: rateLimitResetOf(res) });
       }
-      if (rule.kind === "auth" && rule.codes.some((c) => codes.includes(c))) {
+      if (rule.kind === "auth" && rule.codes.some((c) => codes.has(c))) {
         throw new XApiError("auth", message);
       }
     }

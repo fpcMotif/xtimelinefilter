@@ -39,6 +39,10 @@ jobs:
         run: bun run format:check
 
       - name: Unit tests (100% coverage gate)
+        env:
+          # Settings tests exercise the development-only default Mirror identity.
+          VITE_CONVEX_URL: https://ci-test.convex.cloud
+          VITE_LASSO_DEVICE_KEY: ci-test-device-key
         run: bun run test:coverage
 
       - name: Build extension

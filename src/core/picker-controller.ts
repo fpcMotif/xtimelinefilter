@@ -197,19 +197,22 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
     const projectedTargets = new Map<string, ChoiceTarget>();
 
     for (const catalog of visible) {
+      const catalogOwner = catalog.owner;
+      const catalogOwnerUserId = catalogOwner?.userId ?? null;
       const writableCatalog =
         active &&
-        (catalog.owner ? active.owner?.userId === catalog.owner.userId : active.owner === null)
+        (catalogOwner ? active.owner?.userId === catalogOwnerUserId : active.owner === null)
           ? active
           : null;
       const rows = catalog.lists.map((list): PickerRow => {
-        const key = rowKey(generation, catalog.owner?.userId ?? null, list.id);
-        const hit = hits.get(catalogKey(catalog.owner?.userId ?? null, list.id));
+        const listId = list.id;
+        const key = rowKey(generation, catalogOwnerUserId, listId);
+        const hit = hits.get(catalogKey(catalogOwnerUserId, listId));
         const live = writableCatalog ? xMemberships.value : null;
         const membership: PickerMembership = writableCatalog
           ? live
             ? {
-                kind: live.has(list.id) ? "present" : "absent",
+                kind: live.has(listId) ? "present" : "absent",
                 source: "x-live",
               }
             : { kind: "unknown" }
@@ -220,7 +223,7 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
                 asOf: hit.lastSeenAt,
               }
             : { kind: "unknown" };
-        const targetOwner = snapshotOwner(catalog.owner);
+        const targetOwner = snapshotOwner(catalogOwner);
         const targetList = snapshotList(list);
         const access: PickerRow["access"] = writableCatalog
           ? Object.freeze({
@@ -248,7 +251,7 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
       const ranked = q ? fuzzyRank(q, rows, (row) => row.list.name) : rows;
       if (selectedScope.kind === "all") {
         groups.push({
-          label: catalog.owner ? `@${catalog.owner.screenName}` : "Current account",
+          label: catalogOwner ? `@${catalogOwner.screenName}` : "Current account",
           rows: ranked,
         });
         continue;

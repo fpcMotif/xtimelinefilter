@@ -38,6 +38,24 @@ describe("FilterPalette", () => {
     expect(r.queryByRole("combobox")).toBeNull();
   });
 
+  it("resets query and highlight before a reopened palette renders", () => {
+    const store = createFilterStore({ navLanguages: ["ja"] });
+    const view = (open: boolean) => <FilterPalette store={store} open={open} onClose={() => {}} />;
+    const r = render(view(true));
+    const input = () => r.getByRole("combobox") as HTMLInputElement;
+
+    fireEvent.input(input(), { target: { value: "video" } });
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    expect(input().value).toBe("video");
+
+    r.rerender(view(false));
+    r.rerender(view(true));
+
+    const options = r.getAllByRole("option");
+    expect(input().value).toBe("");
+    expect(input().getAttribute("aria-activedescendant")).toBe(options[0]?.id);
+  });
+
   it("uses the modal layer", () => {
     const { r } = setup();
     const scrim = r.getByRole("presentation") as HTMLElement;
