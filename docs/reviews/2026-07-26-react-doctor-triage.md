@@ -13,7 +13,7 @@ React Doctor v0.9.1 reported 300 warnings: 277 bugs, 17 performance,
 | `async-await-in-loop` | 5 | 2 false positives; 3 need design | Caret polling must wait in order. GraphQL scraping stops after the first sufficient bundle. Convex writes may carry audit, duplicate-input, or ordering semantics; do not parallelize blindly. |
 | `js-set-map-lookups` | 4 | True, high confidence | Repeated membership checks. Convert to sets where it keeps the ordered rule behavior. |
 | `js-combine-iterations` | 4 | True, low impact | Arrays are small or the separate passes express separate outputs. Defer until profiling or nearby work justifies denser loops. |
-| `js-cache-property-access` | 3 | True, high confidence | Cache stable IDs used repeatedly inside loops. Safe local cleanup. |
+| `js-cache-property-access` | 3 | 2 true; 1 false positive | Cache stable IDs used repeatedly inside a loop. The `row.list.id` hits occur in separate array callbacks, so one shared read would not help. |
 | `no-reset-all-state-on-prop-change` | 1 | True, high confidence | The palette paints old query/highlight state before its open effect resets them. Remount open content instead. |
 | `no-adjust-state-on-prop-change` | 2 | True, high confidence | Same palette lifecycle root cause. |
 | `no-effect-chain` | 1 | True, high confidence | Same palette lifecycle root cause. |
@@ -25,7 +25,7 @@ React Doctor v0.9.1 reported 300 warnings: 277 bugs, 17 performance,
 | `no-giant-component` | 1 | True, medium confidence | `OptionsApp` needs an architecture-sized split, not incidental movement in this cleanup. |
 | `prefer-useReducer` | 1 | True, medium confidence | Related options state could gain explicit transitions. Defer with the component split. |
 
-Totals: 278 false positives, 19 confirmed, 3 needing design.
+Totals: 279 false positives, 18 confirmed, 3 needing design.
 
 ## Fix stack
 
