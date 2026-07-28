@@ -1,4 +1,5 @@
 import { isCacheObservation, type CacheObservation } from "@/core/cache-observation";
+import { isXId } from "@/core/protocol/x-id";
 import type { Owner } from "@/packages/membership-store/types";
 import type { XList } from "@/packages/x-client/types";
 
@@ -31,12 +32,10 @@ const atMost = (value: string, max: number): boolean => {
   }
   return true;
 };
-const ID = /^[1-9][0-9]{0,63}$/;
-const id = (value: unknown): value is string => typeof value === "string" && ID.test(value);
 const owner = (value: unknown): value is Owner =>
   record(value) &&
   Object.keys(value).every((key) => key === "userId" || key === "screenName") &&
-  id(value.userId) &&
+  isXId(value.userId) &&
   typeof value.screenName === "string" &&
   atMost(value.screenName, 50);
 const list = (value: unknown): value is XList =>
@@ -44,7 +43,7 @@ const list = (value: unknown): value is XList =>
   Object.keys(value).every(
     (key) => key === "id" || key === "name" || key === "memberCount" || key === "isPrivate",
   ) &&
-  id(value.id) &&
+  isXId(value.id) &&
   typeof value.name === "string" &&
   value.name.trim().length > 0 &&
   atMost(value.name, 100) &&

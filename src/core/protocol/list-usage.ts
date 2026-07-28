@@ -1,3 +1,5 @@
+import { isXId } from "@/core/protocol/x-id";
+
 export type ListUsageRequest =
   | { type: "lasso:list-usage"; operation: "record"; ownerUserId: string; listId: string }
   | { type: "lasso:list-usage"; operation: "recent"; ownerUserId: string; limit: number };
@@ -5,13 +7,11 @@ export type ListUsageSuccess = { listIds?: never } | { listIds: string[] };
 export type ListUsageResponse = ({ ok: true } & ListUsageSuccess) | { ok: false; error: string };
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const ID = /^[1-9][0-9]{0,63}$/;
-const id = (value: unknown): value is string => typeof value === "string" && ID.test(value);
 export function isListUsageRequest(msg: unknown): msg is ListUsageRequest {
-  if (!record(msg) || msg.type !== "lasso:list-usage" || !id(msg.ownerUserId)) return false;
+  if (!record(msg) || msg.type !== "lasso:list-usage" || !isXId(msg.ownerUserId)) return false;
   if (msg.operation === "record")
     return (
-      id(msg.listId) &&
+      isXId(msg.listId) &&
       Object.keys(msg).every((key) => ["type", "operation", "ownerUserId", "listId"].includes(key))
     );
   return (
@@ -37,7 +37,7 @@ export async function requestListUsage(request: ListUsageRequest): Promise<ListU
       !Array.isArray(response.listIds) ||
       response.listIds.length > request.limit ||
       response.listIds.length > 100 ||
-      !response.listIds.every(id)
+      !response.listIds.every(isXId)
     )
       throw new Error("Invalid list usage response");
     return { ok: true, listIds: response.listIds as string[] };

@@ -77,6 +77,13 @@ const CHROME_STUB = `(() => {
     linkRules: [],
     presets: [],
     compactHidden: false,
+    // MUST stay a complete FilterState: the real client re-validates every
+    // worker response against isFilterState, which checks an EXACT key set. A
+    // field added to FilterState and missed here makes every command reject,
+    // and the store's optimistic update silently rolls back — the chip appears
+    // to ignore the click rather than erroring. That is how scopeBindings broke
+    // this harness once already.
+    scopeBindings: {},
   });
   const filterCommand = async (request) => {
     const key = "lasso:filter";
