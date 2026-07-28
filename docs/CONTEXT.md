@@ -68,6 +68,7 @@ These terms define the product. Architecture lives in
 - **Storage fanout** — ordered change delivery per storage area/key to extension pages and top-level content.
 - **Observation token** — an epoch and sequence attached to an async cache read. A newer token wins.
 - **Clear epoch** — Privacy clear rotates the observation epoch. Work started before clear cannot restore old cache data.
+- **Collections family** — the worker request family every surface reaches Folders through. Its operations mirror the Collection Store contract one-for-one plus two index-backed count reads. No request or response carries an Owner, an `ownerUserId` or a screen name; the one field in the family that may hold an X account id is the account on a bookmark-evidence write, where it is an attribute of an observation. Messages validate by exact key set, so an account field added under any name is rejected.
 - **Direct adapter** — an injected or non-extension storage path. Production Settings and Filter use worker commands; direct adapters preserve testability without becoming browser authority.
 
 ## Interaction

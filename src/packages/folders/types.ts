@@ -209,4 +209,11 @@ export interface CollectionStore {
   countSavedPosts(): Promise<number>;
   /** A bounded, ordered page. Never reads a whole Folder into memory. */
   readFolderPage(params: ReadFolderPageParams): Promise<FolderPage>;
+
+  /**
+   * Releases whatever the implementation holds open. Privacy Clear calls this
+   * before destroying the database — an open connection blocks the delete — and
+   * a store is not expected to be usable afterwards.
+   */
+  close(): void;
 }

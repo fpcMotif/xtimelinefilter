@@ -1,7 +1,9 @@
 import {
   createCollections,
   defaultCollectionStore,
+  defaultDatabaseDestroyer,
   type CollectionStoreFactory,
+  type DatabaseDestroyer,
 } from "@/background/data-lifecycle/collections";
 import {
   isCoachCommand,
@@ -76,12 +78,14 @@ export function createDataLifecycle(
    * IndexedDB implementation.
    */
   openCollectionStore: CollectionStoreFactory = defaultCollectionStore,
+  /** Destroys the collections database on Privacy Clear. Injected for the same reason. */
+  destroyCollectionsDatabase: DatabaseDestroyer = defaultDatabaseDestroyer,
 ): DataLifecycle {
   const serialize = <T>(operation: () => Promise<T>): Promise<T> =>
     serializeWorkerStorage(local, operation);
   const settings = createSettingsAuthority(local, sync, createMirrorConfigId);
   const observedXCache = createObservedXCache(local, cacheUuid);
-  const collections = createCollections(local, openCollectionStore);
+  const collections = createCollections(local, openCollectionStore, destroyCollectionsDatabase);
 
   const readFilter = async (defaultLanguages: readonly string[]): Promise<FilterState> => {
     const defaults = defaultFilterState(defaultLanguages);
@@ -182,7 +186,7 @@ export function createDataLifecycle(
     listUsage: (request) => serialize(() => listUsage(request)),
     mirrorStatus: (request) => serialize(() => mirrorStatus(request)),
     graphqlCatalog: (request) => serialize(() => observedXCache.graphqlCatalog(request)),
-    collections: (request) => serialize(() => collections(request)),
-    clear: () => serialize(() => erasePrivateData(local, sync, cacheUuid)),
+    collections: (request) => serialize(() => collections.run(request)),
+    clear: () => serialize(() => erasePrivateData(local, sync, cacheUuid, collections.destroy)),
   };
 }

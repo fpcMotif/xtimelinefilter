@@ -116,6 +116,10 @@ describe.each(implementations)("CollectionStore contract: $label", ({ make }) =>
     ).toBe(true);
   });
 
+  it("releases whatever it holds open, and says nothing about it", () => {
+    expect(store.close()).toBeUndefined();
+  });
+
   it("counts are numbers and a page is bounded and well-formed", async () => {
     const { folderId } = await store.createFolder({ name: "Research" });
     expect(typeof (await store.countFolder({ folderId }))).toBe("number");

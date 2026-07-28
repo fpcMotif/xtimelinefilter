@@ -63,6 +63,7 @@ export class NullCollectionStore implements CollectionStore {
   async countSavedPosts(): Promise<number> {
     return 0;
   }
+  close(): void {}
   async readFolderPage(): Promise<FolderPage> {
     return { posts: [], nextCursor: null };
   }

@@ -10,11 +10,23 @@ import {
   type CollectionsSuccess,
 } from "@/core/protocol/collections";
 import type { StorageLike } from "@/core/storage-areas";
-import { STORAGE_KEYS } from "@/core/storage-keys";
+import { COLLECTIONS_DATABASE, STORAGE_KEYS } from "@/core/storage-keys";
 import type { CollectionStore } from "@/packages/folders/types";
 
 /** Builds the one store this worker will ever own. Tests substitute an in-memory one. */
 export type CollectionStoreFactory = () => Promise<CollectionStore>;
+
+/** Destroys the collections database. True only when it is really gone. */
+export type DatabaseDestroyer = () => Promise<boolean>;
+
+/** Runs cleanup whose failure must not change what the caller reports. */
+function safely(run: () => void): void {
+  try {
+    run();
+  } catch {
+    // Deliberately swallowed; see the caller for why its verdict comes elsewhere.
+  }
+}
 
 /** Raised when the database cannot be opened, so no caller is told a save landed. */
 export class CollectionsUnavailableError extends Error {
@@ -46,7 +58,11 @@ export class FolderLimitError extends Error {
  * store. The only account that reaches the database is the `xAccountId` a
  * bookmark-evidence write carries as part of its own observation.
  */
-export function createCollections(local: StorageLike, openStore: CollectionStoreFactory) {
+export function createCollections(
+  local: StorageLike,
+  openStore: CollectionStoreFactory,
+  destroyDatabase: DatabaseDestroyer = defaultDatabaseDestroyer,
+) {
   // MV3 kills the worker; the store is reopened lazily on the next operation and
   // a failed open is not cached, so a transient failure can recover.
   let pending: Promise<CollectionStore> | null = null;
@@ -80,7 +96,30 @@ export function createCollections(local: StorageLike, openStore: CollectionStore
   const liveFolderCount = async (): Promise<number> =>
     (await (await store()).listFolders({})).length;
 
-  return async function collections(request: CollectionsRequest): Promise<CollectionsSuccess> {
+  /**
+   * Privacy Clear's leg. The open connection is released first — it would
+   * otherwise block the delete indefinitely — and the memoized store is dropped
+   * so the next operation reopens a fresh, empty database. Reports whether the
+   * database is actually gone, because Options tells the user "could not clear
+   * all data" on anything less.
+   */
+  const destroy = async (): Promise<boolean> => {
+    const opened = pending;
+    pending = null;
+    if (opened) {
+      // A failure to close is not the verdict — deleteDatabase is. If the
+      // connection really is stuck open, the delete reports `blocked` and Clear
+      // says so; treating a close error as the answer would report a failure
+      // even when the database went away cleanly.
+      await opened.then(
+        (db) => safely(() => db.close()),
+        () => undefined,
+      );
+    }
+    return destroyDatabase();
+  };
+
+  const run = async function collections(request: CollectionsRequest): Promise<CollectionsSuccess> {
     if (request.operation === "begin") return { token: await issueToken() };
     if ("token" in request && (await fenced(request.token))) {
       throw new Error("This change was started before your data was cleared, so it was discarded.");
@@ -161,6 +200,8 @@ export function createCollections(local: StorageLike, openStore: CollectionStore
         };
     }
   };
+
+  return { run, destroy };
 }
 
 /**
@@ -178,3 +219,18 @@ export const defaultCollectionStore: CollectionStoreFactory = async () => {
     keyRange: globalThis.IDBKeyRange,
   });
 };
+
+/**
+ * Deletes the worker-owned database. A `blocked` event means some connection is
+ * still open, which would hang the delete — so it resolves false and Clear
+ * reports honestly rather than waiting forever on a promise that never settles.
+ */
+export const defaultDatabaseDestroyer: DatabaseDestroyer = () =>
+  new Promise<boolean>((resolve) => {
+    const factory = globalThis.indexedDB;
+    if (!factory) return resolve(true);
+    const request = factory.deleteDatabase(COLLECTIONS_DATABASE);
+    request.addEventListener("success", () => resolve(true));
+    request.addEventListener("error", () => resolve(false));
+    request.addEventListener("blocked", () => resolve(false));
+  });

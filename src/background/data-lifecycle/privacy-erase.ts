@@ -12,6 +12,13 @@ export async function erasePrivateData(
   local: StorageLike,
   sync: StorageLike,
   createCacheUuid: () => string,
+  /**
+   * Destroys the worker-owned collections database — Folders, Saved Posts,
+   * membership rows, bookmark evidence and Destination sync state. The local leg
+   * reports success only when this succeeded too, so Options' existing "could
+   * not clear all data" copy stays correct.
+   */
+  destroyCollections: () => Promise<boolean>,
 ): Promise<ClearLassoDataResult> {
   try {
     const raw = (await local.get(STORAGE_KEYS.cacheObservation))[STORAGE_KEYS.cacheObservation];
@@ -25,5 +32,9 @@ export async function erasePrivateData(
     // failure; synced data has no async cache writers and can still be erased.
     return { localCleared: false, syncCleared: await clearLassoSyncData(sync) };
   }
-  return clearLassoData(local, sync);
+  const [cleared, collectionsDestroyed] = await Promise.all([
+    clearLassoData(local, sync),
+    destroyCollections().catch(() => false),
+  ]);
+  return { ...cleared, localCleared: cleared.localCleared && collectionsDestroyed };
 }

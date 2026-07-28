@@ -23,7 +23,23 @@ export const STORAGE_KEYS = {
   graphqlCatalog: "lasso.graphqlCatalog.v2",
   /** chrome.storage.local — private global fence for asynchronous cache observations. */
   cacheObservation: "lasso:cache-observation",
+  /**
+   * chrome.storage.local — RESERVED for the Destination tokens a later ticket
+   * writes (Notion, Airtable). Registered now, empty, so Privacy Clear already
+   * sweeps it: a new prefixed key added later would otherwise escape the sweep
+   * until somebody remembered to add it. Deliberately NOT a LassoSettings field,
+   * so the popup's Settings read grant cannot reach a token.
+   */
+  destinationSecrets: "lasso:destination-secrets",
 } as const;
+
+/**
+ * The worker-owned IndexedDB database holding Folders, Saved Posts, membership
+ * rows, bookmark evidence and Destination sync state. Not a chrome.storage key —
+ * it is named here so Privacy Clear has one list to consult, and a test pins it
+ * equal to the folders package's own FOLDERS_DB_NAME.
+ */
+export const COLLECTIONS_DATABASE = "lasso:folders";
 
 export const LOCAL_STORAGE_KEYS = [
   STORAGE_KEYS.lists,
@@ -33,6 +49,7 @@ export const LOCAL_STORAGE_KEYS = [
   STORAGE_KEYS.mirrorStatus,
   STORAGE_KEYS.graphqlOps,
   STORAGE_KEYS.graphqlCatalog,
+  STORAGE_KEYS.destinationSecrets,
 ];
 // settings stays here too so Clear also wipes any pre-local legacy copy.
 export const SYNC_STORAGE_KEYS = [STORAGE_KEYS.filter, STORAGE_KEYS.settings];

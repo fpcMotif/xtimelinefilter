@@ -38,9 +38,10 @@ Keeping these interfaces narrow improves locality: X drift, Mirror transport, an
 - X is authoritative for Lists and memberships.
 - The Mirror records and caches X answers. It never drives X.
 - Only the active Owner's Lists are writable. Code fences Owner changes; live Owner switching still needs proof.
-- The worker serializes migration, Settings, Filter, Coach, List cache and usage, GraphQL catalog, Mirror status, and Privacy clear.
+- The worker serializes migration, Settings, Filter, Coach, List cache and usage, GraphQL catalog, Mirror status, collections, and Privacy clear.
 - Settings live in `chrome.storage.local`; Filter preferences live in `chrome.storage.sync`.
-- Sender capabilities are narrow: Options owns clear and full Settings/Filter work; Popup reads Settings and Mirror status and reads/commands Filter; top-level x.com content gets its allowed commands only. Unknown senders fail closed.
+- Folders and Saved Posts live in a worker-owned IndexedDB database, not `chrome.storage`: `sync` has a quota a pill-drag has already burned once, and `local` is deliberately closed to content. The worker is the only context that opens it, through an injected factory, so no surface names the implementation. Destination tokens live under their own worker-owned key outside the Settings record, so a Settings read grant cannot reach one.
+- Sender capabilities are narrow: Options owns clear and full Settings/Filter work and every collections operation; Popup reads Settings and Mirror status, reads/commands Filter, and reads the collections counts summary alone; top-level x.com content gets its allowed commands only, and for collections that is list/holding/create/save/unsave with no count read. Unknown senders fail closed.
 - Storage changes fan out in order per area/key to extension pages and top-level tab content.
 - Filter state is display-only and never load-bearing for List assignment.
 
@@ -60,7 +61,7 @@ Keeping these interfaces narrow improves locality: X drift, Mirror transport, an
 - UI data is rendered through Preact in open Shadow DOM, never fetched HTML.
 - Mirror failure cannot alter assignment, undo, selection, or feedback.
 - Hidden Filter cells remain in the DOM for restoration. Their retained overlay is CSS-hidden; keyboard and pointer target seams reject the cell until it is shown.
-- Privacy clear writes a terminal migration tombstone and rotates the persisted cache-observation epoch before deletion. Old cache commits cannot revive cleared data; later work may write fresh data.
+- Privacy clear writes a terminal migration tombstone and rotates the persisted cache-observation epoch before deletion. Old cache commits cannot revive cleared data; later work may write fresh data. It also destroys the collections database and the reserved Destination-secrets key, and reports `localCleared: false` unless the database went too — so a collections write fenced by a pre-clear token is refused rather than landing after the wipe.
 
 ## Current stack
 

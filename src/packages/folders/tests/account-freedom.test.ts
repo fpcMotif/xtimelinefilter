@@ -68,6 +68,7 @@ pin<
     | "countFolder"
     | "countSavedPosts"
     | "readFolderPage"
+    | "close"
   >
 >();
 
@@ -140,6 +141,7 @@ describe("account freedom", () => {
       .toSorted();
     expect(shipped).toEqual(
       [
+        "close",
         "countFolder",
         "countSavedPosts",
         "createFolder",

@@ -362,6 +362,10 @@ export class LocalCollectionStore implements CollectionStore {
     return req.result;
   }
 
+  close(): void {
+    this.db.close();
+  }
+
   async readFolderPage({ folderId, limit, cursor }: ReadFolderPageParams): Promise<FolderPage> {
     const after = decodeCursor(cursor);
     const tx = this.tx([Stores.FOLDER_MEMBERSHIPS, Stores.SAVED_POSTS], "readonly");
