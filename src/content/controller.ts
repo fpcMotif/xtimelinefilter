@@ -1,5 +1,7 @@
 import type { AppState } from "@/content/app-state";
+import type { CollectionsClient } from "@/content/collections-client";
 import type { CommandId } from "@/content/keyboard";
+import { outermostTweet } from "@/content/outermost-tweet";
 import {
   type AssignOptions,
   assignAuthorsToList,
@@ -14,16 +16,21 @@ import type { PickerController, PickerEffect } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
 import type { SettingsStore } from "@/core/settings";
 import {
+  alreadyInFolderLine,
   blockedLine,
   blockFailedLine,
   HIDDEN_LINE,
   hideFailedLine,
   mutedLine,
   muteFailedLine,
+  CANNOT_SAVE_POST,
+  NO_DEFAULT_FOLDER,
   NO_TARGET_NUDGE,
   POST_ASSIGN_TIP,
   removedLine,
   RETRY,
+  SAVE_FAILED,
+  savedToFolderLine,
   SELECT_MODE_NUDGE,
   SELECTOR_HEALTH,
   UNDO,
@@ -33,8 +40,10 @@ import {
 } from "@/core/strings";
 import type { ToastAction, ToastSpec, ToastStore } from "@/core/toast-store";
 import { UNDO_WINDOW_MS, type UndoRegistry } from "@/core/undo";
+import type { PostCapture } from "@/packages/folders/types";
 import { membershipIdentityOf, NullMembershipStore } from "@/packages/membership-store";
 import type { MembershipChange, MembershipStore, Owner } from "@/packages/membership-store/types";
+import { capture } from "@/packages/tweet-read";
 import type { XList, XListApi, XListApiSource } from "@/packages/x-client/types";
 
 export { UNDO_WINDOW_MS };
@@ -96,6 +105,8 @@ export interface ControllerDeps {
    */
   onMirrorResult?: (result: { ok: boolean; configId: string }) => void | Promise<void>;
   usage?: ListUsage;
+  /** Folders. Absent ⇒ the save gesture reports that it cannot save. */
+  collections?: CollectionsClient;
   /** The one global filter store; absent ⇒ filter commands are no-ops (ADR-0010 — never load-bearing). */
   filter?: FilterStore;
   /** Filter commands only operate on supported timeline routes. */
@@ -143,6 +154,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const now = deps.now ?? Date.now;
   const membershipStore = deps.membershipStore ?? new NullMembershipStore();
   const currentOwner = deps.currentOwner ?? ((): Owner | null => null);
+  const collections = deps.collections;
   const filter = deps.filter;
   const filterInScope = deps.filterInScope ?? (() => true);
   let stopRequested = false;
@@ -437,6 +449,58 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     }
   }
 
+  /**
+   * File the post under the cursor into the default Folder — the no-picker save.
+   *
+   * The capture is taken SYNCHRONOUSLY by the caller, before any round-trip: the
+   * timeline is virtualized, so the article may be recycled while the worker
+   * write is in flight and re-reading it afterwards could capture a different
+   * post. The worker resolves the Folder inside one operation, so nothing here
+   * reads settings or lists Folders first.
+   */
+  async function saveToDefaultFolder(post: PostCapture): Promise<void> {
+    if (!post.statusId) {
+      toasts.show({ kind: "danger", title: CANNOT_SAVE_POST });
+      return;
+    }
+    const folders = collections;
+    if (!folders) {
+      toasts.show({ kind: "danger", title: SAVE_FAILED });
+      return;
+    }
+    await quickAction({
+      attempt: () => folders.saveToDefaultFolder(post),
+      onOk: (outcome) => {
+        // "Already there" wrote nothing, so arming Undo would evict whatever
+        // useful Undo the user already had for something that reverses nothing.
+        if (outcome.status !== "saved" || outcome.saved !== "created") return;
+        undo.arm(
+          () =>
+            void folders.undoSave({
+              folderId: outcome.folderId,
+              statusId: outcome.statusId,
+              createdSavedPost: outcome.createdSavedPost,
+            }),
+          UNDO_WINDOW_MS,
+        );
+      },
+      successToast: (outcome) => {
+        if (outcome.status === "unsavable") return { kind: "danger", title: CANNOT_SAVE_POST };
+        if (outcome.status === "ask") return { kind: "info", title: NO_DEFAULT_FOLDER };
+        if (outcome.saved === "already-there")
+          return { kind: "info", title: alreadyInFolderLine(outcome.folderName) };
+        return {
+          kind: "success",
+          title: savedToFolderLine(outcome.folderName),
+          durationMs: UNDO_WINDOW_MS,
+          actions: [{ label: UNDO, kbd: "Z", run: () => void undo.trigger() }],
+        };
+      },
+      failTitle: SAVE_FAILED,
+      retry: () => void saveToDefaultFolder(post),
+    });
+  }
+
   function muteAuthor(author: TweetAuthor): Promise<void> {
     return quickAction({
       attempt: () => quick.mute(author.screenName),
@@ -610,6 +674,19 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       case "add-to-default-list":
         void addToDefaultList();
         return true;
+      case "save-to-default-folder": {
+        const tweet = target.tweet();
+        if (!tweet) {
+          nudge();
+          return true;
+        }
+        // Climb before capturing: a cursor inside a quoted post must file the
+        // HOST post, and a repost the underlying one. outermostTweet returns its
+        // argument when nothing encloses it and null only for a null input, so
+        // the non-null assertion cannot fire for a non-null tweet.
+        void saveToDefaultFolder(capture(outermostTweet(tweet) as Element));
+        return true;
+      }
       case "mute": {
         const author = target.author();
         if (author) void muteAuthor(author);

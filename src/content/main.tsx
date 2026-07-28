@@ -2,6 +2,7 @@ import { signal } from "@preact/signals-core";
 
 import { App } from "@/content/app";
 import { createAppState } from "@/content/app-state";
+import { createCollectionsClient } from "@/content/collections-client";
 import { createContentActivation, type ActivationLifecycle } from "@/content/content-activation";
 import { createLassoController, type LassoController } from "@/content/controller";
 import { installFilterFeature } from "@/content/filter-feature";
@@ -183,6 +184,7 @@ async function install(
       coach,
       backend,
       cache: listCache,
+      collections: createCollectionsClient(),
       filter: filterStore,
       filterInScope: () => isInScope(location.pathname),
       settings: settingsStore,

@@ -10,6 +10,7 @@ import { useFocusTrap } from "@/ui/use-focus-trap";
 export const COMMAND_LABELS: Record<CommandId, string> = {
   "add-to-list": "Add the author to a List",
   "add-to-default-list": "Add straight to your default List",
+  "save-to-default-folder": "Save this post to your default Folder",
   mute: "Mute the author",
   "not-interested": "Not interested in this post",
   block: "Block the author",

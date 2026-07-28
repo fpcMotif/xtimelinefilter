@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createAppState } from "@/content/app-state";
+import type { CollectionsClient, SavedByGesture } from "@/content/collections-client";
 import { createLassoController, UNDO_WINDOW_MS } from "@/content/controller";
 import { createCoach } from "@/core/coach";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import type { ListCache } from "@/core/list-cache";
 import { createPickerController } from "@/core/picker-controller";
+import type { DefaultSaveOutcome } from "@/core/protocol/collections";
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { createSettings } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
@@ -86,6 +88,7 @@ function harness(
     now?: () => number;
     evidence?: MutationEvidence;
     backendSource?: { snapshot(): XListApi };
+    collections?: CollectionsClient;
   } = {},
 ) {
   const selection = createSelectionStore();
@@ -130,6 +133,7 @@ function harness(
     settings,
     quick,
     target,
+    ...(opts.collections ? { collections: opts.collections } : {}),
     openUrl,
     membershipStore: opts.membershipStore,
     ...(opts.omitCurrentOwner ? {} : { currentOwner }),
@@ -1936,5 +1940,217 @@ describe("default clock fallback", () => {
     await h.assign(LISTS[0] as XList);
     expect(h.backend.added).toEqual(["a"]);
     expect(h.toasts.toasts.value[0]?.title).toBe("Added 1 to Design Folks");
+  });
+});
+
+// --- Alt+Shift+B: file the post under the cursor into the default Folder ------
+
+const SAVE_STATUS = "1234567890";
+const FOLDER_ID = "fld_abcdefghijklmnopqrst";
+
+/** A timeline cell whose host post is `statusId`, optionally quoting another. */
+function postCell(statusId: string, quoted?: string): Element {
+  const wrap = document.createElement("div");
+  wrap.innerHTML =
+    `<article data-testid="tweet">` +
+    `<div data-testid="User-Name"><a href="/jack">Jack</a>` +
+    `<a href="/jack/status/${statusId}">@jack</a></div>` +
+    `<div data-testid="tweetText">host</div>` +
+    (quoted
+      ? `<div><article data-testid="tweet"><div data-testid="User-Name">` +
+        `<a href="/ada">Ada</a><a href="/ada/status/${quoted}">@ada</a></div></article></div>`
+      : "") +
+    `</article>`;
+  document.body.append(wrap);
+  return wrap.querySelector("article") as Element;
+}
+
+const savedOutcome = (
+  over: Partial<Extract<DefaultSaveOutcome, { status: "saved" }>> = {},
+): DefaultSaveOutcome => ({
+  status: "saved",
+  saved: "created",
+  createdSavedPost: true,
+  folderId: FOLDER_ID,
+  folderName: "Research",
+  statusId: SAVE_STATUS,
+  ...over,
+});
+
+function saveHarness(
+  answer: DefaultSaveOutcome | (() => Promise<DefaultSaveOutcome>) = savedOutcome(),
+  targetTweet?: Element | null,
+) {
+  const captures: (string | null)[] = [];
+  const undone: SavedByGesture[] = [];
+  const collections: CollectionsClient = {
+    saveToDefaultFolder: vi.fn(async (capture) => {
+      captures.push(capture.statusId);
+      return typeof answer === "function" ? await answer() : answer;
+    }),
+    undoSave: vi.fn(async (save) => {
+      undone.push(save);
+    }),
+  };
+  const h = harness({ collections, targetTweet });
+  return { ...h, collections, captures, undone };
+}
+
+const settle = () => new Promise((done) => setTimeout(done, 0));
+const toastTitles = (h: { toasts: ReturnType<typeof createToastStore> }) =>
+  h.toasts.toasts.value.map((toast) => toast.title);
+
+describe("save to the default Folder", () => {
+  it("saves, names the Folder and arms Undo that reverses just this gesture", async () => {
+    const h = saveHarness(savedOutcome(), postCell(SAVE_STATUS));
+    expect(h.controller.command("save-to-default-folder")).toBe(true);
+    await settle();
+
+    expect(h.captures).toEqual([SAVE_STATUS]);
+    expect(toastTitles(h)).toEqual(["Saved to Research"]);
+    expect(h.toasts.toasts.value[0]?.actions?.[0]).toMatchObject({ label: "Undo", kbd: "Z" });
+
+    h.undo.trigger();
+    await settle();
+    expect(h.undone).toEqual([
+      { folderId: FOLDER_ID, statusId: SAVE_STATUS, createdSavedPost: true },
+    ]);
+  });
+
+  it("files the HOST post when the cursor sits inside a quoted post", async () => {
+    const host = postCell(SAVE_STATUS, "999");
+    const h = saveHarness(savedOutcome(), host.querySelector("article") as Element);
+    h.controller.command("save-to-default-folder");
+    await settle();
+    // identity() would have taken the quoted id; the durable capture does not.
+    expect(h.captures).toEqual([SAVE_STATUS]);
+  });
+
+  it("captures synchronously, so a recycled article cannot change the answer", async () => {
+    let release!: (outcome: DefaultSaveOutcome) => void;
+    const element = postCell(SAVE_STATUS);
+    const h = saveHarness(() => new Promise((resolve) => (release = resolve)), element);
+
+    h.controller.command("save-to-default-folder");
+    element.remove(); // the timeline virtualizes; the article is gone mid-flight
+    release(savedOutcome());
+    await settle();
+
+    expect(h.captures).toEqual([SAVE_STATUS]);
+    expect(toastTitles(h)).toEqual(["Saved to Research"]);
+  });
+
+  it("says already-there and arms no Undo, leaving an earlier one triggerable", async () => {
+    const h = saveHarness(
+      savedOutcome({ saved: "already-there", createdSavedPost: false }),
+      postCell(SAVE_STATUS),
+    );
+    const earlier = vi.fn();
+    h.undo.arm(earlier, 10_000);
+
+    h.controller.command("save-to-default-folder");
+    await settle();
+
+    expect(toastTitles(h)).toEqual(["Already in Research"]);
+    h.undo.trigger();
+    expect(earlier).toHaveBeenCalledTimes(1);
+    expect(h.undone).toEqual([]);
+  });
+
+  it("refuses a post whose durable identity cannot be read", async () => {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<article data-testid="tweet"><div data-testid="tweetText">no link</div></article>`;
+    const h = saveHarness(savedOutcome(), wrap.querySelector("article") as Element);
+
+    h.controller.command("save-to-default-folder");
+    await settle();
+
+    expect(h.collections.saveToDefaultFolder).not.toHaveBeenCalled();
+    expect(toastTitles(h)).toEqual(["Can't save this post — X exposed no link for it"]);
+    expect(h.undo.trigger()).toBe(false);
+  });
+
+  it("nudges when nothing is under the cursor", async () => {
+    const h = saveHarness(savedOutcome(), null);
+    expect(h.controller.command("save-to-default-folder")).toBe(true);
+    await settle();
+    expect(toastTitles(h)).toEqual(["Hover a post first — or press j to focus one"]);
+    expect(h.collections.saveToDefaultFolder).not.toHaveBeenCalled();
+  });
+
+  it("points at Options when the user chose always-ask", async () => {
+    const h = saveHarness({ status: "ask" }, postCell(SAVE_STATUS));
+    h.controller.command("save-to-default-folder");
+    await settle();
+    expect(toastTitles(h)).toEqual(["No default Folder set — choose one in Options"]);
+    expect(h.undo.trigger()).toBe(false);
+  });
+
+  it("relays an unsavable answer from the worker", async () => {
+    const h = saveHarness({ status: "unsavable" }, postCell(SAVE_STATUS));
+    h.controller.command("save-to-default-folder");
+    await settle();
+    expect(toastTitles(h)).toEqual(["Can't save this post — X exposed no link for it"]);
+  });
+
+  it("offers Retry on failure, having written nothing and armed no Undo", async () => {
+    const h = saveHarness(() => Promise.reject(new Error("worker down")), postCell(SAVE_STATUS));
+    h.controller.command("save-to-default-folder");
+    await settle();
+
+    expect(toastTitles(h)).toEqual(["Couldn't save this post"]);
+    expect(h.toasts.toasts.value[0]?.actions?.[0]?.label).toBe("Retry");
+    expect(h.undo.trigger()).toBe(false);
+  });
+
+  it("reports failure when Folders are not wired at all", async () => {
+    const h = harness({ targetTweet: postCell(SAVE_STATUS) });
+    h.controller.command("save-to-default-folder");
+    await settle();
+    expect(toastTitles(h)).toEqual(["Couldn't save this post"]);
+  });
+
+  it("keeps the Saved Post on Undo when this gesture did not mint it", async () => {
+    const h = saveHarness(savedOutcome({ createdSavedPost: false }), postCell(SAVE_STATUS));
+    h.controller.command("save-to-default-folder");
+    await settle();
+    h.undo.trigger();
+    await settle();
+    expect(h.undone[0]).toMatchObject({ createdSavedPost: false });
+  });
+
+  it("runs Undo from the toast action and Retry from the danger toast", async () => {
+    const h = saveHarness(savedOutcome(), postCell(SAVE_STATUS));
+    h.controller.command("save-to-default-folder");
+    await settle();
+    // The toast's own Undo button, not the keyboard path.
+    h.toasts.toasts.value[0]?.actions?.[0]?.run();
+    await settle();
+    expect(h.undone).toHaveLength(1);
+
+    let attempts = 0;
+    const retryable = saveHarness(() => {
+      attempts += 1;
+      return attempts === 1
+        ? Promise.reject(new Error("worker down"))
+        : Promise.resolve(savedOutcome());
+    }, postCell(SAVE_STATUS));
+    retryable.controller.command("save-to-default-folder");
+    await settle();
+    retryable.toasts.toasts.value[0]?.actions?.[0]?.run();
+    await settle();
+    expect(attempts).toBe(2);
+  });
+
+  it("makes no network request across a save and its undo", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const h = saveHarness(savedOutcome(), postCell(SAVE_STATUS));
+    h.controller.command("save-to-default-folder");
+    await settle();
+    h.undo.trigger();
+    await settle();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

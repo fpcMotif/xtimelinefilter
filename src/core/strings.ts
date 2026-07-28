@@ -60,6 +60,15 @@ export const createOnX = (query: string): string => `Create "${query}" on X`;
 // 10 — no-target nudge
 export const NO_TARGET_NUDGE = "Hover a post first — or press j to focus one";
 
+// 10b — saving into a Folder
+export const savedToFolderLine = (folder: string): string => `Saved to ${folder}`;
+export const alreadyInFolderLine = (folder: string): string => `Already in ${folder}`;
+export const SAVE_FAILED = "Couldn't save this post";
+export const CANNOT_SAVE_POST = "Can't save this post — X exposed no link for it";
+export const NO_DEFAULT_FOLDER = "No default Folder set — choose one in Options";
+/** Seeded on a fresh install when the user has never chosen a default Folder. */
+export const SEEDED_FOLDER_NAME = "Saved";
+
 // 11 — mute
 export const mutedLine = (screenName: string): string => `Muted @${screenName}`;
 export const muteFailedLine = (screenName: string): string => `Couldn't mute @${screenName}`;
