@@ -26,10 +26,22 @@ never that Chrome behaves as assumed (MISSION.md: assumption ≠ proof).
 
 1. `bun run build`, then load `dist/` at `chrome://extensions` as an unpacked
    extension with Developer mode on.
-2. Open the **Options** page and its DevTools console. Sending from here is what
-   makes the sender classify as `options`, which is the only capability allowed
-   to submit every operation — running this from a content-script console tests
-   a different, narrower grant.
+2. Open the **Options page as a tab** (`chrome://extensions` → Lasso → Extension
+   options, or `chrome-extension://<id>/src/options/index.html`) and use THAT
+   tab's DevTools. Sending from there is what makes the sender classify as
+   `options`, the only capability allowed to submit every operation.
+
+   Three consoles look plausible and are all wrong, each failing differently —
+   this cost real time once already:
+
+   | Console | Symptom | Why |
+   |---|---|---|
+   | The service worker's own | `Could not establish connection. Receiving end does not exist.` | A context cannot send itself a runtime message. `chrome.runtime` is present, so it looks right. |
+   | An x.com page console | `Cannot read properties of undefined (reading 'sendMessage')` | The page runs in the main world; `chrome.runtime` exists only in extension pages and content scripts. |
+   | An x.com content-script context | `undefined` returned for some operations | It classifies as `x-content`, which is denied the count reads and every post read by design. |
+
+   Check with `location.href` before blaming the code: it must end in the
+   options page path.
 3. Create a Folder:
 
    ```js
