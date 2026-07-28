@@ -113,6 +113,9 @@ test("MV3 build loads its worker and injects content on local X", async () => {
       // Folders, end to end against REAL IndexedDB in a real worker — the
       // collections suite otherwise runs against an injected in-memory store,
       // which is a fixture and cannot prove Chrome behaves as assumed.
+      // Declared INSIDE the page evaluate on purpose: the outer scope is Node,
+      // not the page, so this cannot be hoisted.
+      // oxlint-disable-next-line unicorn/consistent-function-scoping
       const send = (message: Record<string, unknown>) =>
         chrome.runtime.sendMessage({ type: "lasso:collections", ...message });
       const token = async () => (await send({ operation: "begin" })).token;

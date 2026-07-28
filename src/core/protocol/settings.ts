@@ -15,6 +15,7 @@ export type SettingsWirePatch = {
   backend?: BackendStrategy;
   defaultList?: { ownerUserId: string; listId: string } | null;
   defaultListId?: string | null;
+  defaultFolderId?: string | null;
   activation?: Activation;
   highContrast?: boolean;
   convexUrl?: string | null;
@@ -32,6 +33,7 @@ const PATCH_KEYS = new Set<keyof SettingsWirePatch>([
   "backend",
   "defaultList",
   "defaultListId",
+  "defaultFolderId",
   "activation",
   "highContrast",
   "convexUrl",
@@ -44,6 +46,7 @@ const SNAPSHOT_KEYS = [
   "backend",
   "defaultList",
   "defaultListId",
+  "defaultFolderId",
   "activation",
   "highContrast",
   "convexUrl",
@@ -118,6 +121,8 @@ export function isSettingsRequest(msg: unknown): msg is SettingsRequest {
     (!has(patch, "defaultList") || defaultList(patch.defaultList)) &&
     (!has(patch, "defaultListId") ||
       boundedStringOrNull(patch.defaultListId, MAX_SETTINGS_ID_LENGTH)) &&
+    (!has(patch, "defaultFolderId") ||
+      boundedStringOrNull(patch.defaultFolderId, MAX_SETTINGS_ID_LENGTH)) &&
     (!has(patch, "activation") ||
       patch.activation === "auto" ||
       patch.activation === "on-demand") &&
@@ -143,6 +148,7 @@ export function encodeSettingsPatch(patch: SettingsPatch): SettingsWirePatch {
     wire[key] =
       key === "defaultList" ||
       key === "defaultListId" ||
+      key === "defaultFolderId" ||
       key === "convexUrl" ||
       key === "convexDeviceKey"
         ? (value ?? null)
@@ -159,6 +165,7 @@ export function decodeSettingsPatch(patch: SettingsWirePatch): SettingsPatch {
     decoded[key] =
       (key === "defaultList" ||
         key === "defaultListId" ||
+        key === "defaultFolderId" ||
         key === "convexUrl" ||
         key === "convexDeviceKey") &&
       wire[key] === null
@@ -205,6 +212,7 @@ const isSnapshot = (value: unknown): value is LassoSettings => {
     position.y < 0 ||
     position.y > MAX_PILL_POSITION ||
     !optionalString(value, "defaultListId", MAX_SETTINGS_ID_LENGTH) ||
+    !optionalString(value, "defaultFolderId", MAX_SETTINGS_ID_LENGTH) ||
     !optionalString(value, "convexUrl", MAX_CONVEX_URL_LENGTH) ||
     !optionalString(value, "convexDeviceKey", MAX_CONVEX_DEVICE_KEY_LENGTH) ||
     !optionalString(value, "mirrorConfigId", MAX_MIRROR_CONFIG_ID_LENGTH)

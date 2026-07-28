@@ -175,6 +175,7 @@ describe("Privacy Clear destroys the collections database", () => {
       createMemoryArea(),
       () => new Promise<CollectionStore>((_resolve, reject) => (failOpen = reject)),
       async () => true,
+      { read: async () => undefined, adopt: async () => {} },
     );
     const inFlight = collections.run({ type: TYPE, operation: "counts" });
     const destroying = collections.destroy();

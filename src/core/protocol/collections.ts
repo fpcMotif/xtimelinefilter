@@ -88,7 +88,8 @@ export type CollectionsOperation =
   | "list-bookmark-evidence"
   | "count-folder"
   | "counts"
-  | "read-folder-page";
+  | "read-folder-page"
+  | "save-to-default-folder";
 
 export type CollectionsRequest =
   | { type: typeof TYPE; operation: "begin" }
@@ -169,6 +170,17 @@ export type CollectionsRequest =
       folderId: string;
       limit: number;
       cursor: string | null;
+    }
+  /**
+   * Resolve the default Folder and file into it, as ONE operation. Compound on
+   * purpose: seeding, adopting and filing cannot be composed by the caller, or
+   * two fast presses on a fresh install would race and mint two Folders.
+   */
+  | {
+      type: typeof TYPE;
+      operation: "save-to-default-folder";
+      capture: PostCapture;
+      token: CacheObservation;
     };
 
 /** Folder count is bounded by MAX_LIVE_FOLDERS; posts is the deduped total. */
@@ -176,6 +188,25 @@ export interface CollectionCounts {
   folders: number;
   savedPosts: number;
 }
+
+/**
+ * What the no-picker save did, in the detail Undo needs. `saved` is per
+ * (folder id, status id); `createdSavedPost` says whether this gesture minted
+ * the Saved Post, so Undo removes it only when it did.
+ */
+export type DefaultSaveOutcome =
+  | {
+      status: "saved";
+      saved: "created" | "already-there";
+      createdSavedPost: boolean;
+      folderId: string;
+      folderName: string;
+      statusId: string;
+    }
+  /** The user chose "None — always ask". Nothing was written. */
+  | { status: "ask" }
+  /** The capture carried no durable identity. Nothing was written. */
+  | { status: "unsavable" };
 
 export type CollectionsSuccess =
   | { token: CacheObservation }
@@ -188,6 +219,7 @@ export type CollectionsSuccess =
   | { count: number }
   | { counts: CollectionCounts }
   | { page: FolderPage }
+  | { defaultSave: DefaultSaveOutcome }
   | Record<string, never>;
 
 export type CollectionsResponse =
@@ -297,6 +329,7 @@ const REQUEST_KEYS: Record<CollectionsOperation, readonly string[]> = {
   "count-folder": ["type", "operation", "folderId"],
   counts: ["type", "operation"],
   "read-folder-page": ["type", "operation", "folderId", "limit", "cursor"],
+  "save-to-default-folder": ["type", "operation", "capture", "token"],
 };
 
 /**
@@ -366,6 +399,8 @@ export function isCollectionsRequest(msg: unknown): msg is CollectionsRequest {
       );
     case "count-folder":
       return folderId(msg.folderId);
+    case "save-to-default-folder":
+      return isCapture(msg.capture);
     case "read-folder-page":
       return (
         folderId(msg.folderId) &&
@@ -438,6 +473,20 @@ const isPage = (value: unknown, limit: number): value is FolderPage =>
   value.posts.every(isSavedPost) &&
   (value.nextCursor === null || boundedString(value.nextCursor, MAX_CURSOR));
 
+const isDefaultSaveOutcome = (value: unknown): value is DefaultSaveOutcome => {
+  if (!record(value)) return false;
+  if (value.status === "ask" || value.status === "unsavable") return keysAre(value, ["status"]);
+  return (
+    keysAre(value, ["status", "saved", "createdSavedPost", "folderId", "folderName", "statusId"]) &&
+    value.status === "saved" &&
+    (value.saved === "created" || value.saved === "already-there") &&
+    typeof value.createdSavedPost === "boolean" &&
+    folderId(value.folderId) &&
+    nonEmpty(value.folderName, MAX_FOLDER_NAME) &&
+    isXId(value.statusId)
+  );
+};
+
 const isCounts = (value: unknown): value is CollectionCounts =>
   record(value) &&
   keysAre(value, ["folders", "savedPosts"]) &&
@@ -482,6 +531,8 @@ function validateSuccess(request: CollectionsRequest, response: Record<string, u
       return only("counts", isCounts);
     case "read-folder-page":
       return only("page", (value) => isPage(value, request.limit));
+    case "save-to-default-folder":
+      return only("defaultSave", isDefaultSaveOutcome);
     default:
       // Every write answers with an acknowledgement and nothing else.
       return Object.keys(payload).length === 0;

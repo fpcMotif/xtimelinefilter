@@ -88,6 +88,12 @@ const VALID: Record<CollectionsOperation, CollectionsRequest> = {
   "list-bookmark-evidence": { type: TYPE, operation: "list-bookmark-evidence", statusId: STATUS },
   "count-folder": { type: TYPE, operation: "count-folder", folderId: FOLDER },
   counts: { type: TYPE, operation: "counts" },
+  "save-to-default-folder": {
+    type: TYPE,
+    operation: "save-to-default-folder",
+    capture,
+    token: TOKEN,
+  },
   "read-folder-page": {
     type: TYPE,
     operation: "read-folder-page",
@@ -349,6 +355,16 @@ describe("account freedom on the wire", () => {
       "list-bookmark-evidence": { evidence: [] },
       "count-folder": { count: 0 },
       counts: { counts: { folders: 0, savedPosts: 0 } },
+      "save-to-default-folder": {
+        defaultSave: {
+          status: "saved",
+          saved: "created",
+          createdSavedPost: true,
+          folderId: FOLDER,
+          folderName: "Research",
+          statusId: STATUS,
+        },
+      },
       "read-folder-page": { page: { posts: [], nextCursor: null } },
     };
     const expectedKeys: Record<CollectionsOperation, string[]> = {
@@ -369,6 +385,7 @@ describe("account freedom on the wire", () => {
       "list-bookmark-evidence": ["evidence"],
       "count-folder": ["count"],
       counts: ["counts"],
+      "save-to-default-folder": ["defaultSave"],
       "read-folder-page": ["page"],
     };
 
@@ -419,6 +436,7 @@ describe("account freedom on the wire", () => {
       "list-bookmark-evidence": ["type", "operation", "statusId"],
       "count-folder": ["type", "operation", "folderId"],
       counts: ["type", "operation"],
+      "save-to-default-folder": ["type", "operation", "capture", "token"],
       "read-folder-page": ["type", "operation", "folderId", "limit", "cursor"],
     };
     for (const operation of COLLECTIONS_OPERATIONS) {
@@ -593,6 +611,60 @@ describe("collections response validation", () => {
     await expect(requestCollections(VALID["read-folder-page"])).rejects.toThrow(
       "Invalid collections response",
     );
+  });
+
+  it("accepts every default-save outcome and rejects a malformed one", async () => {
+    for (const defaultSave of [
+      { status: "ask" },
+      { status: "unsavable" },
+      {
+        status: "saved",
+        saved: "already-there",
+        createdSavedPost: false,
+        folderId: FOLDER,
+        folderName: "Research",
+        statusId: STATUS,
+      },
+    ]) {
+      send({ ok: true, defaultSave });
+      await expect(requestCollections(VALID["save-to-default-folder"])).resolves.toMatchObject({
+        ok: true,
+      });
+    }
+    for (const broken of [
+      "not-a-record",
+      { status: "ask", extra: 1 },
+      { status: "elsewhere" },
+      {
+        status: "saved",
+        saved: "maybe",
+        createdSavedPost: false,
+        folderId: FOLDER,
+        folderName: "Research",
+        statusId: STATUS,
+      },
+      {
+        status: "saved",
+        saved: "created",
+        createdSavedPost: false,
+        folderId: "nope",
+        folderName: "Research",
+        statusId: STATUS,
+      },
+      {
+        status: "saved",
+        saved: "created",
+        createdSavedPost: false,
+        folderId: FOLDER,
+        folderName: "",
+        statusId: STATUS,
+      },
+    ]) {
+      send({ ok: true, defaultSave: broken });
+      await expect(requestCollections(VALID["save-to-default-folder"])).rejects.toThrow(
+        "Invalid collections response",
+      );
+    }
   });
 
   it("lets a write answer with an acknowledgement and nothing more", async () => {

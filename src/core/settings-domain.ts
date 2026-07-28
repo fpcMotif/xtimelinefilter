@@ -7,6 +7,14 @@ export const MAX_PALETTE_HOTKEY_LENGTH = 128;
 export const MAX_MIRROR_CONFIG_ID_LENGTH = 256;
 export const MAX_PILL_POSITION = 1_000_000;
 
+/**
+ * "None — always ask": a persisted MARKER, not an empty field. Absence means the
+ * user never chose, which resolves silently; this means they asked to be asked,
+ * so the no-picker gesture files nothing and says so. A Folder id can never
+ * collide with it — ids are `fld_` + base32.
+ */
+export const ALWAYS_ASK = "ask";
+
 /** How the UI activates (ADR-0006). */
 export type Activation = "auto" | "on-demand";
 
@@ -15,6 +23,16 @@ export interface LassoSettings {
   defaultList?: { ownerUserId: string; listId: string };
   /** Pre-Owner format. Read only to migrate against active Owner truth. */
   defaultListId?: string;
+  /**
+   * Where the no-picker save files, in one of three distinguishable states:
+   * a bare folder id, the {@link ALWAYS_ASK} marker, or absent.
+   *
+   * A BARE ID on purpose — never an `{ownerUserId, folderId}` tuple like
+   * `defaultList`, which silently no-ops whenever a different X account is
+   * signed in. A Folder has no Owner, so this fires identically on every
+   * account and with none signed in.
+   */
+  defaultFolderId?: string;
   activation: Activation;
   highContrast: boolean;
   convexUrl?: string;
@@ -47,6 +65,7 @@ export const DEFAULT_SETTINGS: LassoSettings = {
     ? import.meta.env.VITE_LASSO_DEVICE_KEY || undefined
     : undefined,
   mirrorConfigId: undefined,
+  defaultFolderId: undefined,
   surfaces: { pill: true, palette: false },
   pillPosition: { x: 24, y: 96 },
   paletteHotkey: "mod+shift+f",
@@ -151,6 +170,11 @@ export function normalizeSettings(raw: unknown): LassoSettings {
       DEFAULT_SETTINGS.defaultListId,
       MAX_SETTINGS_ID_LENGTH,
     ),
+    defaultFolderId: stringOr(
+      value.defaultFolderId,
+      DEFAULT_SETTINGS.defaultFolderId,
+      MAX_SETTINGS_ID_LENGTH,
+    ),
     activation:
       value.activation === "auto" || value.activation === "on-demand"
         ? value.activation
@@ -200,6 +224,7 @@ export function sameSettings(left: LassoSettings, right: LassoSettings): boolean
     left.defaultList?.ownerUserId === right.defaultList?.ownerUserId &&
     left.defaultList?.listId === right.defaultList?.listId &&
     left.defaultListId === right.defaultListId &&
+    left.defaultFolderId === right.defaultFolderId &&
     left.activation === right.activation &&
     left.highContrast === right.highContrast &&
     left.convexUrl === right.convexUrl &&
@@ -260,6 +285,7 @@ export function encodeSettings(
   };
   if (settings.defaultList) stored.defaultList = { ...settings.defaultList };
   if (settings.defaultListId !== undefined) stored.defaultListId = settings.defaultListId;
+  if (settings.defaultFolderId !== undefined) stored.defaultFolderId = settings.defaultFolderId;
   if (settings.convexUrl !== undefined) stored.convexUrl = settings.convexUrl;
   else if (wantsClear(previous, patch, "convexUrl")) stored.convexUrl = null;
   if (settings.convexDeviceKey !== undefined) stored.convexDeviceKey = settings.convexDeviceKey;

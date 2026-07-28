@@ -8,17 +8,28 @@ import {
   MAX_LIVE_FOLDERS,
   type CollectionsRequest,
   type CollectionsSuccess,
+  type DefaultSaveOutcome,
 } from "@/core/protocol/collections";
+import { ALWAYS_ASK } from "@/core/settings-domain";
 import type { StorageLike } from "@/core/storage-areas";
 import { COLLECTIONS_DATABASE, STORAGE_KEYS } from "@/core/storage-keys";
 import { createCollectionStore } from "@/packages/folders";
-import type { CollectionStore } from "@/packages/folders/types";
+import type { CollectionStore, Folder, PostCapture } from "@/packages/folders/types";
 
 /** Builds the one store this worker will ever own. Tests substitute an in-memory one. */
 export type CollectionStoreFactory = () => Promise<CollectionStore>;
 
 /** Destroys the collections database. True only when it is really gone. */
 export type DatabaseDestroyer = () => Promise<boolean>;
+
+/** The default-Folder setting, narrowed to what the compound save needs. */
+export interface DefaultFolderSetting {
+  read(): Promise<string | undefined>;
+  adopt(folderId: string): Promise<void>;
+}
+
+/** The Folder seeded on a fresh install when the user has never chosen one. */
+export const SEEDED_FOLDER_NAME = "Saved";
 
 /** Raised when the database cannot be opened, so no caller is told a save landed. */
 class CollectionsUnavailableError extends Error {
@@ -54,6 +65,11 @@ export function createCollections(
   local: StorageLike,
   openStore: CollectionStoreFactory,
   destroyDatabase: DatabaseDestroyer = defaultDatabaseDestroyer,
+  /**
+   * The default-Folder setting, read and adopted inside the compound save. Kept
+   * to these two calls so nothing here can reach an account-bearing field.
+   */
+  defaultFolder: DefaultFolderSetting,
 ) {
   // MV3 kills the worker; the store is reopened lazily on the next operation and
   // a failed open is not cached, so a transient failure can recover.
@@ -86,6 +102,46 @@ export function createCollections(
     decideCacheObservation(await clock(), undefined, normalizeCacheObservation(token)) !== "write";
 
   const liveFolderCount = async (): Promise<number> => (await store()).countFolders();
+
+  /**
+   * Resolve where the no-picker save files. Absent, or naming a Folder that has
+   * since been deleted, is the ONLY state that resolves silently: seed a single
+   * "Saved" when the store holds none, otherwise adopt the first in sort order,
+   * and persist the choice. Never reads an X account to do it.
+   */
+  const resolveDefaultFolder = async (db: CollectionStore): Promise<Folder> => {
+    const configured = await defaultFolder.read();
+    const live = await db.listFolders({});
+    const named =
+      configured === undefined ? undefined : live.find((f) => f.folderId === configured);
+    if (named) return named;
+    const adopted = live[0] ?? (await db.createFolder({ name: SEEDED_FOLDER_NAME }));
+    await defaultFolder.adopt(adopted.folderId);
+    return adopted;
+  };
+
+  const saveToDefaultFolder = async (
+    capture: PostCapture,
+    db: CollectionStore,
+  ): Promise<DefaultSaveOutcome> => {
+    const statusId = capture.statusId;
+    if (!statusId) return { status: "unsavable" };
+    if ((await defaultFolder.read()) === ALWAYS_ASK) return { status: "ask" };
+
+    const folder = await resolveDefaultFolder(db);
+    // Read before writing so Undo learns whether THIS gesture minted the Saved
+    // Post, which decides whether undoing may remove it.
+    const existed = (await db.getSavedPost({ statusId })) !== null;
+    const outcome = await db.savePost({ folderId: folder.folderId, capture });
+    return {
+      status: "saved",
+      saved: outcome.status === "already-there" ? "already-there" : "created",
+      createdSavedPost: !existed && outcome.status === "saved",
+      folderId: folder.folderId,
+      folderName: folder.name,
+      statusId,
+    };
+  };
 
   /**
    * Privacy Clear's leg. The open connection is released first — it would
@@ -183,6 +239,8 @@ export function createCollections(
             savedPosts: await db.countSavedPosts(),
           },
         };
+      case "save-to-default-folder":
+        return { defaultSave: await saveToDefaultFolder(request.capture, db) };
       case "read-folder-page":
         return {
           page: await db.readFolderPage({

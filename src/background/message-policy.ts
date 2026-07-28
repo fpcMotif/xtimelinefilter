@@ -41,6 +41,7 @@ const X_CONTENT_COLLECTIONS = new Set<CollectionsOperation>([
   "folders-holding",
   "create-folder",
   "save-post",
+  "save-to-default-folder",
   "remove-from-folder",
 ]);
 

@@ -94,6 +94,12 @@ export function createDataLifecycle(
     local,
     collectionsDatabase.open ?? defaultCollectionStore,
     collectionsDatabase.destroy ?? defaultDatabaseDestroyer,
+    {
+      read: async () => (await settings.read()).defaultFolderId,
+      adopt: async (defaultFolderId) => {
+        await settings.patch({ defaultFolderId });
+      },
+    },
   );
 
   const readFilter = async (defaultLanguages: readonly string[]): Promise<FilterState> => {

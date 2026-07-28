@@ -270,6 +270,7 @@ describe("worker settings protocol", () => {
     for (const patch of [
       { defaultList: { ownerUserId: "", listId: "1" } },
       { defaultListId: "x".repeat(257) },
+      { defaultFolderId: "x".repeat(257) },
       { convexUrl: "x".repeat(2_049) },
       { convexDeviceKey: "x".repeat(4_097) },
       { paletteHotkey: "x".repeat(129) },

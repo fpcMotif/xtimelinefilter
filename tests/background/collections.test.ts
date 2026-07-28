@@ -87,6 +87,12 @@ const VALID_BY_OPERATION: Record<CollectionsOperation, CollectionsRequest> = {
   "list-bookmark-evidence": { type: TYPE, operation: "list-bookmark-evidence", statusId: STATUS },
   "count-folder": { type: TYPE, operation: "count-folder", folderId: FOLDER },
   counts: { type: TYPE, operation: "counts" },
+  "save-to-default-folder": {
+    type: TYPE,
+    operation: "save-to-default-folder",
+    capture: capture(STATUS),
+    token: TOKEN,
+  },
   "read-folder-page": {
     type: TYPE,
     operation: "read-folder-page",
@@ -126,6 +132,7 @@ describe("collections sender capabilities", () => {
       "folders-holding",
       "create-folder",
       "save-post",
+      "save-to-default-folder",
       "remove-from-folder",
     ],
     unknown: [],
