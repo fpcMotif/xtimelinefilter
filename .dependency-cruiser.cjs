@@ -86,6 +86,14 @@ module.exports = {
     //   to:   { path: `^${R}/billing/` },
     // },
     {
+      name: "saved-posts-is-headless",
+      comment:
+        "saved-posts is the storage brain and nothing else — no Chrome API, no DOM, no x.com — so it stays drivable from a worker or a test with no browser underneath. The source guard in tests/regression bans a DIRECT reference; this bans reaching the page and worker trees TRANSITIVELY, e.g. through another package whose entry point pulls in the selector table.",
+      severity: "error",
+      from: { path: `^${R}/saved-posts/` },
+      to: { path: "^src/(?:content|background)/", reachable: true },
+    },
+    {
       name: "tweet-read-is-account-free",
       comment:
         "tweet-read answers 'which post is this' from the article alone. Its durable capture is keyed by status id and nothing else, so the same article captures identically whichever X account the page is signed in as — the package may not reach a current-account, Owner or session module. ADDING an account-bearing module elsewhere? Add it to this `to` list, or the guard silently stops covering it.",

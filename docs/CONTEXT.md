@@ -50,6 +50,13 @@ These terms define the product. Architecture lives in
 - **Hidden cell** — a filtered timeline cell collapsed to a reversible stub, never removed. Its overlay and pointer/keyboard targets are inert until shown.
 - **Compact mode** — the opt-in mode that also hides the stub. It remains experimental pending live X verification.
 
+## Folders
+
+- **Folder** — a user-named collection of saved posts that Lasso owns. It has no Owner: the same Folders are present whichever X account is signed in, and they are readable and writable with no X session at all. Explicitly *not* an X Premium bookmark folder — Lasso never reads or writes X's own folder structure, and a Folder may hold a post whether or not X bookmarked it. Membership is many-to-many.
+- **Saved Post** — one post the user kept, keyed by X status id and by nothing else. Filing it again, filing it into a second Folder, and bookmarking it from a second account all resolve to that one row, so a note written on it stays in one place. Carries the durable capture plus when Lasso first filed it, the user's note and tags, and zero or more bookmark-evidence rows — the one place an X account legitimately appears, as an attribute of an observation rather than part of a key.
+- **Destination** — an optional, user-configured place Saved Posts are pushed to: their Convex deployment, a Notion database, an Airtable table. Off until configured, one-way, and never load-bearing — a failing Destination never blocks or alters a save.
+- **Collection Store** — the Folders storage seam. One contract, several implementations — the local-first database, a null object, and one per Destination — chosen by a factory that is the only place naming a concrete one. No operation on it takes an account.
+
 ## Post capture
 
 - **Durable capture** — what a Tweet *is* and what it *said*, read from its article in a form safe to write down and return to weeks later: status id, canonical permalink, author, text, media references, and posted-at. Keyed by the status id alone — it carries no X account, Owner or session, so the same post captures identically whichever account is signed in. Its author data is denormalized display data, never identity. A null status id means the post cannot be saved; the capture says so rather than inventing an id. Distinct from the per-cell recycle key the scanner uses.
