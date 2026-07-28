@@ -15,7 +15,7 @@ The dependency boundary gate checks cycles and package privacy across `src/`, `t
 
 ## Deep package interfaces
 
-- `tweet-read` is the one read home for a known Tweet. Its parsing implementation stays private.
+- `tweet-read` is the one read home for a known Tweet. Its parsing implementation stays private. It exposes two distinct reads of "which post is this", and they are not interchangeable: `identity()` is the scanner's recycle-safe per-cell key — loose by design, ephemeral, never persisted — while `capture()` is the durable capture, host-scoped and origin-checked, keyed by status id alone and the only one fit to be written down.
 - `x-client` exposes `createXPageClient`, the page-scoped facade for auth, same-origin fetch, backend replacement, GraphQL repair, List reads, and quick REST actions. `XListApi` is the mutation seam; REST, DOM, and GraphQL are adapters. Its DOM driver owns only the Lists dialog protocol.
 - `tweet-actions` owns one-Tweet UI actions. Content injects keyboard-safe Escape dispatch. It injects author-caret lookup into `x-client`'s DOM driver.
 - `membership-store` exposes the optional Mirror seam. Convex and null implementations share one contract.

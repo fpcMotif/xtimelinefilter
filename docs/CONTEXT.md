@@ -50,6 +50,10 @@ These terms define the product. Architecture lives in
 - **Hidden cell** — a filtered timeline cell collapsed to a reversible stub, never removed. Its overlay and pointer/keyboard targets are inert until shown.
 - **Compact mode** — the opt-in mode that also hides the stub. It remains experimental pending live X verification.
 
+## Post capture
+
+- **Durable capture** — what a Tweet *is* and what it *said*, read from its article in a form safe to write down and return to weeks later: status id, canonical permalink, author, text, media references, and posted-at. Keyed by the status id alone — it carries no X account, Owner or session, so the same post captures identically whichever account is signed in. Its author data is denormalized display data, never identity. A null status id means the post cannot be saved; the capture says so rather than inventing an id. Distinct from the per-cell recycle key the scanner uses.
+
 ## Browser data
 
 - **Worker authority** — the service worker serializes durable semantic commands. Settings are local; Filter preferences are sync.

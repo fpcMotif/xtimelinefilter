@@ -1,6 +1,9 @@
 import { FacetSelectors, Selectors } from "@/content/selectors";
 import type { Facets } from "@/core/filter-types";
 
+import { isHostOwn } from "./dom";
+import { safe } from "./guard";
+
 /**
  * Pure, ISOLATED-world-safe extraction of a Tweet's Facets from its article.
  * Co-located sibling of author() under tweet-read. Every read is guarded so a
@@ -15,14 +18,6 @@ import type { Facets } from "@/core/filter-types";
 const HOST_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.[a-z]{2,}$/i;
 /** x.com / twitter.com / t.co are internal — never an outbound destination. */
 const INTERNAL_RE = /(?:^|\.)(?:x\.com|twitter\.com|t\.co)$/i;
-
-function safe<T>(fn: () => T, fallback: T): T {
-  try {
-    return fn();
-  } catch {
-    return fallback;
-  }
-}
 
 /** Parse a host out of visible link text (X shows the real domain as the link's text). */
 function hostFromText(raw: string | null | undefined): string | null {
@@ -84,7 +79,7 @@ export function facets(article: Element): Facets {
   const scopedHas = (sel: string): boolean =>
     safe(() => {
       const el = article.querySelector(sel);
-      return !!el && el.closest(Selectors.TWEET) === article;
+      return !!el && isHostOwn(el, article);
     }, false);
   const tweetText = safe(() => article.querySelector(Selectors.TWEET_TEXT), null);
 

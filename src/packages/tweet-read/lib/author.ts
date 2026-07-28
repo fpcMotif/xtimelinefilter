@@ -1,6 +1,7 @@
-import { AVATAR_CONTAINER_PREFIX, Selectors } from "@/content/selectors";
+import { Selectors } from "@/content/selectors";
 import type { TweetAuthor } from "@/core/selection-store";
 
+import { handleFromAvatarContainer, readCollapsedText } from "./dom";
 import { parsePermalink, pathnameOf } from "./status";
 
 export type TweetType = "tweet" | "retweet" | "promoted";
@@ -21,7 +22,8 @@ export function author(article: Element): TweetAuthor | null {
     null;
   const pl = authorLink ? parsePermalink(authorLink) : null;
 
-  const screenName = pl?.screenName ?? handleFromAvatar(article);
+  const screenName =
+    pl?.screenName ?? handleFromAvatarContainer(article.querySelector(Selectors.AVATAR_CONTAINER));
   if (!screenName) return null;
 
   return {
@@ -44,35 +46,14 @@ function isTweet(el: Element | null): el is Element {
   return !!el && el.getAttribute?.("data-testid") === "tweet";
 }
 
-function handleFromAvatar(article: Element): string | null {
-  const tid = article.querySelector(Selectors.AVATAR_CONTAINER)?.getAttribute("data-testid");
-  return tid?.startsWith(AVATAR_CONTAINER_PREFIX)
-    ? tid.slice(AVATAR_CONTAINER_PREFIX.length)
-    : null;
-}
-
 function readDisplayName(article: Element, screenName: string): string | undefined {
   const block = article.querySelector(Selectors.USER_NAME);
   if (!block) return undefined;
   const nameLink = [...block.querySelectorAll("a")].find((a) => pathnameOf(a) === `/${screenName}`);
-  const raw = readText(nameLink ?? block)
-    .replace(/\s+/g, " ")
-    .trim();
-  return raw || undefined;
+  return readCollapsedText(nameLink ?? block);
 }
 
 function readAvatar(article: Element): string | undefined {
   const img = article.querySelector<HTMLImageElement>(Selectors.AVATAR_IMG);
   return img?.getAttribute("src") ?? undefined;
-}
-
-/** Reads visible text, expanding emoji <img alt> and ignoring badge <svg> text. */
-function readText(node: Node): string {
-  let out = "";
-  node.childNodes.forEach((n) => {
-    if (n.nodeType === 3) out += (n as Text).data;
-    else if (n.nodeName === "IMG") out += (n as HTMLImageElement).alt;
-    else if (n.nodeType === 1) out += readText(n);
-  });
-  return out;
 }

@@ -85,6 +85,16 @@ module.exports = {
     //   from: { path: `^${R}/ui/` },
     //   to:   { path: `^${R}/billing/` },
     // },
+    {
+      name: "tweet-read-is-account-free",
+      comment:
+        "tweet-read answers 'which post is this' from the article alone. Its durable capture is keyed by status id and nothing else, so the same article captures identically whichever X account the page is signed in as — the package may not reach a current-account, Owner or session module. ADDING an account-bearing module elsewhere? Add it to this `to` list, or the guard silently stops covering it.",
+      severity: "error",
+      from: { path: `^${R}/tweet-read/` },
+      to: {
+        path: ["^src/content/get-current-account", `^${R}/membership-store/`, `^${R}/x-client/`],
+      },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },
