@@ -61,13 +61,10 @@ describe("the page's door to Folders", () => {
       createdSavedPost: true,
     });
     // Unfile FIRST: deleting the post would take Folder rows this gesture
-    // never touched with it.
-    expect(minted.operations()).toEqual([
-      "begin",
-      "remove-from-folder",
-      "begin",
-      "delete-saved-post",
-    ]);
+    // never touched with it. And ONE fence covers both legs, so a Clear cannot
+    // land between them and leave the post unfiled but undeleted.
+    expect(minted.operations()).toEqual(["begin", "remove-from-folder", "delete-saved-post"]);
+    expect(minted.sent[1]?.token).toEqual(minted.sent[2]?.token);
   });
 
   it("throws rather than reporting a save that did not happen", async () => {

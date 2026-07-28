@@ -55,6 +55,11 @@ export function createCollectionsClient(): CollectionsClient {
     },
 
     async undoSave({ folderId, statusId, createdSavedPost }) {
+      // ONE fence for the whole undo. Both legs are a single gesture, so minting
+      // a second token would not only cost a round-trip — it could put the two
+      // legs on opposite sides of a Privacy Clear, unfiling the post but leaving
+      // it behind.
+      const fence = await token();
       // Unfile first. Deleting the post would take its Folder rows with it,
       // including rows in Folders this gesture never touched.
       await requestCollections({
@@ -62,7 +67,7 @@ export function createCollectionsClient(): CollectionsClient {
         operation: "remove-from-folder",
         folderId,
         statusId,
-        token: await token(),
+        token: fence,
       });
       // The post itself goes only when this gesture minted it: a post already
       // saved elsewhere keeps its other Folder rows, note, tags and captured-at.
@@ -71,7 +76,7 @@ export function createCollectionsClient(): CollectionsClient {
           type: TYPE,
           operation: "delete-saved-post",
           statusId,
-          token: await token(),
+          token: fence,
         });
       }
     },
