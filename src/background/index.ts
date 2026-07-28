@@ -11,6 +11,7 @@ import {
   isMirrorStatusRequest,
   isSettingsRequest,
 } from "@/core/protocol";
+import { isCollectionsRequest } from "@/core/protocol/collections";
 import { rawLocalArea, rawSyncArea } from "@/core/storage-areas";
 import { isReactiveStorageKey } from "@/core/storage-keys";
 
@@ -180,6 +181,19 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
           sendResponse({
             ok: false,
             error: error instanceof Error ? error.message : "Mirror status unavailable",
+          }),
+      );
+    return true;
+  }
+  if (isCollectionsRequest(msg)) {
+    void storageAccessReady
+      .then(() => dataLifecycle.collections(msg))
+      .then(
+        (result) => sendResponse({ ok: true, ...result }),
+        (error: unknown) =>
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : "Folders unavailable",
           }),
       );
     return true;

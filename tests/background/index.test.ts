@@ -430,6 +430,7 @@ describe("background service worker wiring", () => {
     const usage = vi.fn();
     const mirror = vi.fn();
     const graphql = vi.fn();
+    const collections = vi.fn();
 
     expect(message({ type: "lasso:clear-data" }, optionsSender(), clear)).toBe(true);
     expect(
@@ -459,7 +460,16 @@ describe("background service worker wiring", () => {
     expect(
       message({ type: "lasso:graphql-catalog", operation: "begin" }, contentSender(), graphql),
     ).toBe(true);
+    expect(
+      message({ type: "lasso:collections", operation: "counts" }, optionsSender(), collections),
+    ).toBe(true);
 
+    await vi.waitFor(() =>
+      expect(collections).toHaveBeenCalledWith({
+        ok: true,
+        counts: { folders: 0, savedPosts: 0 },
+      }),
+    );
     await vi.waitFor(() =>
       expect(clear).toHaveBeenCalledWith(expect.objectContaining({ localCleared: true })),
     );
@@ -486,6 +496,7 @@ describe("background service worker wiring", () => {
     let usageAttempt = 0;
     let mirrorAttempt = 0;
     let graphqlAttempt = 0;
+    let collectionsAttempt = 0;
     vi.doMock("@/background/data-lifecycle", () => ({
       createDataLifecycle: () => ({
         migrate: async () => true,
@@ -504,6 +515,10 @@ describe("background service worker wiring", () => {
           Promise.reject(mirrorAttempt++ === 0 ? "mirror failed" : new Error("mirror failed")),
         graphqlCatalog: async () =>
           Promise.reject(graphqlAttempt++ === 0 ? new Error("graphql failed") : "graphql failed"),
+        collections: async () =>
+          Promise.reject(
+            collectionsAttempt++ === 0 ? new Error("folders failed") : "folders fallback",
+          ),
       }),
     }));
     try {
@@ -516,6 +531,7 @@ describe("background service worker wiring", () => {
       const usage = vi.fn();
       const mirror = vi.fn();
       const graphql = vi.fn();
+      const collections = vi.fn();
 
       message({ type: "lasso:clear-data" }, optionsSender(), clear);
       message({ type: "lasso:settings", operation: "read" }, optionsSender(), settings);
@@ -533,6 +549,8 @@ describe("background service worker wiring", () => {
       );
       message({ type: "lasso:mirror-status", operation: "read" }, popupSender(), mirror);
       message({ type: "lasso:graphql-catalog", operation: "begin" }, contentSender(), graphql);
+      message({ type: "lasso:collections", operation: "counts" }, optionsSender(), collections);
+      message({ type: "lasso:collections", operation: "counts" }, optionsSender(), collections);
       message(
         { type: "lasso:settings", operation: "patch", patch: { highContrast: true } },
         optionsSender(),
@@ -602,6 +620,12 @@ describe("background service worker wiring", () => {
       );
       await vi.waitFor(() =>
         expect(graphql).toHaveBeenCalledWith({ ok: false, error: "GraphQL catalog unavailable" }),
+      );
+      await vi.waitFor(() =>
+        expect(collections).toHaveBeenCalledWith({ ok: false, error: "folders failed" }),
+      );
+      await vi.waitFor(() =>
+        expect(collections).toHaveBeenCalledWith({ ok: false, error: "Folders unavailable" }),
       );
     } finally {
       vi.doUnmock("@/background/data-lifecycle");

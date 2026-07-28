@@ -1,4 +1,9 @@
 import {
+  createCollections,
+  defaultCollectionStore,
+  type CollectionStoreFactory,
+} from "@/background/data-lifecycle/collections";
+import {
   isCoachCommand,
   transitionCoach,
   type CoachCommand,
@@ -23,6 +28,7 @@ import type {
   MirrorStatusRequest,
   MirrorStatusSuccess,
 } from "@/core/protocol";
+import type { CollectionsRequest, CollectionsSuccess } from "@/core/protocol/collections";
 import type { LassoSettings, SettingsPatch } from "@/core/settings-domain";
 import type { StorageLike } from "@/core/storage-areas";
 import type { ClearLassoDataResult } from "@/core/storage-clear";
@@ -52,6 +58,7 @@ export interface DataLifecycle {
   listUsage(request: ListUsageRequest): Promise<ListUsageSuccess>;
   mirrorStatus(request: MirrorStatusRequest): Promise<MirrorStatusSuccess>;
   graphqlCatalog(request: GraphqlCatalogRequest): Promise<GraphqlCatalogSuccess>;
+  collections(request: CollectionsRequest): Promise<CollectionsSuccess>;
   clear(): Promise<ClearLassoDataResult>;
 }
 
@@ -63,11 +70,18 @@ export function createDataLifecycle(
   local: StorageLike,
   sync: StorageLike,
   createMirrorConfigId: () => string = () => globalThis.crypto.randomUUID(),
+  /**
+   * Opens the one collections database this worker owns. Injected so tests can
+   * substitute an in-memory store — and so no other context ever names the
+   * IndexedDB implementation.
+   */
+  openCollectionStore: CollectionStoreFactory = defaultCollectionStore,
 ): DataLifecycle {
   const serialize = <T>(operation: () => Promise<T>): Promise<T> =>
     serializeWorkerStorage(local, operation);
   const settings = createSettingsAuthority(local, sync, createMirrorConfigId);
   const observedXCache = createObservedXCache(local, cacheUuid);
+  const collections = createCollections(local, openCollectionStore);
 
   const readFilter = async (defaultLanguages: readonly string[]): Promise<FilterState> => {
     const defaults = defaultFilterState(defaultLanguages);
@@ -168,6 +182,7 @@ export function createDataLifecycle(
     listUsage: (request) => serialize(() => listUsage(request)),
     mirrorStatus: (request) => serialize(() => mirrorStatus(request)),
     graphqlCatalog: (request) => serialize(() => observedXCache.graphqlCatalog(request)),
+    collections: (request) => serialize(() => collections(request)),
     clear: () => serialize(() => erasePrivateData(local, sync, cacheUuid)),
   };
 }

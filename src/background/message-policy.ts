@@ -19,6 +19,35 @@ const contentSettingsPatch = (message: Message): boolean => {
 };
 
 /**
+ * Which collections operations each surface may submit, as EXACT enumerated
+ * sets rather than a prefix or a "reads are fine" rule. A later ticket adding an
+ * operation must extend these tables and their test deliberately — it cannot
+ * widen a surface by omission.
+ *
+ * Options runs the Folders workshop, so it may submit everything. The popup only
+ * renders a count. Top-level x.com content runs the save gesture and its picker:
+ * it lists Folders, asks which hold a post, creates a Folder inline, saves and
+ * unsaves — and deliberately gets NO count read, because nothing in the page
+ * shows one.
+ */
+const POPUP_COLLECTIONS = new Set(["counts"]);
+const X_CONTENT_COLLECTIONS = new Set([
+  "begin",
+  "list-folders",
+  "folders-holding",
+  "create-folder",
+  "save-post",
+  "remove-from-folder",
+]);
+
+function collectionsCapability(capability: SenderCapability, message: Message): boolean {
+  if (typeof message.operation !== "string") return false;
+  if (capability === "options") return true;
+  if (capability === "popup") return POPUP_COLLECTIONS.has(message.operation);
+  return capability === "x-content" && X_CONTENT_COLLECTIONS.has(message.operation);
+}
+
+/**
  * Directional runtime capability policy. Shape guards still validate each
  * accepted request; this layer decides which extension surface may submit it.
  */
@@ -55,6 +84,8 @@ export function canHandleMessage(capability: SenderCapability, value: unknown): 
         (capability === "popup" && operationIs(value, "read")) ||
         (capability === "x-content" && operationIs(value, "report"))
       );
+    case "lasso:collections":
+      return collectionsCapability(capability, value);
     case "lasso:graphql-catalog":
       return capability === "x-content" && operationIs(value, "read", "begin", "commit");
     case "lasso:badge":

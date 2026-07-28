@@ -136,6 +136,9 @@ export interface DeleteSavedPostParams {
 export interface GetSavedPostParams {
   statusId: string;
 }
+export interface FoldersHoldingParams {
+  statusId: string;
+}
 export interface SetNoteParams {
   statusId: string;
   note: string;
@@ -182,6 +185,11 @@ export interface CollectionStore {
   /** Terminal: takes the post's Folder rows and bookmark evidence with it. */
   deleteSavedPost(params: DeleteSavedPostParams): Promise<void>;
   getSavedPost(params: GetSavedPostParams): Promise<SavedPost | null>;
+  /**
+   * Which Folders already hold this post — what the picker shows so the user
+   * never files a duplicate. Index-backed; a deleted Folder has no rows left.
+   */
+  foldersHolding(params: FoldersHoldingParams): Promise<string[]>;
 
   setNote(params: SetNoteParams): Promise<void>;
   setTags(params: SetTagsParams): Promise<void>;

@@ -45,6 +45,9 @@ export class NullCollectionStore implements CollectionStore {
   async getSavedPost(): Promise<SavedPost | null> {
     return null;
   }
+  async foldersHolding(): Promise<string[]> {
+    return [];
+  }
 
   async setNote(): Promise<void> {}
   async setTags(): Promise<void> {}

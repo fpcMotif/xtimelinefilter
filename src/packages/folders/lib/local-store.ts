@@ -6,6 +6,7 @@ import type {
   DeleteFolderParams,
   DeleteSavedPostParams,
   Folder,
+  FoldersHoldingParams,
   FolderMembership,
   FolderPage,
   GetSavedPostParams,
@@ -291,6 +292,16 @@ export class LocalCollectionStore implements CollectionStore {
     const req = tx.objectStore(Stores.SAVED_POSTS).get(statusId);
     await txDone(tx);
     return (req.result as SavedPost | undefined) ?? null;
+  }
+
+  async foldersHolding({ statusId }: FoldersHoldingParams): Promise<string[]> {
+    const tx = this.tx([Stores.FOLDER_MEMBERSHIPS], "readonly");
+    const req = tx
+      .objectStore(Stores.FOLDER_MEMBERSHIPS)
+      .index(Indexes.MEMBERSHIPS_BY_STATUS)
+      .getAllKeys(statusId);
+    await txDone(tx);
+    return req.result.map((key) => (key as [string, string])[0]);
   }
 
   async setNote({ statusId, note }: SetNoteParams): Promise<void> {

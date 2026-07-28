@@ -88,6 +88,9 @@ describe.each(implementations)("CollectionStore contract: $label", ({ make }) =>
 
     await expect(store.setNote({ statusId: "1", note: "why" })).resolves.toBeUndefined();
     await expect(store.setTags({ statusId: "1", tags: ["a"] })).resolves.toBeUndefined();
+    const holding = await store.foldersHolding({ statusId: "1" });
+    expect(Array.isArray(holding)).toBe(true);
+    expect(holding.every((id) => typeof id === "string")).toBe(true);
     await expect(store.removeFromFolder({ folderId, statusId: "1" })).resolves.toBeUndefined();
     await expect(store.deleteSavedPost({ statusId: "1" })).resolves.toBeUndefined();
   });
@@ -140,6 +143,7 @@ describe("the null implementation is inert", () => {
     expect(await store.listFolders({})).toEqual([]);
     expect(await store.getSavedPost({ statusId: "1" })).toBeNull();
     expect(await store.listBookmarkEvidence({ statusId: "1" })).toEqual([]);
+    expect(await store.foldersHolding({ statusId: "1" })).toEqual([]);
     expect(await store.countFolder({ folderId: folder.folderId })).toBe(0);
     expect(await store.countSavedPosts()).toBe(0);
     expect(await store.readFolderPage({ folderId: folder.folderId, limit: 10 })).toEqual({

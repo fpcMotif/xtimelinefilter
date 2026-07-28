@@ -9,6 +9,7 @@ import type {
   DeleteSavedPostParams,
   Folder,
   FolderMembership,
+  FoldersHoldingParams,
   GetSavedPostParams,
   ListBookmarkEvidenceParams,
   ListFoldersParams,
@@ -59,6 +60,7 @@ pin<
     | "removeFromFolder"
     | "deleteSavedPost"
     | "getSavedPost"
+    | "foldersHolding"
     | "setNote"
     | "setTags"
     | "recordBookmarkEvidence"
@@ -79,6 +81,7 @@ pin<KeysAre<SavePostParams, "folderId" | "capture">>();
 pin<KeysAre<RemoveFromFolderParams, "folderId" | "statusId">>();
 pin<KeysAre<DeleteSavedPostParams, "statusId">>();
 pin<KeysAre<GetSavedPostParams, "statusId">>();
+pin<KeysAre<FoldersHoldingParams, "statusId">>();
 pin<KeysAre<SetNoteParams, "statusId" | "note">>();
 pin<KeysAre<SetTagsParams, "statusId" | "tags">>();
 pin<KeysAre<ListBookmarkEvidenceParams, "statusId">>();
@@ -142,6 +145,7 @@ describe("account freedom", () => {
         "createFolder",
         "deleteFolder",
         "deleteSavedPost",
+        "foldersHolding",
         "getSavedPost",
         "listBookmarkEvidence",
         "listFolders",

@@ -178,6 +178,30 @@ describe("unfiling is never deleting", () => {
     expect(await store.getSavedPost({ statusId: "1" })).not.toBeNull();
   });
 
+  it("reports which folders hold a post, and none once it is unfiled", async () => {
+    const a = await store.createFolder({ name: "A" });
+    const b = await store.createFolder({ name: "B" });
+    await store.savePost({ folderId: a.folderId, capture: capture("1") });
+    await store.savePost({ folderId: b.folderId, capture: capture("1") });
+    await store.savePost({ folderId: a.folderId, capture: capture("2") });
+
+    expect((await store.foldersHolding({ statusId: "1" })).toSorted()).toEqual(
+      [a.folderId, b.folderId].toSorted(),
+    );
+    expect(await store.foldersHolding({ statusId: "2" })).toEqual([a.folderId]);
+    expect(await store.foldersHolding({ statusId: "nope" })).toEqual([]);
+
+    await store.removeFromFolder({ folderId: a.folderId, statusId: "1" });
+    expect(await store.foldersHolding({ statusId: "1" })).toEqual([b.folderId]);
+  });
+
+  it("stops reporting a deleted folder as holding a post", async () => {
+    const a = await store.createFolder({ name: "A" });
+    await store.savePost({ folderId: a.folderId, capture: capture("1") });
+    await store.deleteFolder({ folderId: a.folderId, disposition: "keep-posts" });
+    expect(await store.foldersHolding({ statusId: "1" })).toEqual([]);
+  });
+
   it("deleting the post outright takes its rows and evidence with it", async () => {
     const a = await store.createFolder({ name: "A" });
     const b = await store.createFolder({ name: "B" });
