@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { FOLDER_ID_RE } from "../index";
+import { FOLDER_ID_RE } from "../ids";
 import type { CollectionStore, Folder, SavedPost } from "../types";
 import { capture, freshStore, inertStore } from "./fixtures";
 

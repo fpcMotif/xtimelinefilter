@@ -5,16 +5,15 @@
  * from the read package.
  *
  * The domain and the `CollectionStore` contract live on ./types; this entry
- * point exposes the factory plus the two things about the store that are
- * declared rather than incidental — the database's name and version, and the
- * shape of a Folder id, which is minted here and by nobody else.
+ * point exposes the factory and the database's declared name and version. The
+ * Folder id format lives on ./ids, which carries no store code, so a wire
+ * validator can check the shape without importing IndexedDB.
  */
 import { LocalCollectionStore, openDatabase } from "./lib/local-store";
 import { NullCollectionStore } from "./lib/null-store";
 import type { CollectionStore } from "./types";
 
 export { FOLDERS_DB_NAME, FOLDERS_DB_VERSION } from "./lib/schema";
-export { FOLDER_ID_RE } from "./lib/ids";
 
 export interface CollectionStoreConfig {
   /** The database to open. Absent ⇒ the null object. Never read from a global. */

@@ -1,7 +1,8 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createCollectionStore, FOLDER_ID_RE } from "../index";
+import { FOLDER_ID_RE } from "../ids";
+import { createCollectionStore } from "../index";
 import type { CollectionStore } from "../types";
 import { capture, freshStore } from "./fixtures";
 
