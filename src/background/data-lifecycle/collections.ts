@@ -11,6 +11,7 @@ import {
 } from "@/core/protocol/collections";
 import type { StorageLike } from "@/core/storage-areas";
 import { COLLECTIONS_DATABASE, STORAGE_KEYS } from "@/core/storage-keys";
+import { createCollectionStore } from "@/packages/folders";
 import type { CollectionStore } from "@/packages/folders/types";
 
 /** Builds the one store this worker will ever own. Tests substitute an in-memory one. */
@@ -201,16 +202,23 @@ export function createCollections(
  * browser globals are read HERE and nowhere else, so the folders package stays
  * headless and every other context keeps its hands off the database.
  */
-export const defaultCollectionStore: CollectionStoreFactory = async () => {
-  const { createCollectionStore } = await import("@/packages/folders");
-  // Read off globalThis, never as bare identifiers: an absent global is then
-  // `undefined` and the factory degrades to the inert store, where a bare
-  // reference would throw a ReferenceError and take the worker down with it.
-  return createCollectionStore({
-    indexedDB: globalThis.indexedDB,
-    keyRange: globalThis.IDBKeyRange,
-  });
-};
+export const defaultCollectionStore: CollectionStoreFactory = () =>
+  // STATICALLY imported on purpose. Chrome MV3 forbids dynamic `import()` in a
+  // module service worker once its initial evaluation is over, so lazily
+  // importing the store here threw at first use and reported the database as
+  // unavailable — in a real browser only; no fixture-backed test can see it.
+  // This module is reached from `src/background/` alone, so the store's bytes
+  // never land in content, options or the popup.
+  //
+  // The globals are read off `globalThis` rather than as bare identifiers: an
+  // absent global is then `undefined` and the factory degrades to the inert
+  // store, where a bare reference would throw a ReferenceError instead.
+  Promise.resolve(
+    createCollectionStore({
+      indexedDB: globalThis.indexedDB,
+      keyRange: globalThis.IDBKeyRange,
+    }),
+  );
 
 /**
  * Deletes the worker-owned database. A `blocked` event means some connection is

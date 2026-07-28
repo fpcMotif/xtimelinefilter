@@ -109,19 +109,82 @@ test("MV3 build loads its worker and injects content on local X", async () => {
         type: "lasso:settings",
         operation: "read",
       });
+
+      // Folders, end to end against REAL IndexedDB in a real worker — the
+      // collections suite otherwise runs against an injected in-memory store,
+      // which is a fixture and cannot prove Chrome behaves as assumed.
+      const send = (message: Record<string, unknown>) =>
+        chrome.runtime.sendMessage({ type: "lasso:collections", ...message });
+      const token = async () => (await send({ operation: "begin" })).token;
+      const created = await send({
+        operation: "create-folder",
+        name: "Smoke",
+        token: await token(),
+      });
+      const saved = await send({
+        operation: "save-post",
+        folderId: created.folder.folderId,
+        token: await token(),
+        capture: { statusId: "1", permalink: "https://x.com/jack/status/1", media: [] },
+      });
+      const again = await send({
+        operation: "save-post",
+        folderId: created.folder.folderId,
+        token: await token(),
+        capture: { statusId: "1", permalink: "https://x.com/jack/status/1", media: [] },
+      });
+      const counts = await send({ operation: "counts" });
+      const databasesBefore = (await indexedDB.databases()).map((entry) => entry.name);
+
       const cleared = await chrome.runtime.sendMessage({ type: "lasso:clear-data" });
       const afterClear = await chrome.runtime.sendMessage({
         type: "lasso:settings",
         operation: "read",
       });
+      // Listed BEFORE any further collections call: a read after Clear reopens
+      // the store, which recreates an empty database and would mask the delete.
+      const databasesAfter = (await indexedDB.databases()).map((entry) => entry.name);
+      const countsAfterClear = await send({ operation: "counts" });
 
-      return { settings, cleared, afterClear };
+      return {
+        settings,
+        cleared,
+        afterClear,
+        collections: { created, saved, again, counts, databasesBefore },
+        afterClearCollections: { countsAfterClear, databasesAfter },
+      };
     });
     expect(protocol.settings).toMatchObject({
       ok: true,
       settings: { backend: expect.any(String) },
     });
+    // The worker really opened IndexedDB, minted a Folder and filed a post.
+    expect(protocol.collections.created).toMatchObject({
+      ok: true,
+      folder: { name: "Smoke", folderId: expect.stringMatching(/^fld_[0-9a-v]{20}$/) },
+    });
+    expect(protocol.collections.saved).toEqual({
+      ok: true,
+      outcome: { status: "saved", statusId: "1" },
+    });
+    // Saved once: filing the same post into the same Folder writes nothing.
+    expect(protocol.collections.again).toEqual({
+      ok: true,
+      outcome: { status: "already-there", statusId: "1" },
+    });
+    expect(protocol.collections.counts).toEqual({
+      ok: true,
+      counts: { folders: 1, savedPosts: 1 },
+    });
+    expect(protocol.collections.databasesBefore).toContain("lasso:folders");
+
     expect(protocol.cleared).toEqual({ localCleared: true, syncCleared: true });
+    // Privacy Clear destroyed the database itself, not just the storage keys.
+    expect(protocol.afterClearCollections.databasesAfter).not.toContain("lasso:folders");
+    expect(protocol.afterClearCollections.countsAfterClear).toEqual({
+      ok: true,
+      counts: { folders: 0, savedPosts: 0 },
+    });
     expect(protocol.afterClear).toMatchObject({
       ok: true,
       settings: { backend: expect.any(String) },
