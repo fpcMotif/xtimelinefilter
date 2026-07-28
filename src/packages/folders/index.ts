@@ -1,5 +1,5 @@
 /**
- * saved-posts — the storage brain behind Folders. Headless and standalone: it
+ * folders — the storage brain behind Folders. Headless and standalone: it
  * knows nothing about Chrome, the DOM, x.com, the worker or any surface, which
  * is why it declares `PostCapture` itself (see ./types) rather than importing it
  * from the read package.
@@ -13,7 +13,7 @@ import { LocalCollectionStore, openDatabase } from "./lib/local-store";
 import { NullCollectionStore } from "./lib/null-store";
 import type { CollectionStore } from "./types";
 
-export { SAVED_POSTS_DB_NAME, SAVED_POSTS_DB_VERSION } from "./lib/schema";
+export { FOLDERS_DB_NAME, FOLDERS_DB_VERSION } from "./lib/schema";
 export { FOLDER_ID_RE } from "./lib/ids";
 
 export interface CollectionStoreConfig {

@@ -19,7 +19,7 @@ The dependency boundary gate checks cycles and package privacy across `src/`, `t
 - `x-client` exposes `createXPageClient`, the page-scoped facade for auth, same-origin fetch, backend replacement, GraphQL repair, List reads, and quick REST actions. `XListApi` is the mutation seam; REST, DOM, and GraphQL are adapters. Its DOM driver owns only the Lists dialog protocol.
 - `tweet-actions` owns one-Tweet UI actions. Content injects keyboard-safe Escape dispatch. It injects author-caret lookup into `x-client`'s DOM driver.
 - `membership-store` exposes the optional Mirror seam. Convex and null implementations share one contract.
-- `saved-posts` owns the Folders domain and the `CollectionStore` seam: the local-first database now, a Destination adapter later, chosen by one factory. It is headless and standalone — no Chrome API, no DOM, no x.com — and declares the post capture's shape itself rather than importing it, so it never reaches the content tree. No operation takes an account (ADR-0013).
+- `folders` owns the Folders domain and the `CollectionStore` seam: the local-first database now, a Destination adapter later, chosen by one factory. It is headless and standalone — no Chrome API, no DOM, no x.com — and declares the post capture's shape itself rather than importing it, so it never reaches the content tree. No operation takes an account (ADR-0013).
 
 Keeping these interfaces narrow improves locality: X drift, Mirror transport, and Tweet parsing each change behind one boundary. Their leverage comes from every caller sharing the same policy.
 

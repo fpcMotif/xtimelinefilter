@@ -1,7 +1,7 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
 
-import { createCollectionStore, SAVED_POSTS_DB_NAME, SAVED_POSTS_DB_VERSION } from "../index";
+import { createCollectionStore, FOLDERS_DB_NAME, FOLDERS_DB_VERSION } from "../index";
 
 /**
  * The database's declared shape, asserted against literal lists. Any extra
@@ -15,7 +15,7 @@ async function openCreatedDatabase(): Promise<IDBDatabase> {
   const indexedDB = new IDBFactory();
   await createCollectionStore({ indexedDB, keyRange: IDBKeyRange });
   return new Promise<IDBDatabase>((resolve) => {
-    const req = indexedDB.open(SAVED_POSTS_DB_NAME, SAVED_POSTS_DB_VERSION);
+    const req = indexedDB.open(FOLDERS_DB_NAME, FOLDERS_DB_VERSION);
     req.onsuccess = () => resolve(req.result as unknown as IDBDatabase);
   });
 }

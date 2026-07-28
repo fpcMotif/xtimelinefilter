@@ -1,14 +1,14 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
 
-import { createCollectionStore } from "@/packages/saved-posts";
-import type { PostCapture } from "@/packages/saved-posts/types";
+import { createCollectionStore } from "@/packages/folders";
+import type { PostCapture } from "@/packages/folders/types";
 import { capture, type TweetCapture } from "@/packages/tweet-read";
 
 /**
  * The seam between the two packages, which deliberately do NOT import each
  * other: `tweet-read`'s entry point transitively reaches `@/content/selectors`,
- * and `saved-posts` must stay headless, so each declares the capture's shape
+ * and `folders` must stay headless, so each declares the capture's shape
  * itself. That is only safe if the shapes stay identical — this file is the one
  * place that proves it, from both directions and at both compile and run time.
  */

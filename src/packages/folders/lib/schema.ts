@@ -8,8 +8,8 @@
  *   folderMemberships keyed by  [folderId, statusId]
  *   bookmarkEvidence  keyed by  [statusId, xAccountId]   ← the ONLY key naming an account
  */
-export const SAVED_POSTS_DB_NAME = "lasso:saved-posts";
-export const SAVED_POSTS_DB_VERSION = 1;
+export const FOLDERS_DB_NAME = "lasso:folders";
+export const FOLDERS_DB_VERSION = 1;
 
 export const Stores = {
   FOLDERS: "folders",

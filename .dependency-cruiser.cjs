@@ -86,11 +86,11 @@ module.exports = {
     //   to:   { path: `^${R}/billing/` },
     // },
     {
-      name: "saved-posts-is-headless",
+      name: "folders-is-headless",
       comment:
-        "saved-posts is the storage brain and nothing else — no Chrome API, no DOM, no x.com — so it stays drivable from a worker or a test with no browser underneath. The source guard in tests/regression bans a DIRECT reference; this bans reaching the page and worker trees TRANSITIVELY, e.g. through another package whose entry point pulls in the selector table.",
+        "the folders package is the storage brain and nothing else — no Chrome API, no DOM, no x.com — so it stays drivable from a worker or a test with no browser underneath. The source guard in tests/regression bans a DIRECT reference; this bans reaching the page and worker trees TRANSITIVELY, e.g. through another package whose entry point pulls in the selector table.",
       severity: "error",
-      from: { path: `^${R}/saved-posts/` },
+      from: { path: `^${R}/folders/` },
       to: { path: "^src/(?:content|background)/", reachable: true },
     },
     {

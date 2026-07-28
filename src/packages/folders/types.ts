@@ -17,7 +17,7 @@
 /**
  * The durable capture of a post, as the reader hands it over. Declared HERE, not
  * imported from `tweet-read`: that package's entry point transitively reaches the
- * content-script selector table, and `saved-posts` must stay headless. A repo-level
+ * content-script selector table, and `folders` must stay headless. A repo-level
  * type test pins the two shapes as mutually assignable.
  */
 export type PostCapture = {

@@ -24,13 +24,7 @@ import type {
   SetTagsParams,
 } from "../types";
 import { mintFolderId } from "./ids";
-import {
-  applySchema,
-  Indexes,
-  SAVED_POSTS_DB_NAME,
-  SAVED_POSTS_DB_VERSION,
-  Stores,
-} from "./schema";
+import { applySchema, Indexes, FOLDERS_DB_NAME, FOLDERS_DB_VERSION, Stores } from "./schema";
 
 /** Tags are user-typed; bound them so one post can't grow without limit. */
 const MAX_TAGS = 32;
@@ -51,7 +45,7 @@ function txDone(tx: IDBTransaction): Promise<void> {
 
 export function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = factory.open(SAVED_POSTS_DB_NAME, SAVED_POSTS_DB_VERSION);
+    const req = factory.open(FOLDERS_DB_NAME, FOLDERS_DB_VERSION);
     req.addEventListener("upgradeneeded", () => applySchema(req.result));
     req.addEventListener("success", () => resolve(req.result));
     req.addEventListener("error", () => reject(req.error));

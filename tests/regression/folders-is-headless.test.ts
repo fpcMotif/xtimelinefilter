@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Structural guard: `saved-posts` is the storage brain and nothing else. It
+ * Structural guard: `folders` is the storage brain and nothing else. It
  * knows no Chrome API, no DOM and no surface, so it can be driven from a worker,
  * a test or anywhere else without a browser underneath it.
  *
@@ -49,7 +49,7 @@ const BANNED: Array<{ label: string; pattern: RegExp; bad: string; fine: string 
   },
 ];
 
-const PACKAGE_DIR = join(__dirname, "../../src/packages/saved-posts");
+const PACKAGE_DIR = join(__dirname, "../../src/packages/folders");
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -59,7 +59,7 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-describe("saved-posts is headless and standalone", () => {
+describe("folders is headless and standalone", () => {
   it("each banned pattern matches the shape it bans and spares the shape it does not", () => {
     for (const { label, pattern, bad, fine } of BANNED) {
       expect(pattern.test(bad), `${label} should match: ${bad}`).toBe(true);
@@ -82,7 +82,7 @@ describe("saved-posts is headless and standalone", () => {
     });
     expect(
       offenders,
-      "saved-posts must stay drivable without a browser — inject what you need instead",
+      "the folders package must stay drivable without a browser — inject what you need instead",
     ).toEqual([]);
   });
 });
