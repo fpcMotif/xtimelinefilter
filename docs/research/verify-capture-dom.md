@@ -1,6 +1,7 @@
 # Live-DOM verification: the durable capture
 
-**Status: PENDING** — this record is the empty form, not a result. The hooks
+**Status: PARTIALLY VERIFIED (2026-07-29)** — case 1 confirmed on live x.com via
+the save gesture (#70). The remaining cases are still open. The hooks
 `tweet-read`'s `capture()` relies on are **assumptions** about x.com's DOM until a human
 confirms them on the live site with a logged-in session. happy-dom unit tests prove the
 capture *logic*, never that the selectors match real posts (MISSION.md: assumption ≠ proof).
@@ -54,7 +55,7 @@ Verify **by effect**, on live x.com, with a logged-in session — not against a 
 
 | # | Case | Expected | Observed | Verdict |
 |---|------|----------|----------|---------|
-| 1 | Plain post | usable id, permalink, author, text, media, posted-at | | PENDING |
+| 1 | Plain post | usable id, permalink, author, text, media, posted-at | Alt+Shift+B on a live Home post filed `@nomiso_jiru` with its text and a composed `https://x.com/nomiso_jiru/status/2082026756043858224`; read back from the store. Media and posted-at not inspected. | **PASS (id, permalink, author, text)** |
 | 2 | Quote tweet | the **host** post's id — never the quoted post's | | PENDING |
 | 3 | Repost | the **underlying** post's id and original author | | PENDING |
 | 4 | Photo post | `media: [{kind:"photo", url}]`, url opens the image | | PENDING |
