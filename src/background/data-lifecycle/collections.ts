@@ -19,24 +19,15 @@ export type CollectionStoreFactory = () => Promise<CollectionStore>;
 /** Destroys the collections database. True only when it is really gone. */
 export type DatabaseDestroyer = () => Promise<boolean>;
 
-/** Runs cleanup whose failure must not change what the caller reports. */
-function safely(run: () => void): void {
-  try {
-    run();
-  } catch {
-    // Deliberately swallowed; see the caller for why its verdict comes elsewhere.
-  }
-}
-
 /** Raised when the database cannot be opened, so no caller is told a save landed. */
-export class CollectionsUnavailableError extends Error {
+class CollectionsUnavailableError extends Error {
   constructor() {
     super("Folders are unavailable: the collections database could not be opened.");
   }
 }
 
 /** Raised when a caller would push past the declared live-Folder cap. */
-export class FolderLimitError extends Error {
+class FolderLimitError extends Error {
   constructor() {
     super(`You can have at most ${MAX_LIVE_FOLDERS} folders.`);
   }
@@ -93,8 +84,7 @@ export function createCollections(
   const fenced = async (token: unknown): Promise<boolean> =>
     decideCacheObservation(await clock(), undefined, normalizeCacheObservation(token)) !== "write";
 
-  const liveFolderCount = async (): Promise<number> =>
-    (await (await store()).listFolders({})).length;
+  const liveFolderCount = async (): Promise<number> => (await store()).countFolders();
 
   /**
    * Privacy Clear's leg. The open connection is released first — it would
@@ -112,7 +102,13 @@ export function createCollections(
       // says so; treating a close error as the answer would report a failure
       // even when the database went away cleanly.
       await opened.then(
-        (db) => safely(() => db.close()),
+        (db) => {
+          try {
+            db.close();
+          } catch {
+            // Swallowed on purpose: deleteDatabase below is the verdict.
+          }
+        },
         () => undefined,
       );
     }
@@ -182,15 +178,11 @@ export function createCollections(
       case "counts":
         return {
           counts: {
-            // Bounded by MAX_LIVE_FOLDERS, so this is not an unbounded scan; the
-            // post total is the savedPosts store's own index-backed count.
             folders: await liveFolderCount(),
             savedPosts: await db.countSavedPosts(),
           },
         };
-      /* v8 ignore next -- exhaustive over CollectionsOperation; the guard has
-         already rejected anything else before this runs. */
-      default:
+      case "read-folder-page":
         return {
           page: await db.readFolderPage({
             folderId: request.folderId,

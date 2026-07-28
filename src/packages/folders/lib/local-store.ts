@@ -354,6 +354,16 @@ export class LocalCollectionStore implements CollectionStore {
     return req.result;
   }
 
+  async countFolders(): Promise<number> {
+    const tx = this.tx([Stores.FOLDERS], "readonly");
+    const store = tx.objectStore(Stores.FOLDERS);
+    const all = store.count();
+    // The index carries tombstones alone, so the difference is the live count.
+    const tombstones = store.index(Indexes.FOLDERS_BY_DELETED).count();
+    await txDone(tx);
+    return all.result - tombstones.result;
+  }
+
   async countSavedPosts(): Promise<number> {
     // savedPosts is keyed by statusId, so its size IS the distinct total.
     const tx = this.tx([Stores.SAVED_POSTS], "readonly");

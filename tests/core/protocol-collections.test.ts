@@ -99,6 +99,10 @@ const VALID: Record<CollectionsOperation, CollectionsRequest> = {
 
 const rest = (n: number, fill = "x"): string => fill.repeat(n);
 
+afterEach(() => {
+  globalThis.chrome = { storage: globalThis.chrome?.storage } as unknown as typeof chrome;
+});
+
 describe("collections request guard", () => {
   it("accepts one valid request per declared operation", () => {
     expect(Object.keys(VALID).toSorted()).toEqual([...COLLECTIONS_OPERATIONS].toSorted());
@@ -314,6 +318,80 @@ describe("account freedom on the wire", () => {
     }
   });
 
+  it("pins each SUCCESS RESPONSE's exact key set to a literal, and rejects any other", async () => {
+    // The request half is pinned below; this is its counterpart. Every operation
+    // gets its payload key set asserted AND an account-shaped key added to that
+    // payload rejected, so no response can smuggle an account back in.
+    const payloads: Record<CollectionsOperation, Record<string, unknown>> = {
+      begin: { token: TOKEN },
+      "list-folders": { folders: [] },
+      "folders-holding": { folderIds: [] },
+      "create-folder": {
+        folder: {
+          folderId: FOLDER,
+          name: "Research",
+          sortIndex: 0,
+          createdAt: 1,
+          updatedAt: 1,
+          deletedAt: null,
+        },
+      },
+      "rename-folder": {},
+      "reorder-folders": {},
+      "delete-folder": {},
+      "save-post": { outcome: { status: "saved", statusId: STATUS } },
+      "remove-from-folder": {},
+      "delete-saved-post": {},
+      "get-saved-post": { post: null },
+      "set-note": {},
+      "set-tags": {},
+      "record-bookmark-evidence": {},
+      "list-bookmark-evidence": { evidence: [] },
+      "count-folder": { count: 0 },
+      counts: { counts: { folders: 0, savedPosts: 0 } },
+      "read-folder-page": { page: { posts: [], nextCursor: null } },
+    };
+    const expectedKeys: Record<CollectionsOperation, string[]> = {
+      begin: ["token"],
+      "list-folders": ["folders"],
+      "folders-holding": ["folderIds"],
+      "create-folder": ["folder"],
+      "rename-folder": [],
+      "reorder-folders": [],
+      "delete-folder": [],
+      "save-post": ["outcome"],
+      "remove-from-folder": [],
+      "delete-saved-post": [],
+      "get-saved-post": ["post"],
+      "set-note": [],
+      "set-tags": [],
+      "record-bookmark-evidence": [],
+      "list-bookmark-evidence": ["evidence"],
+      "count-folder": ["count"],
+      counts: ["counts"],
+      "read-folder-page": ["page"],
+    };
+
+    for (const operation of COLLECTIONS_OPERATIONS) {
+      const payload = payloads[operation];
+      expect(Object.keys(payload).toSorted(), `${operation} keys`).toEqual(
+        expectedKeys[operation].toSorted(),
+      );
+
+      send({ ok: true, ...payload });
+      await expect(requestCollections(VALID[operation]), operation).resolves.toMatchObject({
+        ok: true,
+      });
+
+      for (const key of ["ownerUserId", "xAccountId", "screenName", "accountId", "twid"]) {
+        send({ ok: true, ...payload, [key]: "999" });
+        await expect(requestCollections(VALID[operation]), `${operation} +${key}`).rejects.toThrow(
+          "Invalid collections response",
+        );
+      }
+    }
+  });
+
   it("pins each request's exact key set to a literal", () => {
     const expected: Record<CollectionsOperation, string[]> = {
       begin: ["type", "operation"],
@@ -359,10 +437,6 @@ const send = (response: unknown): void => {
 };
 
 describe("collections response validation", () => {
-  afterEach(() => {
-    globalThis.chrome = { storage: globalThis.chrome?.storage } as unknown as typeof chrome;
-  });
-
   it("refuses to submit a request that does not validate", async () => {
     send({ ok: true });
     await expect(

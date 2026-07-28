@@ -1,4 +1,5 @@
 import type { SenderCapability } from "@/background/message-sender";
+import { COLLECTIONS_OPERATIONS, type CollectionsOperation } from "@/core/protocol/collections";
 
 type Message = Record<string, unknown>;
 
@@ -30,8 +31,11 @@ const contentSettingsPatch = (message: Message): boolean => {
  * unsaves — and deliberately gets NO count read, because nothing in the page
  * shows one.
  */
-const POPUP_COLLECTIONS = new Set(["counts"]);
-const X_CONTENT_COLLECTIONS = new Set([
+const POPUP_COLLECTIONS = new Set<CollectionsOperation>(["counts"]);
+const X_CONTENT_COLLECTIONS = new Set<CollectionsOperation>([
+  // `begin` is here because content WRITES: every write carries a Clear fence,
+  // and the token has to be minted at the start of the gesture — a token minted
+  // worker-side at write time would always be current and fence nothing.
   "begin",
   "list-folders",
   "folders-holding",
@@ -41,10 +45,15 @@ const X_CONTENT_COLLECTIONS = new Set([
 ]);
 
 function collectionsCapability(capability: SenderCapability, message: Message): boolean {
-  if (typeof message.operation !== "string") return false;
+  // Typed against the family's own operation list, so a removed or misspelled
+  // operation in either set above is a type error rather than a silent grant —
+  // and an operation this build does not know is denied outright, including for
+  // Options, rather than reaching a handler that has no case for it.
+  const operation = COLLECTIONS_OPERATIONS.find((name) => name === message.operation);
+  if (operation === undefined) return false;
   if (capability === "options") return true;
-  if (capability === "popup") return POPUP_COLLECTIONS.has(message.operation);
-  return capability === "x-content" && X_CONTENT_COLLECTIONS.has(message.operation);
+  if (capability === "popup") return POPUP_COLLECTIONS.has(operation);
+  return capability === "x-content" && X_CONTENT_COLLECTIONS.has(operation);
 }
 
 /**

@@ -66,6 +66,7 @@ pin<
     | "recordBookmarkEvidence"
     | "listBookmarkEvidence"
     | "countFolder"
+    | "countFolders"
     | "countSavedPosts"
     | "readFolderPage"
     | "close"
@@ -143,6 +144,7 @@ describe("account freedom", () => {
       [
         "close",
         "countFolder",
+        "countFolders",
         "countSavedPosts",
         "createFolder",
         "deleteFolder",

@@ -21,6 +21,12 @@ export const Stores = {
 export const Indexes = {
   /** Folders in user-chosen order. */
   FOLDERS_BY_SORT: "by-sort",
+  /**
+   * TOMBSTONES ONLY. `null` is not a valid IndexedDB key, so a live Folder is
+   * absent from this index — which makes the live count `store.count()` minus
+   * this index's count, two index-backed reads rather than a scan.
+   */
+  FOLDERS_BY_DELETED: "by-deleted",
   /** Plain folderId — backs countFolder() with no range. */
   MEMBERSHIPS_BY_FOLDER: "by-folder",
   /** Ordered paging within one Folder; statusId makes the key unique. */
@@ -34,6 +40,7 @@ export const Indexes = {
 export function applySchema(db: IDBDatabase): void {
   const folders = db.createObjectStore(Stores.FOLDERS, { keyPath: "folderId" });
   folders.createIndex(Indexes.FOLDERS_BY_SORT, "sortIndex");
+  folders.createIndex(Indexes.FOLDERS_BY_DELETED, "deletedAt");
 
   db.createObjectStore(Stores.SAVED_POSTS, { keyPath: "statusId" });
 

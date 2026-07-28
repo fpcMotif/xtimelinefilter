@@ -23,7 +23,10 @@ async function openCreatedDatabase(): Promise<IDBDatabase> {
 const EXPECTED_STORES = ["bookmarkEvidence", "folderMemberships", "folders", "savedPosts"];
 
 const EXPECTED: Record<string, { keyPath: string | string[]; indexes: Record<string, unknown> }> = {
-  folders: { keyPath: "folderId", indexes: { "by-sort": "sortIndex" } },
+  folders: {
+    keyPath: "folderId",
+    indexes: { "by-sort": "sortIndex", "by-deleted": "deletedAt" },
+  },
   savedPosts: { keyPath: "statusId", indexes: {} },
   folderMemberships: {
     keyPath: ["folderId", "statusId"],

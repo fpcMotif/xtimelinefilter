@@ -205,6 +205,8 @@ export interface CollectionStore {
 
   /** Index-backed, never a scan. */
   countFolder(params: CountFolderParams): Promise<number>;
+  /** Live (non-deleted) Folders. Index-backed, so the cap check is not a scan. */
+  countFolders(): Promise<number>;
   /** Distinct posts, deduped by status id. Index-backed, never a scan. */
   countSavedPosts(): Promise<number>;
   /** A bounded, ordered page. Never reads a whole Folder into memory. */

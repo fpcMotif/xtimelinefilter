@@ -19,6 +19,18 @@ describe("STORAGE_KEYS", () => {
     expect(STORAGE_KEYS.mirrorStatus).toBe("lasso:mirror-status");
     expect(STORAGE_KEYS.graphqlOps).toBe("lasso.graphqlOps.v1");
     expect(STORAGE_KEYS.graphqlCatalog).toBe("lasso.graphqlCatalog.v2");
+    expect(STORAGE_KEYS.destinationSecrets).toBe("lasso:destination-secrets");
+  });
+
+  it("sweeps the reserved Destination-secrets key on clear", async () => {
+    // Registered while still empty so the Destination ticket cannot introduce a
+    // key that escapes Clear until somebody remembers to list it. Asserted
+    // against the key itself, not against LOCAL_STORAGE_KEYS, which would be
+    // self-referential.
+    const local: StorageLike = { get: vi.fn(), set: vi.fn(), remove: vi.fn(async () => {}) };
+    const sync: StorageLike = { get: vi.fn(), set: vi.fn(), remove: vi.fn(async () => {}) };
+    await clearLassoData(local, sync);
+    expect(vi.mocked(local.remove!).mock.calls[0]?.[0]).toContain("lasso:destination-secrets");
   });
 });
 

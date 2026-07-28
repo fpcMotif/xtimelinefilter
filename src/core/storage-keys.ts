@@ -36,10 +36,10 @@ export const STORAGE_KEYS = {
 /**
  * The worker-owned IndexedDB database holding Folders, Saved Posts, membership
  * rows, bookmark evidence and Destination sync state. Not a chrome.storage key —
- * it is named here so Privacy Clear has one list to consult, and a test pins it
- * equal to the folders package's own FOLDERS_DB_NAME.
+ * it is re-exported here so Privacy Clear has one list to consult, from the
+ * package that owns the database rather than as a second copy of the literal.
  */
-export const COLLECTIONS_DATABASE = "lasso:folders";
+export { FOLDERS_DB_NAME as COLLECTIONS_DATABASE } from "@/packages/folders/database";
 
 export const LOCAL_STORAGE_KEYS = [
   STORAGE_KEYS.lists,

@@ -28,20 +28,85 @@ const capture = (statusId: string): PostCapture => ({
   media: [],
 });
 
+const FOLDER = "fld_abcdefghijklmnopqrst";
+const TOKEN: CacheObservation = { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 };
+
+/** One valid request per operation, so a test can walk the whole family. */
+const VALID_BY_OPERATION: Record<CollectionsOperation, CollectionsRequest> = {
+  begin: { type: TYPE, operation: "begin" },
+  "list-folders": { type: TYPE, operation: "list-folders", includeDeleted: false },
+  "folders-holding": { type: TYPE, operation: "folders-holding", statusId: STATUS },
+  "create-folder": { type: TYPE, operation: "create-folder", name: "Research", token: TOKEN },
+  "rename-folder": {
+    type: TYPE,
+    operation: "rename-folder",
+    folderId: FOLDER,
+    name: "Design",
+    token: TOKEN,
+  },
+  "reorder-folders": { type: TYPE, operation: "reorder-folders", folderIds: [], token: TOKEN },
+  "delete-folder": {
+    type: TYPE,
+    operation: "delete-folder",
+    folderId: FOLDER,
+    disposition: "keep-posts",
+    token: TOKEN,
+  },
+  "save-post": {
+    type: TYPE,
+    operation: "save-post",
+    folderId: FOLDER,
+    capture: capture(STATUS),
+    token: TOKEN,
+  },
+  "remove-from-folder": {
+    type: TYPE,
+    operation: "remove-from-folder",
+    folderId: FOLDER,
+    statusId: STATUS,
+    token: TOKEN,
+  },
+  "delete-saved-post": {
+    type: TYPE,
+    operation: "delete-saved-post",
+    statusId: STATUS,
+    token: TOKEN,
+  },
+  "get-saved-post": { type: TYPE, operation: "get-saved-post", statusId: STATUS },
+  "set-note": { type: TYPE, operation: "set-note", statusId: STATUS, note: "why", token: TOKEN },
+  "set-tags": { type: TYPE, operation: "set-tags", statusId: STATUS, tags: ["ml"], token: TOKEN },
+  "record-bookmark-evidence": {
+    type: TYPE,
+    operation: "record-bookmark-evidence",
+    statusId: STATUS,
+    xAccountId: "acct-1",
+    outcome: "confirmed",
+    observedAt: 10,
+    token: TOKEN,
+  },
+  "list-bookmark-evidence": { type: TYPE, operation: "list-bookmark-evidence", statusId: STATUS },
+  "count-folder": { type: TYPE, operation: "count-folder", folderId: FOLDER },
+  counts: { type: TYPE, operation: "counts" },
+  "read-folder-page": {
+    type: TYPE,
+    operation: "read-folder-page",
+    folderId: FOLDER,
+    limit: 25,
+    cursor: null,
+  },
+};
+
 /**
  * The worker under test, over an in-memory database. `openStore` is injected so
  * no test — and no other context — ever names the IndexedDB implementation.
  */
 function worker(store?: CollectionStore) {
   const local = createMemoryArea();
-  const lifecycle = createDataLifecycle(
-    local,
-    createMemoryArea(),
-    () => "mirror-id",
-    async () =>
+  const lifecycle = createDataLifecycle(local, createMemoryArea(), () => "mirror-id", {
+    open: async () =>
       store ??
       (await createCollectionStore({ indexedDB: new IDBFactory(), keyRange: IDBKeyRange })),
-  );
+  });
   const run = (request: CollectionsRequest) => lifecycle.collections(request);
   const token = async (): Promise<CacheObservation> => {
     const result = await run({ type: TYPE, operation: "begin" });
@@ -383,12 +448,9 @@ describe("worker collections authority", () => {
 
   it("fails visibly when the database cannot be opened", async () => {
     const local = createMemoryArea();
-    const broken = createDataLifecycle(
-      local,
-      createMemoryArea(),
-      () => "mirror-id",
-      () => Promise.reject(new Error("quota")),
-    );
+    const broken = createDataLifecycle(local, createMemoryArea(), () => "mirror-id", {
+      open: () => Promise.reject(new Error("quota")),
+    });
     // No caller is ever told a save landed when it did not.
     await expect(broken.collections({ type: TYPE, operation: "counts" })).rejects.toThrow(
       "could not be opened",
@@ -406,19 +468,40 @@ describe("worker collections authority", () => {
     ).rejects.toThrow("could not be opened");
   });
 
+  it("answers a failure for EVERY operation when the database cannot be opened", async () => {
+    const broken = createDataLifecycle(createMemoryArea(), createMemoryArea(), () => "mirror-id", {
+      open: () => Promise.reject(new Error("quota")),
+    });
+    // `begin` only touches the observation clock, so it still answers — every
+    // other operation must fail rather than pretend.
+    await expect(broken.collections({ type: TYPE, operation: "begin" })).resolves.toMatchObject({
+      token: expect.anything(),
+    });
+
+    for (const operation of COLLECTIONS_OPERATIONS) {
+      if (operation === "begin") continue;
+      const request = { ...VALID_BY_OPERATION[operation] } as CollectionsRequest;
+      if ("token" in request) {
+        (request as { token: CacheObservation }).token = (
+          (await broken.collections({ type: TYPE, operation: "begin" })) as {
+            token: CacheObservation;
+          }
+        ).token;
+      }
+      await expect(broken.collections(request), operation).rejects.toThrow("could not be opened");
+    }
+  });
+
   it("retries a failed open rather than caching the failure forever", async () => {
     let attempts = 0;
     const local = createMemoryArea();
-    const flaky = createDataLifecycle(
-      local,
-      createMemoryArea(),
-      () => "mirror-id",
-      async () => {
+    const flaky = createDataLifecycle(local, createMemoryArea(), () => "mirror-id", {
+      open: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error("worker was still waking up");
         return createCollectionStore({ indexedDB: new IDBFactory(), keyRange: IDBKeyRange });
       },
-    );
+    });
     await expect(flaky.collections({ type: TYPE, operation: "counts" })).rejects.toThrow(
       "could not be opened",
     );
@@ -430,15 +513,12 @@ describe("worker collections authority", () => {
   it("opens the database once and reuses it across operations", async () => {
     let opens = 0;
     const local = createMemoryArea();
-    const counted = createDataLifecycle(
-      local,
-      createMemoryArea(),
-      () => "mirror-id",
-      async () => {
+    const counted = createDataLifecycle(local, createMemoryArea(), () => "mirror-id", {
+      open: async () => {
         opens += 1;
         return createCollectionStore({ indexedDB: new IDBFactory(), keyRange: IDBKeyRange });
       },
-    );
+    });
     await counted.collections({ type: TYPE, operation: "counts" });
     await counted.collections({ type: TYPE, operation: "list-folders", includeDeleted: false });
     expect(opens).toBe(1);

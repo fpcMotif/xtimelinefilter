@@ -123,6 +123,7 @@ describe.each(implementations)("CollectionStore contract: $label", ({ make }) =>
   it("counts are numbers and a page is bounded and well-formed", async () => {
     const { folderId } = await store.createFolder({ name: "Research" });
     expect(typeof (await store.countFolder({ folderId }))).toBe("number");
+    expect(typeof (await store.countFolders())).toBe("number");
     expect(typeof (await store.countSavedPosts())).toBe("number");
 
     const page = await store.readFolderPage({ folderId, limit: 2 });

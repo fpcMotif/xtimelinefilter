@@ -34,13 +34,10 @@ function build(options: { destroy?: DatabaseDestroyer; open?: CollectionStoreFac
       const { createCollectionStore } = await import("@/packages/folders");
       return createCollectionStore({ indexedDB, keyRange: IDBKeyRange });
     });
-  const lifecycle = createDataLifecycle(
-    local,
-    createMemoryArea(),
-    () => "mirror-id",
+  const lifecycle = createDataLifecycle(local, createMemoryArea(), () => "mirror-id", {
     open,
-    options.destroy ?? (async () => true),
-  );
+    destroy: options.destroy ?? (async () => true),
+  });
   const run = (request: CollectionsRequest) => lifecycle.collections(request);
   const token = async (): Promise<CacheObservation> =>
     ((await run({ type: TYPE, operation: "begin" })) as { token: CacheObservation }).token;
@@ -48,12 +45,29 @@ function build(options: { destroy?: DatabaseDestroyer; open?: CollectionStoreFac
 }
 
 describe("declared names this ticket registers", () => {
-  it("names the database and the reserved Destination-secrets key, and nothing else", () => {
+  it("registers exactly these names, as an exact literal list", () => {
+    // An exhaustive comparison, not spot checks: a key added to STORAGE_KEYS
+    // later fails here until it is named, so nothing can be registered without
+    // somebody deciding whether Clear should sweep it.
+    expect(Object.entries(STORAGE_KEYS).toSorted()).toEqual(
+      [
+        ["lists", "lasso:lists"],
+        ["listUsage", "lasso:list-usage"],
+        ["settings", "lasso:settings"],
+        ["settingsMigration", "lasso:settings-migration"],
+        ["filter", "lasso:filter"],
+        ["coach", "lasso:coach"],
+        ["mirrorStatus", "lasso:mirror-status"],
+        ["graphqlOps", "lasso.graphqlOps.v1"],
+        ["graphqlCatalog", "lasso.graphqlCatalog.v2"],
+        ["cacheObservation", "lasso:cache-observation"],
+        ["destinationSecrets", "lasso:destination-secrets"],
+      ].toSorted(),
+    );
     expect(COLLECTIONS_DATABASE).toBe("lasso:folders");
-    // One source of truth: the package mints the database, storage-keys names it
-    // so Clear has a single list to consult, and this pins the two together.
+    // One source of truth: the package owns the database and storage-keys
+    // re-exports it, so these cannot drift into two different literals.
     expect(COLLECTIONS_DATABASE).toBe(FOLDERS_DB_NAME);
-    expect(STORAGE_KEYS.destinationSecrets).toBe("lasso:destination-secrets");
   });
 
   it("sweeps the reserved Destination-secrets key with the rest of local data", () => {
@@ -104,7 +118,7 @@ describe("Privacy Clear destroys the collections database", () => {
       close: () => {
         closed += 1;
       },
-      listFolders: async () => [],
+      countFolders: async () => 0,
       countSavedPosts: async () => 0,
     } as unknown as CollectionStore;
     const w = build({
@@ -145,7 +159,7 @@ describe("Privacy Clear destroys the collections database", () => {
           close: () => {
             throw new Error("already gone");
           },
-          listFolders: async () => [],
+          countFolders: async () => 0,
           countSavedPosts: async () => 0,
         }) as unknown as CollectionStore,
     });
@@ -183,19 +197,16 @@ describe("Privacy Clear destroys the collections database", () => {
     const indexedDB = new IDBFactory();
     const local = createMemoryArea();
     let generation = 0;
-    const lifecycle = createDataLifecycle(
-      local,
-      createMemoryArea(),
-      () => "mirror-id",
-      async () => {
+    const lifecycle = createDataLifecycle(local, createMemoryArea(), () => "mirror-id", {
+      open: async () => {
         const { createCollectionStore } = await import("@/packages/folders");
         return createCollectionStore({ indexedDB: new IDBFactory(), keyRange: IDBKeyRange });
       },
-      async () => {
+      destroy: async () => {
         generation += 1;
         return true;
       },
-    );
+    });
     const run = (request: CollectionsRequest) => lifecycle.collections(request);
     const token = async () =>
       ((await run({ type: TYPE, operation: "begin" })) as { token: CacheObservation }).token;

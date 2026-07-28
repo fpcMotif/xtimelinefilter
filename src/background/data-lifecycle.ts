@@ -31,6 +31,7 @@ import type {
   MirrorStatusSuccess,
 } from "@/core/protocol";
 import type { CollectionsRequest, CollectionsSuccess } from "@/core/protocol/collections";
+import { isXId } from "@/core/protocol/x-id";
 import type { LassoSettings, SettingsPatch } from "@/core/settings-domain";
 import type { StorageLike } from "@/core/storage-areas";
 import type { ClearLassoDataResult } from "@/core/storage-clear";
@@ -48,6 +49,12 @@ const cacheUuid = (): string => {
   fallbackEpochSequence = (fallbackEpochSequence + 1) % 0xffff_ffff;
   return `00000000-0000-4000-8000-${fallbackEpochSequence.toString(16).padStart(12, "0")}`;
 };
+
+/** How the worker opens and destroys its collections database. */
+export interface CollectionsDatabaseDeps {
+  open?: CollectionStoreFactory;
+  destroy?: DatabaseDestroyer;
+}
 
 export interface DataLifecycle {
   migrate(): Promise<boolean>;
@@ -73,19 +80,21 @@ export function createDataLifecycle(
   sync: StorageLike,
   createMirrorConfigId: () => string = () => globalThis.crypto.randomUUID(),
   /**
-   * Opens the one collections database this worker owns. Injected so tests can
-   * substitute an in-memory store — and so no other context ever names the
-   * IndexedDB implementation.
+   * The collections database's lifecycle, injected together because they are one
+   * decision: tests substitute an in-memory store and a no-op destroyer, and no
+   * other context ever names the IndexedDB implementation.
    */
-  openCollectionStore: CollectionStoreFactory = defaultCollectionStore,
-  /** Destroys the collections database on Privacy Clear. Injected for the same reason. */
-  destroyCollectionsDatabase: DatabaseDestroyer = defaultDatabaseDestroyer,
+  collectionsDatabase: CollectionsDatabaseDeps = {},
 ): DataLifecycle {
   const serialize = <T>(operation: () => Promise<T>): Promise<T> =>
     serializeWorkerStorage(local, operation);
   const settings = createSettingsAuthority(local, sync, createMirrorConfigId);
   const observedXCache = createObservedXCache(local, cacheUuid);
-  const collections = createCollections(local, openCollectionStore, destroyCollectionsDatabase);
+  const collections = createCollections(
+    local,
+    collectionsDatabase.open ?? defaultCollectionStore,
+    collectionsDatabase.destroy ?? defaultDatabaseDestroyer,
+  );
 
   const readFilter = async (defaultLanguages: readonly string[]): Promise<FilterState> => {
     const defaults = defaultFilterState(defaultLanguages);
@@ -146,7 +155,7 @@ export function createDataLifecycle(
         }
       })
       .filter((row): row is { listId: string; at: number } => row !== null)
-      .filter((row) => /^[1-9][0-9]{0,63}$/.test(row.listId))
+      .filter((row) => isXId(row.listId))
       // oxlint-disable-next-line unicorn/no-array-sort -- fresh owned array; Chrome 106 lacks toSorted().
       .sort((a, b) => b.at - a.at || a.listId.localeCompare(b.listId))
       .slice(0, request.limit)

@@ -60,6 +60,9 @@ export class NullCollectionStore implements CollectionStore {
   async countFolder(): Promise<number> {
     return 0;
   }
+  async countFolders(): Promise<number> {
+    return 0;
+  }
   async countSavedPosts(): Promise<number> {
     return 0;
   }

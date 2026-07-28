@@ -59,6 +59,14 @@ export const MAX_POSTED_AT = 64;
 export const MAX_PAGE_LIMIT = 100;
 export const MAX_CURSOR = 128;
 export const MAX_X_ACCOUNT_ID = 64;
+/** Evidence rows for one post — one per X account the bookmark leg has run for. */
+export const MAX_EVIDENCE_ROWS = 64;
+/**
+ * Folders a `list-folders` response may carry. Larger than MAX_LIVE_FOLDERS
+ * because `includeDeleted` also returns tombstones, which reserve ids and are
+ * not pruned yet (a Folders-workshop concern, not this layer's).
+ */
+export const MAX_STORED_FOLDERS = MAX_LIVE_FOLDERS * 4;
 
 const TYPE = "lasso:collections";
 
@@ -81,42 +89,6 @@ export type CollectionsOperation =
   | "count-folder"
   | "counts"
   | "read-folder-page";
-
-/** Every operation name, in one place, so a capability table can be exhaustive. */
-export const COLLECTIONS_OPERATIONS: readonly CollectionsOperation[] = [
-  "begin",
-  "list-folders",
-  "folders-holding",
-  "create-folder",
-  "rename-folder",
-  "reorder-folders",
-  "delete-folder",
-  "save-post",
-  "remove-from-folder",
-  "delete-saved-post",
-  "get-saved-post",
-  "set-note",
-  "set-tags",
-  "record-bookmark-evidence",
-  "list-bookmark-evidence",
-  "count-folder",
-  "counts",
-  "read-folder-page",
-] as const;
-
-/** The operations that change data, and so must carry a Clear fence. */
-export const COLLECTIONS_WRITES: readonly CollectionsOperation[] = [
-  "create-folder",
-  "rename-folder",
-  "reorder-folders",
-  "delete-folder",
-  "save-post",
-  "remove-from-folder",
-  "delete-saved-post",
-  "set-note",
-  "set-tags",
-  "record-bookmark-evidence",
-] as const;
 
 export type CollectionsRequest =
   | { type: typeof TYPE; operation: "begin" }
@@ -327,6 +299,22 @@ const REQUEST_KEYS: Record<CollectionsOperation, readonly string[]> = {
   "read-folder-page": ["type", "operation", "folderId", "limit", "cursor"],
 };
 
+/**
+ * Derived from REQUEST_KEYS, which `isOperation` already treats as the one
+ * authority — a second hand-kept list is a second thing to forget. A capability
+ * table can walk this and be exhaustive by construction.
+ */
+export const COLLECTIONS_OPERATIONS = Object.keys(REQUEST_KEYS) as CollectionsOperation[];
+
+/**
+ * The operations that change data, and so must carry a Clear fence. Also
+ * derived: carrying a `token` IS what makes an operation a write, so the two
+ * cannot disagree.
+ */
+export const COLLECTIONS_WRITES = COLLECTIONS_OPERATIONS.filter((operation) =>
+  REQUEST_KEYS[operation].includes("token"),
+);
+
 const isOperation = (value: unknown): value is CollectionsOperation =>
   typeof value === "string" && Object.hasOwn(REQUEST_KEYS, value);
 
@@ -378,9 +366,7 @@ export function isCollectionsRequest(msg: unknown): msg is CollectionsRequest {
       );
     case "count-folder":
       return folderId(msg.folderId);
-    /* v8 ignore next -- the switch is exhaustive over CollectionsOperation; this
-       arm exists only because TypeScript cannot prove it from a Record key. */
-    default:
+    case "read-folder-page":
       return (
         folderId(msg.folderId) &&
         nonNegativeInt(msg.limit) &&
@@ -472,8 +458,7 @@ function validateSuccess(request: CollectionsRequest, response: Record<string, u
     case "list-folders":
       return only(
         "folders",
-        (value) =>
-          boundedArray(value, MAX_LIVE_FOLDERS * 2) && (value as unknown[]).every(isFolder),
+        (value) => boundedArray(value, MAX_STORED_FOLDERS) && (value as unknown[]).every(isFolder),
       );
     case "folders-holding":
       return only(
@@ -489,7 +474,7 @@ function validateSuccess(request: CollectionsRequest, response: Record<string, u
     case "list-bookmark-evidence":
       return only(
         "evidence",
-        (value) => boundedArray(value, 64) && (value as unknown[]).every(isEvidence),
+        (value) => boundedArray(value, MAX_EVIDENCE_ROWS) && (value as unknown[]).every(isEvidence),
       );
     case "count-folder":
       return only("count", nonNegativeInt);
