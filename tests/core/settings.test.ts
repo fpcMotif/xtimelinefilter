@@ -197,10 +197,21 @@ describe("settings domain", () => {
     expect(() => transitionSettings({ ...before, mirrorConfigId: undefined }, () => "")).toThrow(
       "Mirror config identity must not be empty.",
     );
-    expect(transitionSettings(null, () => "unused").settings).toMatchObject({
-      ...DEFAULT_SETTINGS,
-      mirrorConfigId: "unused",
-    });
+    // A bare install mints an id only when the Mirror is actually configured,
+    // and BOTH inputs are pinned here on purpose: DEFAULT_SETTINGS reads its
+    // Convex credentials from VITE_ env vars, so `transitionSettings(null, …)`
+    // answers differently on a dev machine carrying .env.local than on CI. Left
+    // to the ambient environment, this assertion is green everywhere a Convex
+    // dev key happens to exist and red in CI.
+    expect(
+      transitionSettings({ ...DEFAULT_SETTINGS, ...OFF }, () => "unused").settings,
+    ).toMatchObject({ ...DEFAULT_SETTINGS, ...OFF, mirrorConfigId: undefined });
+    expect(
+      transitionSettings(
+        { ...DEFAULT_SETTINGS, convexUrl: "https://one.convex.cloud", convexDeviceKey: "key-one" },
+        () => "minted",
+      ).settings,
+    ).toMatchObject({ mirrorConfigId: "minted" });
   });
 });
 

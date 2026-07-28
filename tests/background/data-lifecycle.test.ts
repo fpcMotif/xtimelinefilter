@@ -175,6 +175,24 @@ describe("background data lifecycle", () => {
     );
   });
 
+  it("mints a Mirror id with crypto.randomUUID when no minter is injected", async () => {
+    // The default minter is only CALLED on a complete credential transition. A
+    // dev machine's .env.local pre-configures DEFAULT_SETTINGS, so some other
+    // test happens to walk this line there and it is uncovered on CI — the
+    // coverage gate has to mean the same thing in both places, so drive it here.
+    const local = createMemoryArea({ [SETTINGS]: { convexUrl: null, convexDeviceKey: null } });
+    const lifecycle = createDataLifecycle(local, createMemoryArea());
+
+    const complete = await lifecycle.patchSettings({
+      convexUrl: "https://one.convex.cloud",
+      convexDeviceKey: "key-one",
+    });
+
+    expect(complete.mirrorConfigId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
   it("persists null credential tombstones through a worker patch", async () => {
     const local = createMemoryArea({
       [SETTINGS]: {
