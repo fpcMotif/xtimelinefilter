@@ -48,7 +48,7 @@ describe("social post adapters", () => {
   it("reads Instagram post and reel links as distinct durable identities", () => {
     mount(`
       <main>
-        <div class="post"><a href="/p/CODE_1/"><time datetime="2026-08-01T10:00:00Z">1h</time></a><p>Photo</p></div>
+        <div class="post"><a href="/p/CODE_1/"><time datetime="2026-08-01T10:00:00Z">1h</time></a><a href="/p/CODE_1/liked_by/">Likes</a><p>Photo</p></div>
         <div class="post"><a href="/reel/REEL_2/"><time datetime="2026-08-01T11:00:00Z">now</time></a><p>Video</p><video poster="https://cdn.example/poster.jpg"></video></div>
       </main>
     `);

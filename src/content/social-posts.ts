@@ -35,8 +35,8 @@ const LINK_SELECTORS: Record<SocialPlatform, string> = {
 };
 
 const ID_PATTERNS: Record<SocialPlatform, RegExp> = {
-  threads: /^\/@([^/]+)\/post\/([^/?#]+)/,
-  instagram: /^\/(?:p|reel)\/([^/?#]+)/,
+  threads: /^\/@([^/]+)\/post\/([^/?#]+)\/?$/,
+  instagram: /^\/(?:p|reel)\/([^/?#]+)\/?$/,
 };
 
 const isElement = (value: EventTarget | null): value is Element => value instanceof Element;
