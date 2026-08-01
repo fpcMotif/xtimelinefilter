@@ -26,6 +26,13 @@ const xContent = (overrides: Partial<RuntimeMessageSender> = {}): RuntimeMessage
   url: "https://x.com/home",
   ...overrides,
 });
+const socialContent = (origin: string): RuntimeMessageSender => ({
+  id: "lasso-id",
+  tab: { id: 7 },
+  frameId: 0,
+  origin,
+  url: `${origin}/`,
+});
 
 describe("createMessageSenderClassifier", () => {
   it("classifies exact Options and popup routes", () => {
@@ -49,6 +56,12 @@ describe("createMessageSenderClassifier", () => {
 
   it("classifies only a same-origin top-frame x.com content sender", () => {
     expect(classify(xContent())).toBe("x-content");
+  });
+  it.each([
+    ["Threads", "https://www.threads.com"],
+    ["Instagram", "https://www.instagram.com"],
+  ])("classifies top-frame %s content", (_label, origin) => {
+    expect(classify(socialContent(origin))).toBe("social-content");
   });
 
   it.each([

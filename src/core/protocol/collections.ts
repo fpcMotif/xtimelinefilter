@@ -59,6 +59,11 @@ export const MAX_POSTED_AT = 64;
 export const MAX_PAGE_LIMIT = 100;
 export const MAX_CURSOR = 128;
 export const MAX_X_ACCOUNT_ID = 64;
+/** X status ids and namespaced identities captured from other supported sites. */
+const POST_ID_RE = /^(?:[1-9][0-9]{0,63}|(?:threads|instagram):[A-Za-z0-9._~-]{1,128})$/;
+
+const isPostId = (value: unknown): value is string =>
+  typeof value === "string" && POST_ID_RE.test(value);
 /** Evidence rows for one post — one per X account the bookmark leg has run for. */
 export const MAX_EVIDENCE_ROWS = 64;
 /**
@@ -311,7 +316,7 @@ const isCapture = (value: unknown): value is PostCapture => {
   if (!Object.keys(value).every((key) => allowed.has(key))) return false;
   if (!Object.hasOwn(value, "statusId") || !Object.hasOwn(value, "permalink")) return false;
   if (!Object.hasOwn(value, "media")) return false;
-  if (value.statusId !== null && !isXId(value.statusId)) return false;
+  if (value.statusId !== null && !isPostId(value.statusId)) return false;
   if (value.permalink !== null && !boundedString(value.permalink, MAX_URL)) return false;
   if (!boundedArray(value.media, MAX_MEDIA) || !value.media.every(isMedia)) return false;
   if (Object.hasOwn(value, "author") && !isAuthor(value.author)) return false;
@@ -388,8 +393,9 @@ export function isCollectionsRequest(msg: unknown): msg is CollectionsRequest {
       return typeof msg.includeDeleted === "boolean";
     case "folders-holding":
     case "get-saved-post":
-    case "list-bookmark-evidence":
     case "delete-saved-post":
+      return isPostId(msg.statusId);
+    case "list-bookmark-evidence":
       return isXId(msg.statusId);
     case "create-folder":
       return nonEmpty(msg.name, MAX_FOLDER_NAME);
@@ -402,12 +408,12 @@ export function isCollectionsRequest(msg: unknown): msg is CollectionsRequest {
     case "save-post":
       return folderId(msg.folderId) && isCapture(msg.capture);
     case "remove-from-folder":
-      return folderId(msg.folderId) && isXId(msg.statusId);
+      return folderId(msg.folderId) && isPostId(msg.statusId);
     case "set-note":
-      return isXId(msg.statusId) && boundedString(msg.note, MAX_NOTE);
+      return isPostId(msg.statusId) && boundedString(msg.note, MAX_NOTE);
     case "set-tags":
       return (
-        isXId(msg.statusId) &&
+        isPostId(msg.statusId) &&
         boundedArray(msg.tags, MAX_TAGS) &&
         msg.tags.every((tag) => nonEmpty(tag, MAX_TAG))
       );
@@ -465,7 +471,7 @@ const isSavedPost = (value: unknown): value is SavedPost => {
   const { capturedAt, note, tags, ...capture } = value;
   return (
     isCapture({ ...capture, statusId: value.statusId }) &&
-    isXId(value.statusId) &&
+    isPostId(value.statusId) &&
     nonNegativeInt(capturedAt) &&
     boundedString(note, MAX_NOTE) &&
     boundedArray(tags, MAX_TAGS) &&
@@ -486,7 +492,7 @@ const isSaveOutcome = (value: unknown): value is SaveOutcome =>
   ((keysAre(value, ["status"]) && value.status === "unsavable") ||
     (keysAre(value, ["status", "statusId"]) &&
       (value.status === "saved" || value.status === "already-there") &&
-      isXId(value.statusId)));
+      isPostId(value.statusId)));
 
 const isPage = (value: unknown, limit: number): value is FolderPage =>
   record(value) &&
@@ -505,7 +511,7 @@ const isDefaultSaveOutcome = (value: unknown): value is DefaultSaveOutcome => {
     typeof value.createdSavedPost === "boolean" &&
     folderId(value.folderId) &&
     nonEmpty(value.folderName, MAX_FOLDER_NAME) &&
-    isXId(value.statusId)
+    isPostId(value.statusId)
   );
 };
 

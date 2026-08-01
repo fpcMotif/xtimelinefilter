@@ -293,11 +293,11 @@ test.describe("content UI (real bundle, chrome stubbed)", () => {
       .toEqual(["This post is not relevant"]);
   });
 
-  test("select mode: s shows the bar at zero count; post-body clicks toggle", async ({ page }) => {
+  test("select mode: c shows the bar at zero count; post-body clicks toggle", async ({ page }) => {
     await openHarness(page);
 
     await page.getByText("Skip", { exact: true }).click();
-    await page.keyboard.press("s");
+    await page.keyboard.press("c");
     await expect(
       page.getByText("Select mode · click posts or press s · c when done"),
     ).toBeVisible();

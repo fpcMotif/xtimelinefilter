@@ -3,15 +3,16 @@
  *
  * Two invariants are structural here rather than enforced by convention:
  *
- * **A Folder is not bound to an X account.** No operation below takes an Owner,
+ * **A Folder is not bound to an account.** No operation below takes an Owner,
  * and no record field names an account — except `BookmarkEvidence`, which is an
  * attribute of an observation, never part of a Folder's or a post's identity.
  * The neighbouring Mirror stores shard by `ownerUserId`; Folders deliberately do
  * not, so the same Folders are present whichever account is signed in.
  *
- * **A post is saved once.** One post is one `SavedPost`, keyed by status id and
- * nothing else, however many Folders hold it and however many accounts have
- * bookmarked it.
+ * **A post is saved once.** One post is one `SavedPost`, keyed by its durable
+ * platform-qualified identity, however many Folders hold it and however many
+ * accounts have bookmarked it. X keeps numeric ids; Threads and Instagram use
+ * `threads:` and `instagram:` prefixes to prevent cross-platform collisions.
  */
 
 /**
@@ -46,7 +47,7 @@ export interface Folder {
   deletedAt: number | null;
 }
 
-/** One post the user kept. Keyed by status id — no account component. */
+/** One post the user kept. Keyed by its durable platform-qualified identity. */
 export interface SavedPost {
   statusId: string;
   permalink: string | null;

@@ -109,6 +109,26 @@ describe("runtime message capability policy", () => {
       );
     }
   });
+  it("limits social content to the Folder save surface", () => {
+    const SOCIAL_ALLOWED: readonly CollectionsOperation[] = [
+      "begin",
+      "list-folders",
+      "folders-holding",
+      "create-folder",
+      "save-post",
+      "save-to-default-folder",
+      "remove-from-folder",
+      "delete-saved-post",
+    ];
+    for (const operation of COLLECTIONS_OPERATIONS) {
+      const message = { type: "lasso:collections", operation };
+      expect(canHandleMessage("social-content", message), operation).toBe(
+        SOCIAL_ALLOWED.includes(operation),
+      );
+    }
+    denied("social-content", { type: "lasso:settings", operation: "read" });
+    denied("social-content", { type: "lasso:filter", operation: "read" });
+  });
 
   it("fails closed for unknown senders, routes, operations, and malformed inputs", () => {
     for (const message of [

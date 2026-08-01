@@ -3,7 +3,7 @@
  * Routes still decide which operations each capability may perform.
  */
 
-export type SenderCapability = "options" | "popup" | "x-content" | "unknown";
+export type SenderCapability = "options" | "popup" | "x-content" | "social-content" | "unknown";
 
 /** Minimal runtime identity; injected so the classifier has no global dependency. */
 export interface SenderRuntime {
@@ -31,6 +31,14 @@ interface SenderUrls {
 
 export type MessageSenderClassifier = (sender: RuntimeMessageSender) => SenderCapability;
 
+const SOCIAL_ORIGINS = new Set([
+  "https://threads.com",
+  "https://www.threads.com",
+  "https://threads.net",
+  "https://www.threads.net",
+  "https://instagram.com",
+  "https://www.instagram.com",
+]);
 const X_ORIGIN = "https://x.com";
 
 function extensionPageUrl(runtime: SenderRuntime, path: unknown): string | undefined {
@@ -70,6 +78,25 @@ function isTopXContent(sender: RuntimeMessageSender, extensionId: string): boole
     return false;
   }
 }
+function isTopSocialContent(sender: RuntimeMessageSender, extensionId: string): boolean {
+  if (
+    sender.id !== extensionId ||
+    typeof sender.tab?.id !== "number" ||
+    !Number.isSafeInteger(sender.tab.id) ||
+    sender.tab.id < 0 ||
+    sender.frameId !== 0 ||
+    typeof sender.origin !== "string" ||
+    !SOCIAL_ORIGINS.has(sender.origin) ||
+    typeof sender.url !== "string"
+  ) {
+    return false;
+  }
+  try {
+    return SOCIAL_ORIGINS.has(new URL(sender.url).origin);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Builds one immutable capability classifier from this extension's manifest.
@@ -82,6 +109,7 @@ export function createMessageSenderClassifier(runtime: SenderRuntime): MessageSe
     if (sender.id !== runtime.id || typeof sender.url !== "string") return "unknown";
     if (options !== undefined && sender.url === options) return "options";
     if (popup !== undefined && sender.url === popup) return "popup";
-    return isTopXContent(sender, runtime.id) ? "x-content" : "unknown";
+    if (isTopXContent(sender, runtime.id)) return "x-content";
+    return isTopSocialContent(sender, runtime.id) ? "social-content" : "unknown";
   };
 }

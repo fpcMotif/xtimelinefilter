@@ -13,9 +13,8 @@ describe("manifest.config", () => {
   it("declares its MV3 permissions, Chrome floor, and Convex host", () => {
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.description).toBe(
-      "Select posts as you scroll and file their authors into your X Lists — without leaving the feed. Keyboard-first.",
+      "Save posts to your Lasso Folders from X, Threads, and Instagram — with keyboard-first shortcuts.",
     );
-    expect(manifest.permissions).toEqual(["storage", "webNavigation"]);
     expect(manifest.minimum_chrome_version).toBe("106");
     // ADR-0009: the sole host permission is the optional cross-origin Convex Mirror.
     expect(manifest.host_permissions).toEqual(["https://*.convex.cloud/*"]);
@@ -33,6 +32,18 @@ describe("manifest.config", () => {
 
     const content = scripts.find((s) => s.js?.includes("src/content/main.tsx"));
     expect(content).toMatchObject({ run_at: "document_idle", matches: ["https://x.com/*"] });
+    const social = scripts.find((s) => s.js?.includes("src/content/non-x-main.tsx"));
+    expect(social).toMatchObject({
+      run_at: "document_idle",
+      matches: [
+        "https://threads.com/*",
+        "https://www.threads.com/*",
+        "https://threads.net/*",
+        "https://www.threads.net/*",
+        "https://instagram.com/*",
+        "https://www.instagram.com/*",
+      ],
+    });
   });
 
   it("wires the service worker, popup, and options page", () => {

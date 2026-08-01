@@ -119,6 +119,8 @@ export interface ControllerDeps {
   openUrl(url: string): void;
   /** Caret-anchoring for keyboard-driven opens (story beat 6). */
   anchorFor?: PickerAnchorResolver;
+  /** Platform-specific durable reader; X's Tweet capture remains the default. */
+  capturePost?: (article: Element) => PostCapture;
   assignOpts?: AssignOptions;
   now?: () => number;
 }
@@ -164,6 +166,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const { selection, app, picker, toasts, undo, coach, backend, cache, settings, quick, target } =
     deps;
   const now = deps.now ?? Date.now;
+  const capturePost = deps.capturePost ?? capture;
   const membershipStore = deps.membershipStore ?? new NullMembershipStore();
   const currentOwner = deps.currentOwner ?? ((): Owner | null => null);
   const collections = deps.collections;
@@ -391,7 +394,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
       toasts.show({ kind: "danger", title: SAVE_FAILED });
       return;
     }
-    const post = capture(outermostTweet(article) as Element);
+    const post = capturePost(outermostTweet(article) as Element);
     if (!post.statusId) {
       toasts.show({ kind: "danger", title: CANNOT_SAVE_POST });
       return;
@@ -800,7 +803,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         // HOST post, and a repost the underlying one. outermostTweet returns its
         // argument when nothing encloses it and null only for a null input, so
         // the non-null assertion cannot fire for a non-null tweet.
-        const post = capture(outermostTweet(tweet) as Element);
+        const post = capturePost(outermostTweet(tweet) as Element);
         void saveToDefaultFolder(post);
         return true;
       }
@@ -827,6 +830,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         return true;
       }
     }
+    return false;
   }
 
   return {

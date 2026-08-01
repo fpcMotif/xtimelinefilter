@@ -16,7 +16,9 @@ export type CommandId =
   | "toggle-reveal"
   | "help"
   | "escape"
-  | "undo";
+  | "undo"
+  | "next-post"
+  | "previous-post";
 
 export interface KeyBinding {
   combo: string;

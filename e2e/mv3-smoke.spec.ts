@@ -169,11 +169,13 @@ test("MV3 build loads its worker and injects content on local X", async () => {
     expect(protocol.collections.saved).toEqual({
       ok: true,
       outcome: { status: "saved", statusId: "1" },
+      createdSavedPost: true,
     });
     // Saved once: filing the same post into the same Folder writes nothing.
     expect(protocol.collections.again).toEqual({
       ok: true,
       outcome: { status: "already-there", statusId: "1" },
+      createdSavedPost: false,
     });
     expect(protocol.collections.counts).toEqual({
       ok: true,
@@ -256,7 +258,7 @@ test("MV3 build loads its worker and injects content on local X", async () => {
     // The overlay remains mounted for a later restore, but collapse CSS makes it
     // unreachable even after select mode turns it on.
     await expect(overlay).toBeHidden();
-    await page.keyboard.press("s");
+    await page.keyboard.press("c");
     await expect(page.locator("[aria-label='Lasso select mode']")).toBeVisible();
     await expect(overlay).toBeHidden();
 

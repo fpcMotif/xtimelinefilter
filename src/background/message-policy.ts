@@ -45,6 +45,16 @@ const X_CONTENT_COLLECTIONS = new Set<CollectionsOperation>([
   "remove-from-folder",
   "delete-saved-post",
 ]);
+const SOCIAL_CONTENT_COLLECTIONS = new Set<CollectionsOperation>([
+  "begin",
+  "list-folders",
+  "folders-holding",
+  "create-folder",
+  "save-post",
+  "save-to-default-folder",
+  "remove-from-folder",
+  "delete-saved-post",
+]);
 
 function collectionsCapability(capability: SenderCapability, message: Message): boolean {
   // Typed against the family's own operation list, so a removed or misspelled
@@ -55,7 +65,8 @@ function collectionsCapability(capability: SenderCapability, message: Message): 
   if (operation === undefined) return false;
   if (capability === "options") return true;
   if (capability === "popup") return POPUP_COLLECTIONS.has(operation);
-  return capability === "x-content" && X_CONTENT_COLLECTIONS.has(operation);
+  if (capability === "x-content") return X_CONTENT_COLLECTIONS.has(operation);
+  return capability === "social-content" && SOCIAL_CONTENT_COLLECTIONS.has(operation);
 }
 
 /**

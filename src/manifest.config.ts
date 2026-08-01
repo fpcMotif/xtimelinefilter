@@ -17,10 +17,10 @@ const mainWorldContentScript = {
 // Without a key the Mirror never connects. Store copy lives in docs/store-listing.md.
 export default defineManifest({
   manifest_version: 3,
-  name: "Lasso — add people to your X Lists from the timeline",
+  name: "Lasso — save posts to Folders",
   version: "0.2.0",
   description:
-    "Select posts as you scroll and file their authors into your X Lists — without leaving the feed. Keyboard-first.",
+    "Save posts to your Lasso Folders from X, Threads, and Instagram — with keyboard-first shortcuts.",
   icons: {
     16: "icons/lasso-16.png",
     32: "icons/lasso-32.png",
@@ -39,6 +39,18 @@ export default defineManifest({
     {
       matches: ["https://x.com/*"],
       js: ["src/content/main.tsx"],
+      run_at: "document_idle",
+    },
+    {
+      matches: [
+        "https://threads.com/*",
+        "https://www.threads.com/*",
+        "https://threads.net/*",
+        "https://www.threads.net/*",
+        "https://instagram.com/*",
+        "https://www.instagram.com/*",
+      ],
+      js: ["src/content/non-x-main.tsx"],
       run_at: "document_idle",
     },
   ],

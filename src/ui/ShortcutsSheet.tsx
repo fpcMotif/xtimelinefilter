@@ -23,6 +23,8 @@ export const COMMAND_LABELS: Record<CommandId, string> = {
   help: "Show this sheet",
   escape: "Dismiss, one layer at a time",
   undo: "Undo the last action",
+  "next-post": "Move to the next post",
+  "previous-post": "Move to the previous post",
 };
 
 export interface ShortcutsSheetProps {
