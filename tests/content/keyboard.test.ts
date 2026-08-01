@@ -224,6 +224,52 @@ describe("installKeyboardLayer", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("leaves bare Alt idle so other extensions can own Alt+hover", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({ keymap, run, doc: document });
+    const e = new KeyboardEvent("keydown", { key: "Alt", altKey: true, cancelable: true });
+    document.dispatchEvent(e);
+    expect(run).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("leaves unbound Alt+key combinations for the page (no preventDefault)", () => {
+    const run = vi.fn();
+    dispose = installKeyboardLayer({ keymap, run, doc: document });
+    // Alt+q is not in the test keymap — must not be claimed.
+    const e = pressKey("q", { altKey: true });
+    expect(run).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("still dispatches documented Alt chords on keydown", () => {
+    const run = vi.fn(() => true);
+    // Explicit map mirrors the product Alt chords (DEFAULT may grow without weakening this pin).
+    const documented: KeyBinding[] = [
+      { combo: "Alt+n", command: "not-interested" },
+      { combo: "Alt+l", command: "add-to-list" },
+      { combo: "Alt+Shift+l", command: "add-to-default-list" },
+      { combo: "Alt+Shift+b", command: "save-to-default-folder" },
+    ];
+    dispose = installKeyboardLayer({ keymap: documented, run, doc: document });
+    const n = pressKey("n", { altKey: true });
+    const l = pressKey("l", { altKey: true });
+    const shiftL = pressKey("l", { altKey: true, shiftKey: true });
+    const shiftB = pressKey("b", { altKey: true, shiftKey: true });
+    // bare Alt+b is intentionally unbound on this commit — must stay free
+    const bareB = pressKey("b", { altKey: true });
+    expect(run).toHaveBeenCalledWith("not-interested");
+    expect(run).toHaveBeenCalledWith("add-to-list");
+    expect(run).toHaveBeenCalledWith("add-to-default-list");
+    expect(run).toHaveBeenCalledWith("save-to-default-folder");
+    expect(n.defaultPrevented).toBe(true);
+    expect(l.defaultPrevented).toBe(true);
+    expect(shiftL.defaultPrevented).toBe(true);
+    expect(shiftB.defaultPrevented).toBe(true);
+    expect(bareB.defaultPrevented).toBe(false);
+    expect(run).toHaveBeenCalledTimes(4);
+  });
+
   it("ignores keys while typing in an input", () => {
     const run = vi.fn();
     const input = document.createElement("input");

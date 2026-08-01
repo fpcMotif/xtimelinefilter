@@ -40,7 +40,7 @@ describe("ShortcutsSheet — renders from the LIVE keymap (story beat 5)", () =>
     );
     expect(
       getByText(
-        "j and k move between posts — those are X's own shortcuts. Lasso never overrides them.",
+        "j and k move between posts — those are X's own shortcuts. Lasso never overrides them. Lasso only claims the Alt chords listed above on keydown; bare Alt and Alt+hover stay free for other extensions.",
       ),
     ).toBeTruthy();
   });

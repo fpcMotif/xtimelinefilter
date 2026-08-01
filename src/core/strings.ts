@@ -119,9 +119,9 @@ export const UNIT_TOOLTIP = "Lasso adds people to Lists, not posts.";
 export const SELECTOR_HEALTH =
   "Lasso can't read the timeline — X may have changed. Check for an update.";
 
-// 20 — shortcuts footer
+// 20 — shortcuts footer (j/k are X's; Lasso only claims its listed Alt chords on keydown)
 export const SHORTCUTS_FOOTER =
-  "j and k move between posts — those are X's own shortcuts. Lasso never overrides them.";
+  "j and k move between posts — those are X's own shortcuts. Lasso never overrides them. Lasso only claims the Alt chords listed above on keydown; bare Alt and Alt+hover stay free for other extensions.";
 
 // ——— Derived / surrounding copy (story beats 3–9) ———
 

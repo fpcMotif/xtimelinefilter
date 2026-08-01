@@ -230,6 +230,8 @@ Current shortcuts:
 Lasso does not take over X's own `j` and `k` navigation shortcuts.
 Mute has no default shortcut.
 
+Lasso only claims the Alt chords listed above, and only on keydown. Bare Alt and Alt+hover without a Lasso key are left alone so other extensions (for example media download on Alt+hover) can use them.
+
 ## Quick Actions
 
 ### Not Interested

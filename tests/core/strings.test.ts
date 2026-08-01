@@ -120,7 +120,7 @@ describe("canonical strings", () => {
 
   it("20 — shortcuts footer", () => {
     expect(S.SHORTCUTS_FOOTER).toBe(
-      "j and k move between posts — those are X's own shortcuts. Lasso never overrides them.",
+      "j and k move between posts — those are X's own shortcuts. Lasso never overrides them. Lasso only claims the Alt chords listed above on keydown; bare Alt and Alt+hover stay free for other extensions.",
     );
   });
 });

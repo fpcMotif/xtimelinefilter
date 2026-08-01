@@ -218,6 +218,8 @@ export interface KeyboardLayerOptions {
 /**
  * Capture-phase keydown layer. Only suppresses keys Lasso owns (so X's native
  * shortcuts and typing keep working). j/k are never bound — X's cursor is reused.
+ * Bare Alt and unbound Alt+key are never claimed: other extensions may own
+ * Alt+hover download; Lasso only acts on its documented keydown chords.
  */
 export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
   const doc = opts.doc ?? document;
