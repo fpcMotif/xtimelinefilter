@@ -170,12 +170,19 @@ describe("unfiling is never deleting", () => {
     const b = await store.createFolder({ name: "B" });
     await store.savePost({ folderId: a.folderId, capture: capture("1") });
     await store.savePost({ folderId: b.folderId, capture: capture("1") });
+    // Annotated before the unfile: "still there" is far too weak a claim on its
+    // own — a regression that emptied the note, dropped the tags or restamped
+    // captured-at would leave a non-null post and pass. The whole record is
+    // compared before and after, so any field lost is caught, not just these.
+    await store.setNote({ statusId: "1", note: "why I kept it" });
+    await store.setTags({ statusId: "1", tags: ["research", "ml"] });
+    const before = await store.getSavedPost({ statusId: "1" });
 
     await store.removeFromFolder({ folderId: a.folderId, statusId: "1" });
 
     expect(await store.countFolder({ folderId: a.folderId })).toBe(0);
     expect(await store.countFolder({ folderId: b.folderId })).toBe(1);
-    expect(await store.getSavedPost({ statusId: "1" })).not.toBeNull();
+    expect(await store.getSavedPost({ statusId: "1" })).toEqual(before);
   });
 
   it("reports which folders hold a post, and none once it is unfiled", async () => {
