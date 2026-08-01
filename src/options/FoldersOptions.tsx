@@ -466,23 +466,70 @@ function SavedPostRow({ post }: { post: SavedPost }) {
     day: "numeric",
     year: "numeric",
   });
+  const screenName = post.author?.screenName ?? "unknown";
+  // Only URL-carrying media can render — a bare kind means the article exposed
+  // no src/poster, and an <img> without one is a broken frame.
+  const media = post.media.filter((m): m is { kind: "photo" | "video"; url: string } => !!m.url);
   return (
-    <li class="border-border flex flex-col gap-1.5 rounded-xl border px-3.5 py-2.5 text-sm">
-      <div class="flex items-center justify-between gap-2">
-        <span class="text-foreground font-medium">@{post.author?.screenName ?? "unknown"}</span>
-        <span class="text-faint text-compact">{filedAt}</span>
+    <li class="border-border flex gap-3 rounded-xl border px-3.5 py-3 text-sm">
+      <span
+        aria-hidden="true"
+        class="bg-secondary text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+      >
+        {screenName[0]?.toLowerCase() ?? "?"}
+      </span>
+      <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-foreground truncate font-semibold">@{screenName}</span>
+          <span class="text-faint text-compact shrink-0">{filedAt}</span>
+        </div>
+        {post.text && <p class="text-foreground whitespace-pre-wrap">{post.text}</p>}
+        {media.length > 0 && (
+          <div
+            class={`mt-1 grid gap-1 overflow-hidden rounded-xl ${
+              media.length === 1 ? "grid-cols-1" : "grid-cols-2"
+            }`}
+          >
+            {media.map((m, i) =>
+              m.kind === "video" ? (
+                <span key={i} class="relative">
+                  <img
+                    src={m.url}
+                    alt=""
+                    loading="lazy"
+                    class={`w-full object-cover ${media.length === 1 ? "max-h-80" : "aspect-video"}`}
+                  />
+                  <span
+                    role="img"
+                    aria-label="Video"
+                    class="bg-foreground/70 text-background absolute inset-0 m-auto flex h-9 w-9 items-center justify-center rounded-full text-xs"
+                  >
+                    ▶
+                  </span>
+                </span>
+              ) : (
+                <img
+                  key={i}
+                  src={m.url}
+                  alt=""
+                  loading="lazy"
+                  class={`w-full object-cover ${media.length === 1 ? "max-h-80" : "aspect-video"}`}
+                />
+              ),
+            )}
+          </div>
+        )}
+        {post.permalink && (
+          <a
+            href={post.permalink}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-primary text-compact hover:underline"
+          >
+            {FOLDER_CONTENTS_OPEN_ORIGINAL}
+          </a>
+        )}
       </div>
-      {post.text && <p class="text-muted-foreground line-clamp-2">{post.text}</p>}
-      {post.permalink && (
-        <a
-          href={post.permalink}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-primary text-compact hover:underline"
-        >
-          {FOLDER_CONTENTS_OPEN_ORIGINAL}
-        </a>
-      )}
     </li>
   );
 }

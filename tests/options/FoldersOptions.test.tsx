@@ -842,3 +842,109 @@ describe("FoldersOptions — Folder contents paging (#83)", () => {
     expect(r.getByText("hello folders")).toBeTruthy();
   });
 });
+
+describe("FoldersOptions — Saved Post rows look like X posts with media", () => {
+  it("renders a captured photo inline with its pbs.twimg.com URL", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(
+      post({
+        media: [{ kind: "photo", url: "https://pbs.twimg.com/media/abc123.jpg" }],
+      }),
+    );
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+
+    const img = r.container.querySelector("img");
+    expect(img).toBeTruthy();
+    expect(img!.getAttribute("src")).toBe("https://pbs.twimg.com/media/abc123.jpg");
+  });
+
+  it("renders every photo of a multi-photo post", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(
+      post({
+        media: [
+          { kind: "photo", url: "https://pbs.twimg.com/media/one.jpg" },
+          { kind: "photo", url: "https://pbs.twimg.com/media/two.jpg" },
+          { kind: "photo", url: "https://pbs.twimg.com/media/three.jpg" },
+        ],
+      }),
+    );
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+
+    const srcs = [...r.container.querySelectorAll("img")].map((i) => i.getAttribute("src"));
+    expect(srcs).toEqual([
+      "https://pbs.twimg.com/media/one.jpg",
+      "https://pbs.twimg.com/media/two.jpg",
+      "https://pbs.twimg.com/media/three.jpg",
+    ]);
+  });
+
+  it("renders a video as its poster still with a video badge", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(
+      post({
+        media: [{ kind: "video", url: "https://pbs.twimg.com/ext_tw_video_thumb/poster.jpg" }],
+      }),
+    );
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+
+    const img = r.container.querySelector("img");
+    expect(img!.getAttribute("src")).toBe(
+      "https://pbs.twimg.com/ext_tw_video_thumb/poster.jpg",
+    );
+    expect(r.getByLabelText("Video")).toBeTruthy();
+  });
+
+  it("renders no image for a media entry that has no URL, and no broken img", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(post({ media: [{ kind: "photo" }] }));
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+
+    expect(r.container.querySelector("img")).toBeNull();
+  });
+
+  it("shows the author handle, filed date, text, and an X-style avatar initial", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(post());
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+
+    expect(r.getByText("@ada")).toBeTruthy();
+    // Avatar circle carries the author's initial.
+    expect(r.getByText("a", { selector: '[aria-hidden="true"]' })).toBeTruthy();
+  });
+});
