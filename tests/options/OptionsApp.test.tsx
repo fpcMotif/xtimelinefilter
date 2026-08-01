@@ -10,19 +10,58 @@ import {
   type SettingsStore,
 } from "@/core/settings";
 import { STORAGE_KEYS } from "@/core/storage-keys";
+import type { FoldersClient } from "@/options/folders-client";
 import {
   ACTIVATION_COPY,
   BACKEND_COPY,
+  CLEAR_CONFIRMATION,
   CONVEX_TEST_ERROR,
   CONVEX_URL_ERROR,
   DEFAULT_LIST_HINT,
   DEFAULT_LIST_NONE,
   isValidConvexUrl,
   OptionsApp,
+  RAIL,
 } from "@/options/OptionsApp";
+import type { Folder } from "@/packages/folders/types";
 import type { MembershipStoreProbe } from "@/packages/membership-store/types";
 
 import { createMemoryArea as memoryArea } from "../helpers/chrome-fake";
+
+/** A stable, inert Folders port — these tests care about the rest of the page. */
+function fakeFoldersClient(folders: Folder[] = []): FoldersClient {
+  return {
+    async listFolders() {
+      return folders;
+    },
+    async createFolder(name) {
+      return {
+        folderId: "fld_00000000000000000001",
+        name,
+        sortIndex: 0,
+        createdAt: 0,
+        updatedAt: 0,
+        deletedAt: null,
+      };
+    },
+    async renameFolder() {},
+    async reorderFolders() {},
+    async deleteFolder() {},
+    async countFolder() {
+      return 0;
+    },
+    async countFolderForDelete() {
+      return { count: 0, shared: 0 };
+    },
+    async counts() {
+      return { folders: folders.length, savedPosts: 0 };
+    },
+  };
+}
+
+/** Reads one section's innerHTML by id, scoped to one render's own container. */
+const sectionHtml = (r: { container: Element }, id: string): string =>
+  r.container.querySelector(`#${id}`)!.innerHTML;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -1458,5 +1497,126 @@ describe("OptionsApp — epoch fencing and supersession edges", () => {
     });
 
     expect(r.queryByText("On your next visit to x.com")).toBeNull();
+  });
+});
+
+describe("OptionsApp — nav-rail / section pairing (ticket #72)", () => {
+  it("renders a section element for every rail entry, by direct enumeration", async () => {
+    // Not the scroll-spy effect: that returns early when IntersectionObserver
+    // is undefined under happy-dom, so it would prove nothing about a rail
+    // entry missing its section. This walks RAIL itself and queries the DOM.
+    const r = render(
+      <OptionsApp
+        settings={createSettings(memoryArea())}
+        coach={createCoach(memoryArea())}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+        foldersClient={fakeFoldersClient()}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+
+    for (const { target } of RAIL) {
+      expect(r.container.querySelector(`#${target}`), target).toBeTruthy();
+    }
+    expect(r.getByRole("button", { name: "Folders" })).toBeTruthy();
+  });
+});
+
+describe("OptionsApp — the Folders section carries no X account (ticket #72)", () => {
+  const FOLDER: Folder = {
+    folderId: "fld_00000000000000000001",
+    name: "Research",
+    sortIndex: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    deletedAt: null,
+  };
+
+  async function render_(catalogReader: () => Promise<never[]> | Promise<unknown[]>) {
+    const r = render(
+      <OptionsApp
+        settings={createSettings(memoryArea())}
+        coach={createCoach(memoryArea())}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+        catalogReader={catalogReader as () => Promise<never[]>}
+        foldersClient={fakeFoldersClient([FOLDER])}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    // Scoped to this render's own container: `render()` queries search the
+    // whole document by default, and this suite deliberately keeps several
+    // renders mounted at once to compare their output.
+    await waitFor(() =>
+      expect(r.container.querySelector("#folders")?.textContent).toContain("Research"),
+    );
+    return r;
+  }
+
+  it("renders the same Folders section for one Owner's List catalog, none, and a different Owner", async () => {
+    const withOwner = await render_(async () => [
+      { owner: { userId: "1", screenName: "jack" }, lists: [{ id: "9", name: "Tech" }] },
+    ]);
+    const withOwnerHtml = sectionHtml(withOwner, "folders");
+
+    const noCatalog = await render_(async () => []);
+    expect(sectionHtml(noCatalog, "folders")).toBe(withOwnerHtml);
+
+    const differentOwner = await render_(async () => [
+      { owner: { userId: "2", screenName: "moss" }, lists: [{ id: "5", name: "Design" }] },
+    ]);
+    expect(sectionHtml(differentOwner, "folders")).toBe(withOwnerHtml);
+
+    // The neighbouring Default List section, by contrast, DOES vary with the
+    // catalog — the point being tested is Folders' independence, not that
+    // nothing on the page ever changes.
+    expect(sectionHtml(withOwner, "lists") === sectionHtml(noCatalog, "lists")).toBe(false);
+  });
+
+  it("is usable with no X session and no List catalog read, and shows no caveat of its own", async () => {
+    const r = await render_(() => Promise.reject(new Error("no x.com tab")));
+    expect(r.getByText("Research")).toBeTruthy();
+    // The Default List section's caveat is about Lists, not Folders — the
+    // Folders section must not surface a lookalike of its own.
+    const folders = r.container.querySelector("#folders")!;
+    expect(folders.textContent).not.toMatch(/open x\.com/i);
+  });
+
+  it("patches the default Folder through the same settings authority as every other control", async () => {
+    const sync = memoryArea();
+    sync.data[STORAGE_KEYS.settings] = { convexUrl: undefined, convexDeviceKey: undefined };
+    const settings = createSettings(sync);
+    const r = render(
+      <OptionsApp
+        settings={settings}
+        coach={createCoach(memoryArea())}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+        foldersClient={fakeFoldersClient([FOLDER])}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    await waitFor(() => expect(r.getByLabelText("Default Folder")).toBeTruthy());
+
+    fireEvent.change(r.getByLabelText("Default Folder"), { target: { value: FOLDER.folderId } });
+    await waitFor(async () => expect((await settings.get()).defaultFolderId).toBe(FOLDER.folderId));
+  });
+});
+
+describe("OptionsApp — Privacy names everything Clear destroys (ticket #72)", () => {
+  it("pins the confirmation sentence naming Folders and Saved Posts", async () => {
+    const r = render(
+      <OptionsApp
+        settings={createSettings(memoryArea())}
+        coach={createCoach(memoryArea())}
+        platform="other"
+        filter={createFilterStore({ storage: memoryArea() })}
+        foldersClient={fakeFoldersClient()}
+      />,
+    );
+    await waitFor(() => expect(r.container.querySelector("[data-loading]")).toBeNull());
+    fireEvent.click(r.getByText("Clear Lasso data"));
+    expect(await r.findByText(CLEAR_CONFIRMATION)).toBeTruthy();
   });
 });

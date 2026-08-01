@@ -99,6 +99,9 @@ export function createDataLifecycle(
       adopt: async (defaultFolderId) => {
         await settings.patch({ defaultFolderId });
       },
+      clear: async () => {
+        await settings.patch({ defaultFolderId: undefined });
+      },
     },
   );
 

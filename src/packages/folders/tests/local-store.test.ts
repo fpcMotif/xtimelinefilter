@@ -256,6 +256,29 @@ describe("unfiling is never deleting", () => {
     expect(await store.countFolder({ folderId: b.folderId })).toBe(1);
     expect(await store.countSavedPosts()).toBe(1);
   });
+
+  it("countFolderShared counts only posts another live Folder also holds", async () => {
+    const a = await store.createFolder({ name: "A" });
+    const b = await store.createFolder({ name: "B" });
+    // "1" is in both; "2" and "3" are only in A.
+    await store.savePost({ folderId: a.folderId, capture: capture("1") });
+    await store.savePost({ folderId: b.folderId, capture: capture("1") });
+    await store.savePost({ folderId: a.folderId, capture: capture("2") });
+    await store.savePost({ folderId: a.folderId, capture: capture("3") });
+
+    expect(await store.countFolderShared({ folderId: a.folderId })).toBe(1);
+    expect(await store.countFolderShared({ folderId: b.folderId })).toBe(1);
+
+    // Deleting the OTHER folder holding "1" — with either disposition — drops
+    // the shared count to zero: nothing else holds it any more.
+    await store.deleteFolder({ folderId: b.folderId, disposition: "keep-posts" });
+    expect(await store.countFolderShared({ folderId: a.folderId })).toBe(0);
+  });
+
+  it("countFolderShared is zero for a Folder holding nothing", async () => {
+    const a = await store.createFolder({ name: "A" });
+    expect(await store.countFolderShared({ folderId: a.folderId })).toBe(0);
+  });
 });
 
 describe("bookmark evidence appends", () => {

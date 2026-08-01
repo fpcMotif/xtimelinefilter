@@ -54,6 +54,17 @@ describe(`a folder holding ${PER_FOLDER} posts`, () => {
     expect(await store.countSavedPosts()).toBe(TOTAL);
   });
 
+  it("counts a folder's overlap with the rest of the store without reading a post", async () => {
+    // This fixture files every post into exactly one Folder, so the shared
+    // count is zero everywhere — the claim under test is that walking
+    // `PER_FOLDER` membership KEYS and one status-count lookup each stays
+    // within the suite's default timeout, the same falsifiability
+    // `countFolder` above relies on.
+    for (const folderId of folderIds) {
+      expect(await store.countFolderShared({ folderId })).toBe(0);
+    }
+  });
+
   it("reads a first page, a cursored later page and a page past the end", async () => {
     const folderId = folderIds[0] as string;
     // Folder 0 holds every post whose index is a multiple of FOLDERS.

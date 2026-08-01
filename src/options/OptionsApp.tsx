@@ -10,6 +10,8 @@ import { requestLassoDataClear, type ClearDataResponse } from "@/core/protocol";
 import { type BackendStrategy, createSettings, type SettingsStore } from "@/core/settings";
 import { PRIVACY_LINE } from "@/core/strings";
 import { LinkRulesEditor, MyLanguagesEditor } from "@/options/FilterOptions";
+import { createFoldersClient, type FoldersClient } from "@/options/folders-client";
+import { FoldersOptions } from "@/options/FoldersOptions";
 import { PresetManager, SurfaceOptions } from "@/options/SurfaceOptions";
 import { useSettingsDraft } from "@/options/use-settings-draft";
 import { defaultMembershipStoreProbe } from "@/packages/membership-store/factory";
@@ -48,6 +50,10 @@ export const BACKEND_COPY: Record<BackendStrategy, string> = {
 export const DEFAULT_LIST_NONE = "None — always ask";
 export const DEFAULT_LIST_HINT = "Alt+Shift+L adds straight to this List.";
 
+/** Names everything Privacy Clear destroys, so the on-screen promise matches it. */
+export const CLEAR_CONFIRMATION =
+  "Clear browser settings, cached Lists, coach state, Folders, and Saved Posts? Mirror data stays in Convex.";
+
 export const CONVEX_URL_ERROR = "Enter an https://*.convex.cloud deployment URL.";
 export const CONVEX_TEST_ERROR = "Connection failed. Check the URL and device key.";
 const CONVEX_URL_ERROR_ID = "convex-url-error";
@@ -68,10 +74,11 @@ export function isValidConvexUrl(url: string): boolean {
 const SELECT =
   "border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 w-full rounded-lg border px-3 text-sm outline-none transition-[color,box-shadow,border-color] focus-visible:ring-2";
 
-const RAIL = [
+export const RAIL = [
   { label: "General", target: "activation" },
   { label: "Connection", target: "connection" },
   { label: "Lists", target: "lists" },
+  { label: "Folders", target: "folders" },
   { label: "Shortcuts", target: "shortcuts" },
   { label: "Timeline filter", target: "filter" },
   { label: "Surfaces", target: "surfaces" },
@@ -88,6 +95,7 @@ export interface OptionsAppProps {
   keymap?: KeyBinding[];
   platform?: Platform;
   filter?: FilterStore;
+  foldersClient?: FoldersClient;
   mirrorProbe?: MembershipStoreProbe;
 }
 
@@ -106,6 +114,7 @@ export function OptionsApp({
   platform = detectPlatform(),
   filter: filterProp,
   mirrorProbe = defaultMembershipStoreProbe,
+  foldersClient: foldersClientProp,
 }: OptionsAppProps) {
   // Create the stores ONCE per mount — never as parameter defaults. A
   // `createSettings()`/`createFilterStore()` default re-runs on every render,
@@ -120,6 +129,10 @@ export function OptionsApp({
   const filter = useMemo(() => filterProp ?? createFilterStore(), [filterProp]);
   const catalogReader = useMemo(() => catalogReaderProp ?? readCachedCatalog, [catalogReaderProp]);
   const clearData = clearDataProp ?? requestLassoDataClear;
+  const foldersClient = useMemo(
+    () => foldersClientProp ?? createFoldersClient(),
+    [foldersClientProp],
+  );
 
   const [mirrorDraft, setMirrorDraft] = useState({ url: "", deviceKey: "" });
   const [lists, setLists] = useState<
@@ -397,6 +410,18 @@ export function OptionsApp({
           )}
         </Section>
 
+        <Section
+          title="Folders"
+          id="folders"
+          helper="Free-form collections you own — no X account needed. File a post with Alt+Shift+B."
+        >
+          <FoldersOptions
+            client={foldersClient}
+            defaultFolderId={current.defaultFolderId}
+            onPatchDefault={(defaultFolderId) => patch({ defaultFolderId })}
+          />
+        </Section>
+
         <Section title="Keyboard shortcuts" id="shortcuts">
           <table class="w-full">
             <tbody>
@@ -601,10 +626,7 @@ export function OptionsApp({
           <div class="border-destructive/30 bg-destructive/5 mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-4">
             {confirmClear ? (
               <>
-                <span class="text-compact font-medium">
-                  Clear browser settings, cached Lists, and coach state? Mirror data stays in
-                  Convex.
-                </span>
+                <span class="text-compact font-medium">{CLEAR_CONFIRMATION}</span>
                 <Button
                   variant="destructive"
                   size="pill"

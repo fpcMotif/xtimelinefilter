@@ -2,10 +2,10 @@ import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createDataLifecycle } from "@/background/data-lifecycle";
-import { SEEDED_FOLDER_NAME } from "@/background/data-lifecycle/collections";
 import type { CacheObservation } from "@/core/cache-observation";
 import type { CollectionsRequest, DefaultSaveOutcome } from "@/core/protocol/collections";
 import { ALWAYS_ASK } from "@/core/settings-domain";
+import { SEEDED_FOLDER_NAME } from "@/core/strings";
 import { createCollectionStore } from "@/packages/folders";
 import type { PostCapture } from "@/packages/folders/types";
 
@@ -106,24 +106,21 @@ describe("the default Folder's three states", () => {
     });
   });
 
-  it("(c) re-resolves when the named Folder has since been deleted", async () => {
-    const created = (await w.run({
-      type: TYPE,
-      operation: "create-folder",
-      name: "Gone",
-      token: await w.token(),
-    })) as { folder: { folderId: string } };
-    await w.lifecycle.patchSettings({ defaultFolderId: created.folder.folderId });
-    await w.run({
-      type: TYPE,
-      operation: "delete-folder",
-      folderId: created.folder.folderId,
-      disposition: "keep-posts",
-      token: await w.token(),
-    });
+  it("(c) resolves silently when the setting names a Folder id no live Folder carries", async () => {
+    await w.run({ type: TYPE, operation: "create-folder", name: "A", token: await w.token() });
+    await w.run({ type: TYPE, operation: "create-folder", name: "B", token: await w.token() });
+    // Patched directly, never through delete-folder — which clears the
+    // nomination itself, so that path can never reach this state. A synced
+    // settings field can still carry a dangling id this way: another device
+    // deletes the named Folder after this one already patched the nomination.
+    await w.lifecycle.patchSettings({ defaultFolderId: "fld_goneaaaaaaaaaaaaaaaa" });
 
-    // A dangling id resolves silently rather than failing the gesture.
-    expect(await w.save()).toMatchObject({ status: "saved", folderName: SEEDED_FOLDER_NAME });
+    // Dangling resolves exactly like never-set: adopts the first live Folder
+    // in sort order rather than failing the gesture or seeding a second one.
+    const outcome = await w.save();
+    expect(outcome).toMatchObject({ status: "saved", folderName: "A" });
+    // Re-adopts the Folder it actually resolved to, not the dangling id.
+    expect((await w.lifecycle.readSettings()).defaultFolderId).not.toBe("fld_goneaaaaaaaaaaaaaaaa");
   });
 });
 
@@ -208,6 +205,104 @@ describe("the compound save is one operation", () => {
     expect(await w.save({ statusId: STATUS, permalink: null, media: [] })).toMatchObject({
       status: "saved",
     });
+  });
+});
+
+describe("deleting the Folder nominated as default", () => {
+  it("resets the nomination to never-set, in the same delete operation", async () => {
+    const w = worker();
+    const created = (await w.run({
+      type: TYPE,
+      operation: "create-folder",
+      name: "Research",
+      token: await w.token(),
+    })) as { folder: { folderId: string } };
+    await w.lifecycle.patchSettings({ defaultFolderId: created.folder.folderId });
+
+    await w.run({
+      type: TYPE,
+      operation: "delete-folder",
+      folderId: created.folder.folderId,
+      disposition: "keep-posts",
+      token: await w.token(),
+    });
+
+    // Never-set, not a dangling id: the next compound save resolves silently
+    // (seeds a fresh Folder) rather than naming a Folder that no longer exists.
+    expect((await w.lifecycle.readSettings()).defaultFolderId).toBeUndefined();
+    expect(await w.save()).toMatchObject({ status: "saved", folderName: SEEDED_FOLDER_NAME });
+  });
+
+  it("never turns the nomination into the explicit always-ask marker", async () => {
+    const w = worker();
+    const created = (await w.run({
+      type: TYPE,
+      operation: "create-folder",
+      name: "Research",
+      token: await w.token(),
+    })) as { folder: { folderId: string } };
+    await w.lifecycle.patchSettings({ defaultFolderId: created.folder.folderId });
+
+    await w.run({
+      type: TYPE,
+      operation: "delete-folder",
+      folderId: created.folder.folderId,
+      disposition: "delete-orphaned-posts",
+      token: await w.token(),
+    });
+
+    // Distinct from a user who explicitly asked to be asked: that state must
+    // resolve to "ask", never-set must resolve silently.
+    expect((await w.lifecycle.readSettings()).defaultFolderId).not.toBe(ALWAYS_ASK);
+    expect(await w.save()).toMatchObject({ status: "saved" });
+  });
+
+  it("leaves an unrelated nomination untouched when a different Folder is deleted", async () => {
+    const w = worker();
+    const kept = (await w.run({
+      type: TYPE,
+      operation: "create-folder",
+      name: "Keep",
+      token: await w.token(),
+    })) as { folder: { folderId: string } };
+    const other = (await w.run({
+      type: TYPE,
+      operation: "create-folder",
+      name: "Other",
+      token: await w.token(),
+    })) as { folder: { folderId: string } };
+    await w.lifecycle.patchSettings({ defaultFolderId: kept.folder.folderId });
+
+    await w.run({
+      type: TYPE,
+      operation: "delete-folder",
+      folderId: other.folder.folderId,
+      disposition: "keep-posts",
+      token: await w.token(),
+    });
+
+    expect((await w.lifecycle.readSettings()).defaultFolderId).toBe(kept.folder.folderId);
+  });
+
+  it("leaves the explicit always-ask marker alone when an unrelated Folder is deleted", async () => {
+    const w = worker();
+    const other = (await w.run({
+      type: TYPE,
+      operation: "create-folder",
+      name: "Other",
+      token: await w.token(),
+    })) as { folder: { folderId: string } };
+    await w.lifecycle.patchSettings({ defaultFolderId: ALWAYS_ASK });
+
+    await w.run({
+      type: TYPE,
+      operation: "delete-folder",
+      folderId: other.folder.folderId,
+      disposition: "keep-posts",
+      token: await w.token(),
+    });
+
+    expect((await w.lifecycle.readSettings()).defaultFolderId).toBe(ALWAYS_ASK);
   });
 });
 

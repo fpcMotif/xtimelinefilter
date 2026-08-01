@@ -56,6 +56,7 @@ These terms define the product. Architecture lives in
 - **Saved Post** — one post the user kept, keyed by X status id and by nothing else. Filing it again, filing it into a second Folder, and bookmarking it from a second account all resolve to that one row, so a note written on it stays in one place. Carries the durable capture plus when Lasso first filed it, the user's note and tags, and zero or more bookmark-evidence rows — the one place an X account legitimately appears, as an attribute of an observation rather than part of a key.
 - **Destination** — an optional, user-configured place Saved Posts are pushed to: their Convex deployment, a Notion database, an Airtable table. Off until configured, one-way, and never load-bearing — a failing Destination never blocks or alters a save.
 - **Collection Store** — the Folders storage seam. One contract, several implementations — the local-first database, a null object, and one per Destination — chosen by a factory that is the only place naming a concrete one. No operation on it takes an account.
+- **Default Folder** — the target the no-picker save gesture files into: either a bare Folder id, or the `ALWAYS_ASK` marker recording that the user explicitly asked to be asked. Never never-set and an id at once, and never an Owner-qualified tuple like `defaultList` — a Folder has no Owner, so the setting carries none.
 
 ## Post capture
 
@@ -68,7 +69,7 @@ These terms define the product. Architecture lives in
 - **Storage fanout** — ordered change delivery per storage area/key to extension pages and top-level content.
 - **Observation token** — an epoch and sequence attached to an async cache read. A newer token wins.
 - **Clear epoch** — Privacy clear rotates the observation epoch. Work started before clear cannot restore old cache data.
-- **Collections family** — the worker request family every surface reaches Folders through. Its operations mirror the Collection Store contract one-for-one plus two index-backed count reads. No request or response carries an Owner, an `ownerUserId` or a screen name; the one field in the family that may hold an X account id is the account on a bookmark-evidence write, where it is an attribute of an observation. Messages validate by exact key set, so an account field added under any name is rejected.
+- **Collections family** — the worker request family every surface reaches Folders through. Its operations mirror the Collection Store contract one-for-one plus index-backed count reads: a Folder's own membership count (every row pays this), how many of those posts another live Folder also holds (only a delete confirmation pays this, since it is O(posts-in-folder) rather than O(1)), and the global summary. No request or response carries an Owner, an `ownerUserId` or a screen name; the one field in the family that may hold an X account id is the account on a bookmark-evidence write, where it is an attribute of an observation. Messages validate by exact key set, so an account field added under any name is rejected.
 - **Direct adapter** — an injected or non-extension storage path. Production Settings and Filter use worker commands; direct adapters preserve testability without becoming browser authority.
 
 ## Interaction
@@ -85,8 +86,9 @@ These terms define the product. Architecture lives in
 
 ## Product surfaces
 
-- **Controller** — the headless conductor for assignment, quick actions, Undo, and fail-open Filter commands. `main.tsx` only composes dependencies.
+- **Controller** — the headless conductor for assignment, quick actions, the default-Folder save gesture, Undo, and fail-open Filter commands. `main.tsx` only composes dependencies.
 - **Coach** — worker-persisted onboarding and hints. Hints decay after seven days or five assigns; Replay intro resets them.
 - **Toast store / Undo registry** — visible outcomes plus one last-wins, ten-second Undo.
 - **Picker controller** — cache-first List loading with loading, error, empty, no-match, and ready states.
+- **Folders workshop** — the Options section for full Folder management: create, rename, reorder, delete (with a disposition confirmation) and default-Folder nomination. Usable with no x.com tab, no X session and no List catalog read, unlike its Default List neighbour — Folders belong to the installation, not an X account. A failed Folder read renders an error with Retry rather than an empty list.
 - **Canonical strings** — shared user-facing copy in `core/strings.ts`, pinned by tests.

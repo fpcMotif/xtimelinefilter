@@ -123,6 +123,7 @@ describe.each(implementations)("CollectionStore contract: $label", ({ make }) =>
   it("counts are numbers and a page is bounded and well-formed", async () => {
     const { folderId } = await store.createFolder({ name: "Research" });
     expect(typeof (await store.countFolder({ folderId }))).toBe("number");
+    expect(typeof (await store.countFolderShared({ folderId }))).toBe("number");
     expect(typeof (await store.countFolders())).toBe("number");
     expect(typeof (await store.countSavedPosts())).toBe("number");
 
@@ -150,6 +151,7 @@ describe("the null implementation is inert", () => {
     expect(await store.listBookmarkEvidence({ statusId: "1" })).toEqual([]);
     expect(await store.foldersHolding({ statusId: "1" })).toEqual([]);
     expect(await store.countFolder({ folderId: folder.folderId })).toBe(0);
+    expect(await store.countFolderShared({ folderId: folder.folderId })).toBe(0);
     expect(await store.countSavedPosts()).toBe(0);
     expect(await store.readFolderPage({ folderId: folder.folderId, limit: 10 })).toEqual({
       posts: [],

@@ -86,6 +86,7 @@ const VALID_BY_OPERATION: Record<CollectionsOperation, CollectionsRequest> = {
   },
   "list-bookmark-evidence": { type: TYPE, operation: "list-bookmark-evidence", statusId: STATUS },
   "count-folder": { type: TYPE, operation: "count-folder", folderId: FOLDER },
+  "count-folder-shared": { type: TYPE, operation: "count-folder-shared", folderId: FOLDER },
   counts: { type: TYPE, operation: "counts" },
   "save-to-default-folder": {
     type: TYPE,
@@ -162,6 +163,9 @@ describe("collections sender capabilities", () => {
   it("withholds the count reads from the page", () => {
     expect(canHandleMessage("x-content", { type: TYPE, operation: "counts" })).toBe(false);
     expect(canHandleMessage("x-content", { type: TYPE, operation: "count-folder" })).toBe(false);
+    expect(canHandleMessage("x-content", { type: TYPE, operation: "count-folder-shared" })).toBe(
+      false,
+    );
   });
 
   it("denies a message with no operation before any shape guard runs", () => {
@@ -212,6 +216,77 @@ describe("worker collections authority", () => {
         }
       ).folders,
     ).toHaveLength(1);
+  });
+
+  it("survives deleting one of two Folders holding the same post, under either disposition", async () => {
+    for (const disposition of ["keep-posts", "delete-orphaned-posts"] as const) {
+      const w2 = worker();
+      const a = (
+        (await w2.run({
+          type: TYPE,
+          operation: "create-folder",
+          name: "A",
+          token: await w2.token(),
+        })) as { folder: { folderId: string } }
+      ).folder;
+      const b = (
+        (await w2.run({
+          type: TYPE,
+          operation: "create-folder",
+          name: "B",
+          token: await w2.token(),
+        })) as { folder: { folderId: string } }
+      ).folder;
+      await w2.run({
+        type: TYPE,
+        operation: "save-post",
+        folderId: a.folderId,
+        capture: capture(STATUS),
+        token: await w2.token(),
+      });
+      await w2.run({
+        type: TYPE,
+        operation: "save-post",
+        folderId: b.folderId,
+        capture: capture(STATUS),
+        token: await w2.token(),
+      });
+      await w2.run({
+        type: TYPE,
+        operation: "set-note",
+        statusId: STATUS,
+        note: "why",
+        token: await w2.token(),
+      });
+      await w2.run({
+        type: TYPE,
+        operation: "set-tags",
+        statusId: STATUS,
+        tags: ["ml"],
+        token: await w2.token(),
+      });
+      const before = await w2.run({ type: TYPE, operation: "get-saved-post", statusId: STATUS });
+
+      await w2.run({
+        type: TYPE,
+        operation: "delete-folder",
+        folderId: a.folderId,
+        disposition,
+        token: await w2.token(),
+      });
+
+      // Still a single Saved Post — its remaining Folder row, note, tags and
+      // captured-at all unchanged — whichever disposition ran.
+      expect(await w2.run({ type: TYPE, operation: "get-saved-post", statusId: STATUS })).toEqual(
+        before,
+      );
+      expect(
+        await w2.run({ type: TYPE, operation: "count-folder-shared", folderId: b.folderId }),
+      ).toEqual({ count: 1, shared: 0 });
+      expect(await w2.run({ type: TYPE, operation: "counts" })).toEqual({
+        counts: { folders: 1, savedPosts: 1 },
+      });
+    }
   });
 
   it("cannot produce a second Saved Post for one status id", async () => {
@@ -371,6 +446,65 @@ describe("worker collections authority", () => {
       token: await w.token(),
     });
     expect(reordered).toEqual({});
+  });
+
+  it("count-folder answers just the cheap count, with no shared field at all", async () => {
+    const folder = (
+      (await w.run({
+        type: TYPE,
+        operation: "create-folder",
+        name: "A",
+        token: await w.token(),
+      })) as { folder: { folderId: string } }
+    ).folder;
+    expect(
+      await w.run({ type: TYPE, operation: "count-folder", folderId: folder.folderId }),
+    ).toEqual({ count: 0 });
+  });
+
+  it("count-folder-shared counts how many of a Folder's posts another live Folder also holds", async () => {
+    const a = (
+      (await w.run({
+        type: TYPE,
+        operation: "create-folder",
+        name: "A",
+        token: await w.token(),
+      })) as {
+        folder: { folderId: string };
+      }
+    ).folder;
+    const b = (
+      (await w.run({
+        type: TYPE,
+        operation: "create-folder",
+        name: "B",
+        token: await w.token(),
+      })) as {
+        folder: { folderId: string };
+      }
+    ).folder;
+    const save = async (folderId: string, statusId: string) =>
+      w.run({
+        type: TYPE,
+        operation: "save-post",
+        folderId,
+        capture: capture(statusId),
+        token: await w.token(),
+      });
+
+    // Three posts in A; only the third is also filed in B.
+    await save(a.folderId, "1111111111");
+    await save(a.folderId, "2222222222");
+    await save(a.folderId, "3333333333");
+    await save(b.folderId, "3333333333");
+
+    expect(
+      await w.run({ type: TYPE, operation: "count-folder-shared", folderId: a.folderId }),
+    ).toEqual({ count: 3, shared: 1 });
+    // B holds one post, and it is shared too — from B's side of the same fact.
+    expect(
+      await w.run({ type: TYPE, operation: "count-folder-shared", folderId: b.folderId }),
+    ).toEqual({ count: 1, shared: 1 });
   });
 
   it("refuses to create past the live-folder cap and says why", async () => {

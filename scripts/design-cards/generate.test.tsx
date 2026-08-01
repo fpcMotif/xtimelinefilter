@@ -880,6 +880,205 @@ ${section(
       );
     }
 
+    /* ── proposed: Folders workshop (spec #41, ticket #72) ────────────────
+       A DESIGN MOCKUP, not a shipping component — ticket #72 requires this
+       reviewed before the section's code lands (house rule: design review
+       before code). Composed from the real Button/Input/Badge primitives and
+       OptionsApp's own SELECT string verbatim, so what gets reviewed is what
+       implementation will produce. Folders are FLAT (ADR-0013 amendment):
+       reorder moves a row within one list, never into another row. */
+    {
+      // OptionsApp's SELECT verbatim minus `w-full`, matching the scope-bindings
+      // precedent above — the reviewed design is what implementation will produce.
+      const SELECT =
+        "border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 rounded-lg border px-3 text-sm outline-none transition-[color,box-shadow,border-color] focus-visible:ring-2";
+
+      const folderRow = (opts: {
+        name: string;
+        count: number;
+        upDisabled?: boolean;
+        downDisabled?: boolean;
+      }) => (
+        <li
+          key={opts.name}
+          class="border-border flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm"
+        >
+          <span class="flex flex-col gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-5 px-1.5 text-xs leading-none"
+              aria-label={`Move ${opts.name} up`}
+              disabled={opts.upDisabled}
+            >
+              ▲
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-5 px-1.5 text-xs leading-none"
+              aria-label={`Move ${opts.name} down`}
+              disabled={opts.downDisabled}
+            >
+              ▼
+            </Button>
+          </span>
+          <Input aria-label={`Rename ${opts.name}`} value={opts.name} class="max-w-[220px]" />
+          <span class="text-faint text-compact ml-auto tabular-nums">{opts.count} posts</span>
+          <Button variant="outline" size="sm" aria-label={`Delete ${opts.name}`}>
+            Delete
+          </Button>
+        </li>
+      );
+
+      const defaultFolderSelect = (folders: string[], value: string) => (
+        <select aria-label="Default Folder" class={SELECT} value={value}>
+          <option value="">None — always ask</option>
+          {folders.map((name) => (
+            <option key={name}>{name}</option>
+          ))}
+        </select>
+      );
+
+      await card(
+        {
+          group: "Extension pages",
+          name: "Folders workshop — populated (proposed, #72)",
+          file: "page-options-folders.html",
+          minHeight: 520,
+        },
+        async () =>
+          snap(
+            <div class="flex max-w-[560px] flex-col gap-4">
+              <div class="flex gap-2">
+                <Input aria-label="New Folder name" placeholder="New Folder…" />
+                <Button variant="secondary">Create</Button>
+              </div>
+              <ul class="flex flex-col gap-1.5">
+                {[
+                  folderRow({ name: "Research", count: 42, upDisabled: true }),
+                  folderRow({ name: "Design refs", count: 128 }),
+                  folderRow({ name: "Saved", count: 7, downDisabled: true }),
+                ]}
+              </ul>
+              <div class="text-muted-foreground text-compact flex items-center justify-between border-t pt-3">
+                <span>174 saved posts total, across 3 Folders</span>
+              </div>
+              <div class="flex flex-col gap-1.5">
+                <span class="text-faint text-2xs font-semibold tracking-wide uppercase">
+                  Default Folder
+                </span>
+                {defaultFolderSelect(["Research", "Design refs", "Saved"], "Saved")}
+                <p class="text-muted-foreground text-compact">
+                  Alt+Shift+B files straight into this Folder.
+                </p>
+              </div>
+            </div>,
+            (r) => r.getByText("Create"),
+          ),
+      );
+
+      await card(
+        {
+          group: "Extension pages",
+          name: "Folders workshop — empty (proposed, #72)",
+          file: "page-options-folders-empty.html",
+          minHeight: 260,
+        },
+        async () =>
+          snap(
+            <div class="flex max-w-[560px] flex-col gap-4">
+              <div class="flex gap-2">
+                <Input aria-label="New Folder name" placeholder="New Folder…" />
+                <Button variant="secondary">Create</Button>
+              </div>
+              <p class="text-muted-foreground text-compact border-border rounded-xl border border-dashed px-4 py-6 text-center">
+                No Folders yet — create one above to start filing posts.
+              </p>
+            </div>,
+            (r) => r.getByText("Create"),
+          ),
+      );
+
+      await card(
+        {
+          group: "Extension pages",
+          name: "Folders workshop — create at cap (proposed, #72)",
+          file: "page-options-folders-cap.html",
+          minHeight: 160,
+        },
+        async () =>
+          snap(
+            <div class="flex max-w-[560px] flex-col gap-1.5">
+              <div class="flex gap-2">
+                <Input aria-label="New Folder name" placeholder="New Folder…" disabled />
+                <Button variant="secondary" disabled>
+                  Create
+                </Button>
+              </div>
+              <p class="text-muted-foreground text-compact">
+                You can have at most 200 Folders — delete one to make room.
+              </p>
+            </div>,
+            (r) => r.getByText("Create"),
+          ),
+      );
+
+      await card(
+        {
+          group: "Extension pages",
+          name: "Folders workshop — failed read (proposed, #72)",
+          file: "page-options-folders-error.html",
+          minHeight: 160,
+        },
+        async () =>
+          snap(
+            <div class="flex max-w-[560px] flex-col gap-3">
+              <p role="alert" class="text-destructive text-sm">
+                Could not load Folders.
+              </p>
+              <div>
+                <Button variant="outline" size="pill">
+                  Retry
+                </Button>
+              </div>
+            </div>,
+            (r) => r.getByText("Retry"),
+          ),
+      );
+
+      await card(
+        {
+          group: "Extension pages",
+          name: "Folders workshop — delete confirmation (proposed, #72)",
+          file: "page-options-folders-delete.html",
+          minHeight: 260,
+        },
+        async () =>
+          snap(
+            <div class="max-w-[560px]">
+              <div class="border-destructive/30 bg-destructive/5 flex flex-col gap-3 rounded-xl border p-4">
+                <span class="text-compact font-medium">
+                  Delete "Design refs"? It holds 128 posts, 12 of which another Folder also holds.
+                </span>
+                <div class="flex flex-wrap gap-2">
+                  <Button variant="destructive" size="pill">
+                    Keep the 128 posts
+                  </Button>
+                  <Button variant="destructive" size="pill">
+                    Delete the 116 posts only this Folder holds
+                  </Button>
+                  <Button variant="ghost" size="pill">
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            (r) => r.getByText("Cancel"),
+          ),
+      );
+    }
+
     console.log(`cards written: ${made.length}\n${made.join("\n")}`);
     if (failures.length) console.log(`FAILED:\n${failures.join("\n")}`);
     expect(failures).toEqual([]);

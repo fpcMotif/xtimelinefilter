@@ -354,6 +354,27 @@ export class LocalCollectionStore implements CollectionStore {
     return req.result;
   }
 
+  async countFolderShared({ folderId }: CountFolderParams): Promise<number> {
+    // Same pair of indexes `deleteFolder`'s own orphan check walks: KEYS only,
+    // one small ranged read plus one status-keyed count per row, never the
+    // post records themselves and never a second Folder's rows.
+    const tx = this.tx([Stores.FOLDER_MEMBERSHIPS], "readonly");
+    const memberships = tx.objectStore(Stores.FOLDER_MEMBERSHIPS);
+    const keysReq = memberships.index(Indexes.MEMBERSHIPS_BY_FOLDER).getAllKeys(folderId);
+    let shared = 0;
+    keysReq.onsuccess = () => {
+      for (const key of keysReq.result) {
+        const statusId = (key as [string, string])[1];
+        const countReq = memberships.index(Indexes.MEMBERSHIPS_BY_STATUS).count(statusId);
+        countReq.onsuccess = () => {
+          if (countReq.result > 1) shared += 1;
+        };
+      }
+    };
+    await txDone(tx);
+    return shared;
+  }
+
   async countFolders(): Promise<number> {
     const tx = this.tx([Stores.FOLDERS], "readonly");
     const store = tx.objectStore(Stores.FOLDERS);

@@ -87,6 +87,7 @@ const VALID: Record<CollectionsOperation, CollectionsRequest> = {
   },
   "list-bookmark-evidence": { type: TYPE, operation: "list-bookmark-evidence", statusId: STATUS },
   "count-folder": { type: TYPE, operation: "count-folder", folderId: FOLDER },
+  "count-folder-shared": { type: TYPE, operation: "count-folder-shared", folderId: FOLDER },
   counts: { type: TYPE, operation: "counts" },
   "save-to-default-folder": {
     type: TYPE,
@@ -354,6 +355,7 @@ describe("account freedom on the wire", () => {
       "record-bookmark-evidence": {},
       "list-bookmark-evidence": { evidence: [] },
       "count-folder": { count: 0 },
+      "count-folder-shared": { count: 0, shared: 0 },
       counts: { counts: { folders: 0, savedPosts: 0 } },
       "save-to-default-folder": {
         defaultSave: {
@@ -384,6 +386,7 @@ describe("account freedom on the wire", () => {
       "record-bookmark-evidence": [],
       "list-bookmark-evidence": ["evidence"],
       "count-folder": ["count"],
+      "count-folder-shared": ["count", "shared"],
       counts: ["counts"],
       "save-to-default-folder": ["defaultSave"],
       "read-folder-page": ["page"],
@@ -435,6 +438,7 @@ describe("account freedom on the wire", () => {
       ],
       "list-bookmark-evidence": ["type", "operation", "statusId"],
       "count-folder": ["type", "operation", "folderId"],
+      "count-folder-shared": ["type", "operation", "folderId"],
       counts: ["type", "operation"],
       "save-to-default-folder": ["type", "operation", "capture", "token"],
       "read-folder-page": ["type", "operation", "folderId", "limit", "cursor"],
@@ -587,6 +591,23 @@ describe("collections response validation", () => {
 
     send({ ok: true, count: 3 });
     await expect(requestCollections(VALID["count-folder"])).resolves.toMatchObject({ ok: true });
+    send({ ok: true, count: 3, shared: 1 });
+    await expect(requestCollections(VALID["count-folder"])).rejects.toThrow(
+      "Invalid collections response",
+    );
+    send({ ok: true, count: "3" });
+    await expect(requestCollections(VALID["count-folder"])).rejects.toThrow(
+      "Invalid collections response",
+    );
+
+    send({ ok: true, count: 3, shared: 1 });
+    await expect(requestCollections(VALID["count-folder-shared"])).resolves.toMatchObject({
+      ok: true,
+    });
+    send({ ok: true, count: 3 });
+    await expect(requestCollections(VALID["count-folder-shared"])).rejects.toThrow(
+      "Invalid collections response",
+    );
 
     send({ ok: true, page: { posts: [post], nextCursor: "5:1" } });
     await expect(requestCollections(VALID["read-folder-page"])).resolves.toMatchObject({

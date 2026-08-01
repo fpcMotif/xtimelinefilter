@@ -11,6 +11,7 @@ import {
 import { requestCoach } from "@/core/protocol";
 import { localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
+import { hasWorkerTransport as hasRuntimeTransport } from "@/core/worker-transport";
 
 export { DECAY_ASSIGNS, DECAY_MS };
 export type { TipId };
@@ -26,9 +27,6 @@ export interface Coach {
 }
 
 type RunCommand = (command: CoachCommand) => Promise<CoachCommandResult>;
-
-const hasRuntimeTransport = (): boolean =>
-  typeof globalThis.chrome?.runtime?.sendMessage === "function";
 
 /** Injected storage keeps tests and non-extension hosts on the same reducer. */
 function localCommands(area: StorageLike, now: () => number): RunCommand {

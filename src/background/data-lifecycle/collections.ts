@@ -13,6 +13,7 @@ import {
 import { ALWAYS_ASK } from "@/core/settings-domain";
 import type { StorageLike } from "@/core/storage-areas";
 import { COLLECTIONS_DATABASE, STORAGE_KEYS } from "@/core/storage-keys";
+import { SEEDED_FOLDER_NAME } from "@/core/strings";
 import { createCollectionStore } from "@/packages/folders";
 import type { CollectionStore, Folder, PostCapture } from "@/packages/folders/types";
 
@@ -26,10 +27,9 @@ export type DatabaseDestroyer = () => Promise<boolean>;
 export interface DefaultFolderSetting {
   read(): Promise<string | undefined>;
   adopt(folderId: string): Promise<void>;
+  /** Returns the nomination to never-set. Never writes the ALWAYS_ASK marker. */
+  clear(): Promise<void>;
 }
-
-/** The Folder seeded on a fresh install when the user has never chosen one. */
-export const SEEDED_FOLDER_NAME = "Saved";
 
 /** Raised when the database cannot be opened, so no caller is told a save landed. */
 class CollectionsUnavailableError extends Error {
@@ -196,12 +196,19 @@ export function createCollections(
       case "reorder-folders":
         await db.reorderFolders({ folderIds: request.folderIds });
         return {};
-      case "delete-folder":
+      case "delete-folder": {
+        // Read before delete: after it, the Folder is gone from the default
+        // listing and there is nothing left to compare against.
+        const wasDefault = (await defaultFolder.read()) === request.folderId;
         await db.deleteFolder({
           folderId: request.folderId,
           disposition: request.disposition,
         });
+        // Never-set, not ALWAYS_ASK: a deleted nomination resolves silently on
+        // the next compound save, exactly like one that was never chosen.
+        if (wasDefault) await defaultFolder.clear();
         return {};
+      }
       case "save-post":
         return {
           outcome: await db.savePost({ folderId: request.folderId, capture: request.capture }),
@@ -232,6 +239,11 @@ export function createCollections(
         return { evidence: await db.listBookmarkEvidence({ statusId: request.statusId }) };
       case "count-folder":
         return { count: await db.countFolder({ folderId: request.folderId }) };
+      case "count-folder-shared":
+        return {
+          count: await db.countFolder({ folderId: request.folderId }),
+          shared: await db.countFolderShared({ folderId: request.folderId }),
+        };
       case "counts":
         return {
           counts: {

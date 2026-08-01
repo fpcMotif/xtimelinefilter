@@ -22,6 +22,7 @@ import { syncArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import { watchStorageKey } from "@/core/storage-sync";
 import { syncedStore } from "@/core/synced-store";
+import { hasWorkerTransport } from "@/core/worker-transport";
 
 export { normalizeFilterState, normalizeLangs } from "@/core/filter-domain";
 
@@ -63,9 +64,6 @@ export interface FilterStoreDeps {
   storage?: StorageLike;
   navLanguages?: readonly string[];
 }
-
-const hasWorkerTransport = (): boolean =>
-  typeof globalThis.chrome?.runtime?.sendMessage === "function";
 
 const resumesFiltering = (
   command: FilterCommand,

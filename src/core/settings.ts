@@ -13,6 +13,7 @@ import { localArea, type StorageLike } from "@/core/storage-areas";
 import { STORAGE_KEYS } from "@/core/storage-keys";
 import { watchStorageKey } from "@/core/storage-sync";
 import { syncedStore } from "@/core/synced-store";
+import { hasWorkerTransport } from "@/core/worker-transport";
 
 export type { StorageLike } from "@/core/storage-areas";
 export {
@@ -47,10 +48,6 @@ export interface SettingsStore {
 type Listener = (settings: LassoSettings, origin?: SettingsChangeOrigin) => void;
 
 const defaultMirrorConfigId = (): string => globalThis.crypto.randomUUID();
-
-function hasWorkerTransport(): boolean {
-  return typeof globalThis.chrome?.runtime?.sendMessage === "function";
-}
 
 /**
  * Test and non-extension authority. It uses the same pure transition as the

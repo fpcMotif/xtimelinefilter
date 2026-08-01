@@ -205,6 +205,15 @@ export interface CollectionStore {
 
   /** Index-backed, never a scan. */
   countFolder(params: CountFolderParams): Promise<number>;
+  /**
+   * How many of this Folder's posts another live Folder ALSO holds — what a
+   * delete confirmation needs to tell "tidy-up" from "lose a save" before the
+   * user commits to a disposition. Index-backed like its sibling: a folder-key
+   * walk over membership rows, one status-keyed membership count per row —
+   * the same pair of indexes `deleteFolder`'s own orphan check already reads,
+   * never the posts themselves.
+   */
+  countFolderShared(params: CountFolderParams): Promise<number>;
   /** Live (non-deleted) Folders. Index-backed, so the cap check is not a scan. */
   countFolders(): Promise<number>;
   /** Distinct posts, deduped by status id. Index-backed, never a scan. */

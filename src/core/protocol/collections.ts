@@ -87,6 +87,7 @@ export type CollectionsOperation =
   | "record-bookmark-evidence"
   | "list-bookmark-evidence"
   | "count-folder"
+  | "count-folder-shared"
   | "counts"
   | "read-folder-page"
   | "save-to-default-folder";
@@ -163,6 +164,8 @@ export type CollectionsRequest =
     }
   | { type: typeof TYPE; operation: "list-bookmark-evidence"; statusId: string }
   | { type: typeof TYPE; operation: "count-folder"; folderId: string }
+  /** Adds the O(posts-in-folder) shared count; only the delete confirmation asks. */
+  | { type: typeof TYPE; operation: "count-folder-shared"; folderId: string }
   | { type: typeof TYPE; operation: "counts" }
   | {
       type: typeof TYPE;
@@ -187,6 +190,16 @@ export type CollectionsRequest =
 export interface CollectionCounts {
   folders: number;
   savedPosts: number;
+}
+
+/**
+ * A Folder's membership count, and how many of those posts another live
+ * Folder ALSO holds — the two numbers a delete confirmation needs to tell
+ * "tidy-up" from "lose a save" before the user commits to a disposition.
+ */
+export interface FolderCounts {
+  count: number;
+  shared: number;
 }
 
 /**
@@ -217,6 +230,7 @@ export type CollectionsSuccess =
   | { post: SavedPost | null }
   | { evidence: BookmarkEvidence[] }
   | { count: number }
+  | FolderCounts
   | { counts: CollectionCounts }
   | { page: FolderPage }
   | { defaultSave: DefaultSaveOutcome }
@@ -327,6 +341,7 @@ const REQUEST_KEYS: Record<CollectionsOperation, readonly string[]> = {
   ],
   "list-bookmark-evidence": ["type", "operation", "statusId"],
   "count-folder": ["type", "operation", "folderId"],
+  "count-folder-shared": ["type", "operation", "folderId"],
   counts: ["type", "operation"],
   "read-folder-page": ["type", "operation", "folderId", "limit", "cursor"],
   "save-to-default-folder": ["type", "operation", "capture", "token"],
@@ -398,6 +413,7 @@ export function isCollectionsRequest(msg: unknown): msg is CollectionsRequest {
         nonNegativeInt(msg.observedAt)
       );
     case "count-folder":
+    case "count-folder-shared":
       return folderId(msg.folderId);
     case "save-to-default-folder":
       return isCapture(msg.capture);
@@ -527,6 +543,12 @@ function validateSuccess(request: CollectionsRequest, response: Record<string, u
       );
     case "count-folder":
       return only("count", nonNegativeInt);
+    case "count-folder-shared":
+      return (
+        keysAre(payload, ["count", "shared"]) &&
+        nonNegativeInt(payload.count) &&
+        nonNegativeInt(payload.shared)
+      );
     case "counts":
       return only("counts", isCounts);
     case "read-folder-page":
