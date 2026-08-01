@@ -93,6 +93,13 @@ pin<KeysAre<ReadFolderPageParams, "folderId" | "limit" | "cursor">>();
 pin<KeysAre<RecordBookmarkEvidenceParams, "statusId" | "xAccountId" | "outcome" | "observedAt">>();
 
 // --- every stored record ------------------------------------------------------
+// This one pin is load-bearing TWICE. Besides account-freedom it is the whole
+// enforcement of ADR-0013's flat-Folders amendment: a Folder holds Saved Posts
+// and never another Folder, so a `parentFolderId`, `parentId`, `path`, `depth`
+// or `children` field — under any name — must fail here, at typecheck. Because
+// the domain type cannot express a parent, nothing downstream can render a tree
+// or push one to a Destination, which is why flatness needs no other guard.
+// Widening this list is a reversal of ADR-0013, not a test edit.
 pin<KeysAre<Folder, "folderId" | "name" | "sortIndex" | "createdAt" | "updatedAt" | "deletedAt">>();
 pin<
   KeysAre<
