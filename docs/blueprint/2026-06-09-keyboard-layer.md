@@ -15,8 +15,10 @@
 | `Alt+m` | **mute** focused author | caret → Mute row → confirm-if-present |
 | `Alt+n` | **not interested** in focused post | caret → "Not interested" row (no confirm) |
 | `Alt+l` | add focused author **to a List** | select author + open the picker |
-| `Alt+b` | block (off by default — destructive) | caret → Block → **always** confirm |
+| `Alt+Shift+b` | **save** focused post to the default Folder | durable capture → `saveToDefaultFolder` |
 | `?` / `Esc` | passthrough | never intercepted |
+
+`Alt+b` was originally reserved here for `block`; that reservation is spent. Live behavior (2026-08): bare `b` is X's own bookmark shortcut and stays untouched, `Alt+Shift+b` files the focused post into the default Folder, and `Alt+b` is reserved for the Folder Picker (#71) — if `block` is ever bound, it needs a different combo.
 
 `Alt+key` is collision-free: every X native shortcut is a bare key (`m`=DM, `l`=like, `n`=new post, `b`=bookmark, `t`=repost, `r`=reply, `/`=search; `g` is a go-to prefix). The capture-phase dispatcher only `preventDefault`s keys Lasso owns, and ignores everything while typing in inputs/contenteditable.
 

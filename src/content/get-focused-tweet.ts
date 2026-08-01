@@ -13,11 +13,20 @@ export function getFocusedTweet(doc: Document = document): Element | null {
   if (activeId) {
     const node = doc.getElementById(activeId);
     const tweet = node?.closest(Selectors.TWEET) ?? node?.querySelector(Selectors.TWEET) ?? null;
-    if (tweet) return tweet;
+    if (tweet) {
+      return tweet;
+    }
   }
 
   const fromActive = doc.activeElement?.closest(Selectors.TWEET);
-  if (fromActive) return fromActive;
+  if (fromActive) {
+    return fromActive;
+  }
 
-  return doc.querySelector(`${Selectors.TWEET}:focus-within`);
+  const fromFocusWithin = doc.querySelector(`${Selectors.TWEET}:focus-within`);
+  if (fromFocusWithin) {
+    return fromFocusWithin;
+  }
+
+  return null;
 }

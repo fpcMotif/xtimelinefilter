@@ -26,7 +26,7 @@ Keeping these interfaces narrow improves locality: X drift, Mirror transport, an
 ## Application seams
 
 - `SelectionStore` owns selected Authors.
-- `content/controller.ts` conducts assignment, quick actions, undo, and fail-open Filter commands. It calls, but does not persist, Coach.
+- `content/controller.ts` conducts assignment, quick actions, the default-Folder save gesture, undo, and fail-open Filter commands. It calls, but does not persist, Coach.
 - The page-scoped X facade owns List discovery. The Owner-qualified cache remains separate from `XListApi` mutation.
 - Production Settings and Filter stores use the worker protocol plus storage watches. `synced-store` is the direct adapter for tests and non-extension hosts.
 - `background/tab-badge-writer.ts` serializes document-bound toolbar badge writes.

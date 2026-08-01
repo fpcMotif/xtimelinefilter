@@ -43,6 +43,7 @@ const X_CONTENT_COLLECTIONS = new Set<CollectionsOperation>([
   "save-post",
   "save-to-default-folder",
   "remove-from-folder",
+  "delete-saved-post",
 ]);
 
 function collectionsCapability(capability: SenderCapability, message: Message): boolean {

@@ -226,7 +226,13 @@ export type CollectionsSuccess =
   | { folders: Folder[] }
   | { folderIds: string[] }
   | { folder: Folder }
-  | { outcome: SaveOutcome }
+  /**
+   * `createdSavedPost` says whether THIS save minted the Saved Post row, so
+   * Undo (armed by the caller) knows whether removing it is safe — the same
+   * worker-side pre-read `save-to-default-folder` already does, so two fast
+   * presses cannot race the read against the write.
+   */
+  | { outcome: SaveOutcome; createdSavedPost: boolean }
   | { post: SavedPost | null }
   | { evidence: BookmarkEvidence[] }
   | { count: number }
@@ -533,7 +539,11 @@ function validateSuccess(request: CollectionsRequest, response: Record<string, u
     case "create-folder":
       return only("folder", isFolder);
     case "save-post":
-      return only("outcome", isSaveOutcome);
+      return (
+        keysAre(payload, ["outcome", "createdSavedPost"]) &&
+        isSaveOutcome(payload.outcome) &&
+        typeof payload.createdSavedPost === "boolean"
+      );
     case "get-saved-post":
       return only("post", (value) => value === null || isSavedPost(value));
     case "list-bookmark-evidence":

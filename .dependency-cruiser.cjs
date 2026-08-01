@@ -102,6 +102,14 @@ module.exports = {
       to: { path: ["^src/packages/folders/index\\.ts$", "^src/packages/[^/]*destination[^/]*/"] },
     },
     {
+      name: "core-may-not-depend-on-content",
+      comment:
+        "core sits below content in this repo's layering: content wires the DOM and Chrome APIs around headless core logic, never the other way around. A core module reaching into content — even for a type-only import — inverts that and makes core untestable without the page.",
+      severity: "error",
+      from: { path: "^src/core/" },
+      to: { path: "^src/content/" },
+    },
+    {
       name: "tweet-read-is-account-free",
       comment:
         "tweet-read answers 'which post is this' from the article alone. Its durable capture is keyed by status id and nothing else, so the same article captures identically whichever X account the page is signed in as — the package may not reach a current-account, Owner or session module. ADDING an account-bearing module elsewhere? Add it to this `to` list, or the guard silently stops covering it.",

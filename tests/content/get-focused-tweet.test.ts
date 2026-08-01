@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getFocusedTweet } from "@/content/get-focused-tweet";
 
@@ -52,5 +52,24 @@ describe("getFocusedTweet", () => {
   it("returns null when no tweet is focused", () => {
     mount(`<div>nothing focused</div>`);
     expect(getFocusedTweet(document)).toBeNull();
+  });
+
+  it("falls back to :focus-within when neither prior recipe resolves a tweet", () => {
+    // happy-dom does not evaluate the :focus-within pseudo-class against real
+    // focus state, so this stubs querySelector to answer the way a browser
+    // would once a descendant of the tweet holds focus without the tweet
+    // itself — or document.activeElement — being reachable via .closest().
+    mount(tweet("t1", "jack"));
+    const article = document.getElementById("t1") as HTMLElement;
+    const spy = vi
+      .spyOn(document, "querySelector")
+      .mockImplementation((selector: string) =>
+        selector.endsWith(":focus-within") ? article : null,
+      );
+    try {
+      expect(getFocusedTweet(document)?.id).toBe("t1");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

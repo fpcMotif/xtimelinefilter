@@ -209,10 +209,14 @@ export function createCollections(
         if (wasDefault) await defaultFolder.clear();
         return {};
       }
-      case "save-post":
-        return {
-          outcome: await db.savePost({ folderId: request.folderId, capture: request.capture }),
-        };
+      case "save-post": {
+        // Read before writing so Undo learns whether THIS gesture minted the
+        // Saved Post, exactly like the default-Folder save.
+        const statusId = request.capture.statusId;
+        const existed = statusId ? (await db.getSavedPost({ statusId })) !== null : false;
+        const outcome = await db.savePost({ folderId: request.folderId, capture: request.capture });
+        return { outcome, createdSavedPost: outcome.status === "saved" && !existed };
+      }
       case "remove-from-folder":
         await db.removeFromFolder({ folderId: request.folderId, statusId: request.statusId });
         return {};

@@ -26,6 +26,23 @@ describe("TweetOverlay", () => {
     expect(container.querySelector("button")?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("fires onSave from the per-post Save control without using the select button", () => {
+    const onToggle = vi.fn();
+    const onSave = vi.fn();
+    const { getByLabelText } = render(
+      <TweetOverlay
+        screenName="alice"
+        selected={false}
+        visible
+        onToggle={onToggle}
+        onSave={onSave}
+      />,
+    );
+    fireEvent.click(getByLabelText("Save post to a Folder"));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
   it("reports keyboard focus so its coach tip can be exposed without hover", () => {
     const onFocusChange = vi.fn();
     const { getByLabelText } = render(
@@ -112,7 +129,7 @@ describe("ActionBar", () => {
   it("select mode at zero count: crosshair line + Done", () => {
     const props = barProps({ selectMode: true });
     const { getByText } = render(<ActionBar {...props} />);
-    expect(getByText("Select mode · click posts or press x · s when done")).toBeTruthy();
+    expect(getByText("Select mode · click posts or press s · c when done")).toBeTruthy();
     fireEvent.click(getByText("Done"));
     expect(props.onDone).toHaveBeenCalledTimes(1);
   });

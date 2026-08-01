@@ -194,7 +194,7 @@ Entry points:
 - Press `s`.
 - Click **Try select mode** on the welcome card.
 
-When select mode is on, Lasso shows the action bar even at zero selected people: **Select mode - click posts or press x - s when done**.
+When select mode is on, Lasso shows the action bar even at zero selected people: **Select mode - click posts or press s - c when done**.
 
 Operations:
 
@@ -218,19 +218,23 @@ Current shortcuts:
 | --- | --- |
 | `Alt+L` | Add the author to a List. If nobody is selected, Lasso uses the hovered or focused post. |
 | `Alt+Shift+L` | Add straight to your default List. If no default List is set, Lasso opens the picker. |
+| `Alt+Shift+B` | Save the hovered or focused post to your default Folder. |
+| `Alt+B` | Open the Folder Picker to choose which Folder to save the post to. |
 | `Alt+N` | Mark the post as not interested. |
-| `x` | Select the focused post. |
-| `s` | Turn select mode on or off. |
+| `s` | Select the focused post. A second `s` quickly opens the List picker with that author kept selected. |
+| `c` | Turn select mode on or off. |
 | `f` | Turn the timeline filter on or off. |
 | `h` | Show filtered posts; press again to re-hide them. |
 | `?` | Show the shortcuts sheet. |
 | `Esc` | Dismiss one Lasso layer at a time. |
 | `z` | Undo the last undoable Lasso action. |
 
-Lasso does not take over X's own `j` and `k` navigation shortcuts.
+Lasso does not take over X's own `j` and `k` navigation shortcuts. Bare `x` stays X's Block.
 Mute has no default shortcut.
 
 Lasso only claims the Alt chords listed above, and only on keydown. Bare Alt and Alt+hover without a Lasso key are left alone so other extensions (for example media download on Alt+hover) can use them.
+
+The Folder save gestures (`Alt+Shift+B` and `Alt+B`) work on any x.com page that shows posts, including thread and conversation detail pages. They use the post under the pointer, falling back to the j/k-focused post, and climb to the outermost article (a quote files the host). When nothing is targeted, Lasso nudges instead of staying silent. On status pages where the main tweet is awkward for j/k, hover or the per-post Save control on the avatar overlay still opens the Folder Picker. After changing the extension, rebuild and reload it before verifying — see `docs/research/verify-folder-save-gestures.md`. The timeline filter keys (`f` and `h`) only operate on Home, List, Bookmarks, and profile timelines.
 
 ## Quick Actions
 
@@ -275,7 +279,7 @@ Open settings from the toolbar popup with **All settings**.
 Options:
 
 - **On every visit (default)**: Lasso starts automatically on x.com.
-- **Only when I use the toolbar or press `s`**: Lasso stays asleep until you wake it from the popup or enter select mode.
+- **Only when I use the toolbar or press `c`**: Lasso stays asleep until you wake it from the popup or enter select mode.
 
 ### How Lasso Talks To X
 

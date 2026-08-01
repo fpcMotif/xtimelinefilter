@@ -135,6 +135,7 @@ describe("collections sender capabilities", () => {
       "save-post",
       "save-to-default-folder",
       "remove-from-folder",
+      "delete-saved-post",
     ],
     unknown: [],
   };
@@ -312,15 +313,20 @@ describe("worker collections authority", () => {
         token: await w.token(),
       });
 
+    // Brand new post: this save minted the Saved Post row.
     expect(await save(a.folder.folderId)).toEqual({
       outcome: { status: "saved", statusId: STATUS },
+      createdSavedPost: true,
     });
+    // Same post, a second Folder: a new membership row, but the post already existed.
     expect(await save(b.folder.folderId)).toEqual({
       outcome: { status: "saved", statusId: STATUS },
+      createdSavedPost: false,
     });
     // Re-filing where it already sits is "already there" and writes nothing.
     expect(await save(a.folder.folderId)).toEqual({
       outcome: { status: "already-there", statusId: STATUS },
+      createdSavedPost: false,
     });
 
     expect(await w.run({ type: TYPE, operation: "counts" })).toEqual({
@@ -350,7 +356,7 @@ describe("worker collections authority", () => {
         capture: { statusId: null, permalink: null, media: [] },
         token: await w.token(),
       }),
-    ).toEqual({ outcome: { status: "unsavable" } });
+    ).toEqual({ outcome: { status: "unsavable" }, createdSavedPost: false });
     expect(await w.run({ type: TYPE, operation: "counts" })).toEqual({
       counts: { folders: 1, savedPosts: 0 },
     });

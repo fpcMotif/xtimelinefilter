@@ -13,7 +13,7 @@ export const TWEET_OVERLAY_ATTRIBUTE = "data-lasso-overlay";
 
 export interface TweetOverlayMountDeps {
   selection: SelectionStore;
-  controller: Pick<LassoController, "toggleSelect">;
+  controller: Pick<LassoController, "toggleSelect" | "openFolderPickerForArticle">;
   coach: Coach;
   visualHover: Signal<Element | null>;
   highContrastHosts: HighContrastHosts;
@@ -61,6 +61,7 @@ export function mountTweetOverlay(
         hovered={hovered}
         coach={deps.coach}
         onToggle={() => deps.controller.toggleSelect(author)}
+        onSave={() => deps.controller.openFolderPickerForArticle(article)}
       />,
       mount,
     );

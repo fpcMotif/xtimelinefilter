@@ -6,6 +6,7 @@ import { App, OverlayBinding } from "@/content/app";
 import { createAppState } from "@/content/app-state";
 import type { LassoController } from "@/content/controller";
 import type { Coach } from "@/core/coach";
+import type { FolderPickerController } from "@/core/folder-picker-controller";
 import type { PickerController } from "@/core/picker-controller";
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { CREATE_LIST_URL, FIRST_HOVER_TIP, UNIT_TOOLTIP } from "@/core/strings";
@@ -19,6 +20,7 @@ type Props = Record<string, unknown>;
 type Cap = {
   actionBar?: Props;
   listPicker?: Props;
+  folderPicker?: Props;
   welcome?: Props;
   shortcuts?: Props;
   toast?: Props;
@@ -34,6 +36,7 @@ const { cap, stub } = vi.hoisted(() => {
 });
 vi.mock("@/ui/ActionBar", () => ({ ActionBar: stub("actionBar") }));
 vi.mock("@/ui/ListPicker", () => ({ ListPicker: stub("listPicker") }));
+vi.mock("@/ui/FolderPicker", () => ({ FolderPicker: stub("folderPicker") }));
 vi.mock("@/ui/WelcomeCard", () => ({ WelcomeCard: stub("welcome") }));
 vi.mock("@/ui/ShortcutsSheet", () => ({ ShortcutsSheet: stub("shortcuts") }));
 vi.mock("@/ui/Toast", () => ({ ToastHost: stub("toast") }));
@@ -47,6 +50,7 @@ function makeController() {
     openPicker: vi.fn(),
     stopRun: vi.fn(),
     pickerEffect: vi.fn(),
+    folderPickerEffect: vi.fn(),
     trySelectMode: vi.fn(),
     skipWelcome: vi.fn(),
   };
@@ -70,6 +74,7 @@ afterEach(() => {
   vi.clearAllMocks();
   cap.actionBar =
     cap.listPicker =
+    cap.folderPicker =
     cap.welcome =
     cap.shortcuts =
     cap.toast =
@@ -92,6 +97,7 @@ describe("App wiring", () => {
     const coach = makeCoach();
     if (opts?.hints) coach.hintsActive.mockResolvedValue(true);
     const picker = { act: vi.fn() } as unknown as PickerController;
+    const folderPicker = { act: vi.fn() } as unknown as FolderPickerController;
     const openUrl = vi.fn();
     setup?.({ selection, appState });
     render(
@@ -99,6 +105,7 @@ describe("App wiring", () => {
         selection={selection}
         appState={appState}
         picker={picker}
+        folderPicker={folderPicker}
         toasts={toasts}
         controller={controller as unknown as LassoController}
         coach={coach}
@@ -107,7 +114,7 @@ describe("App wiring", () => {
         openUrl={openUrl}
       />,
     );
-    return { selection, appState, picker, toasts, controller, coach, openUrl };
+    return { selection, appState, picker, folderPicker, toasts, controller, coach, openUrl };
   }
 
   it("routes the ActionBar callbacks to the controller and stores", async () => {
@@ -228,6 +235,53 @@ describe("App wiring", () => {
     expect(appState.pickerOpen.value).toBe(false);
   });
 
+  it("opens the Folder Picker bottom-centered by default and wires its callbacks", () => {
+    const { appState, controller } = renderApp(({ appState: state }) => {
+      state.folderPickerOpen.value = true;
+    });
+    expect(cap.folderPicker).toBeDefined();
+
+    const effect = {
+      type: "chosen",
+      folderId: "fld_a",
+      folderName: "Research",
+      capture: { statusId: "1", permalink: null, media: [] },
+    };
+    fn(cap.folderPicker, "onEffect")(effect);
+    expect(controller.folderPickerEffect).toHaveBeenCalledWith(effect);
+
+    fn(cap.folderPicker, "onCancel")();
+    expect(appState.folderPickerOpen.value).toBe(false);
+  });
+
+  it("anchors the Folder Picker at the caret when an anchor is set", () => {
+    renderApp(({ appState }) => {
+      appState.folderPickerOpen.value = true;
+      appState.pickerAnchor.value = { left: 80, top: 160 };
+    });
+    expect(cap.folderPicker).toBeDefined();
+    const host = document.querySelector<HTMLElement>("[data-folder-picker-panel]")!;
+    expect(host.style.left).toBe("80px");
+    expect(host.style.top).toBe("160px");
+  });
+
+  it("swallows outside presses and closes the Folder Picker", () => {
+    const { appState, folderPicker } = renderApp(({ appState: state }) => {
+      state.folderPickerOpen.value = true;
+    });
+    const backdrop = document.querySelector<HTMLElement>("[data-folder-picker-backdrop]")!;
+    const panel = document.querySelector<HTMLElement>("[data-folder-picker-panel]")!;
+    expect(backdrop).toBeTruthy();
+    expect(Number(backdrop.style.zIndex)).toBe(UI_LAYER.modal);
+    expect(Number(panel.style.zIndex)).toBe(UI_LAYER.modal);
+
+    const pointerDown = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+    backdrop.dispatchEvent(pointerDown);
+    expect(pointerDown.defaultPrevented).toBe(true);
+    expect(folderPicker.act).toHaveBeenCalledWith({ type: "close" });
+    expect(appState.folderPickerOpen.value).toBe(false);
+  });
+
   it("wires the welcome card", () => {
     const { controller } = renderApp(({ appState }) => {
       appState.welcomeOpen.value = true;
@@ -327,6 +381,22 @@ describe("OverlayBinding", () => {
     );
     expect(cap.overlay!.visible).toBe(true); // selectMode forces visibility
     expect(cap.overlay!.tooltip).toBeNull(); // no coach → no tip path
+  });
+
+  it("wires onSave through to the overlay so the post can be filed without j/k", () => {
+    const selection = createSelectionStore();
+    const onSave = vi.fn();
+    render(
+      <OverlayBinding
+        selection={selection}
+        author={author("erin")}
+        hovered={signal(true)}
+        onToggle={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+    fn(cap.overlay, "onSave")();
+    expect(onSave).toHaveBeenCalledOnce();
   });
 
   it("does not set a tip if it unmounts before the coach resolves", async () => {

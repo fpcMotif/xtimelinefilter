@@ -346,7 +346,10 @@ describe("account freedom on the wire", () => {
       "rename-folder": {},
       "reorder-folders": {},
       "delete-folder": {},
-      "save-post": { outcome: { status: "saved", statusId: STATUS } },
+      "save-post": {
+        outcome: { status: "saved", statusId: STATUS },
+        createdSavedPost: true,
+      },
       "remove-from-folder": {},
       "delete-saved-post": {},
       "get-saved-post": { post: null },
@@ -377,7 +380,7 @@ describe("account freedom on the wire", () => {
       "rename-folder": [],
       "reorder-folders": [],
       "delete-folder": [],
-      "save-post": ["outcome"],
+      "save-post": ["outcome", "createdSavedPost"],
       "remove-from-folder": [],
       "delete-saved-post": [],
       "get-saved-post": ["post"],
@@ -550,11 +553,23 @@ describe("collections response validation", () => {
       );
     }
 
-    send({ ok: true, outcome: { status: "already-there", statusId: STATUS } });
+    send({
+      ok: true,
+      outcome: { status: "already-there", statusId: STATUS },
+      createdSavedPost: false,
+    });
     await expect(requestCollections(VALID["save-post"])).resolves.toMatchObject({ ok: true });
-    send({ ok: true, outcome: { status: "unsavable" } });
+    send({ ok: true, outcome: { status: "unsavable" }, createdSavedPost: false });
     await expect(requestCollections(VALID["save-post"])).resolves.toMatchObject({ ok: true });
-    send({ ok: true, outcome: { status: "saved" } });
+    send({ ok: true, outcome: { status: "saved" }, createdSavedPost: true });
+    await expect(requestCollections(VALID["save-post"])).rejects.toThrow(
+      "Invalid collections response",
+    );
+    send({ ok: true, outcome: { status: "saved", statusId: STATUS } });
+    await expect(requestCollections(VALID["save-post"])).rejects.toThrow(
+      "Invalid collections response",
+    );
+    send({ ok: true, outcome: { status: "saved", statusId: STATUS }, createdSavedPost: "yes" });
     await expect(requestCollections(VALID["save-post"])).rejects.toThrow(
       "Invalid collections response",
     );

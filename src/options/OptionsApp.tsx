@@ -37,7 +37,7 @@ import { useSignalValue } from "@/ui/use-signal-value";
 /** Story beat 9: the promised backend disclosure, verbatim. */
 export const ACTIVATION_COPY = {
   auto: "On every visit (default)",
-  "on-demand": "Only when I use the toolbar or press s",
+  "on-demand": "Only when I use the toolbar or press c",
 } as const;
 
 export const BACKEND_COPY: Record<BackendStrategy, string> = {

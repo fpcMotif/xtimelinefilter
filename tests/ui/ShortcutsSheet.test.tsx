@@ -12,6 +12,7 @@ describe("ShortcutsSheet — renders from the LIVE keymap (story beat 5)", () =>
     );
     expect(getByText("Keyboard shortcuts")).toBeTruthy();
     expect(container.querySelectorAll("tr").length).toBe(DEFAULT_KEYMAP.length);
+    expect(getByText("Save this post to your default Folder")).toBeTruthy();
     const caps = [...container.querySelectorAll("kbd")].map((k) => k.textContent);
     expect(caps).toContain("Alt");
     expect(caps).toContain("?");

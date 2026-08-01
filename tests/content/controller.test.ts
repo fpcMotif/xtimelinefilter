@@ -5,9 +5,17 @@ import type { CollectionsClient, SavedByGesture } from "@/content/collections-cl
 import { createLassoController, UNDO_WINDOW_MS } from "@/content/controller";
 import { createCoach } from "@/core/coach";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
+import {
+  createFolderPickerController,
+  type FolderPickerController,
+  type FolderPickerEffect,
+} from "@/core/folder-picker-controller";
 import type { ListCache } from "@/core/list-cache";
 import { createPickerController } from "@/core/picker-controller";
 import type { DefaultSaveOutcome } from "@/core/protocol/collections";
+import type { SaveOutcome } from "@/packages/folders/types";
+
+type SaveToFolderOutcome = SaveOutcome & { createdSavedPost: boolean };
 import { createSelectionStore, type TweetAuthor } from "@/core/selection-store";
 import { createSettings } from "@/core/settings";
 import { createToastStore } from "@/core/toast-store";
@@ -89,6 +97,7 @@ function harness(
     evidence?: MutationEvidence;
     backendSource?: { snapshot(): XListApi };
     collections?: CollectionsClient;
+    folderPicker?: FolderPickerController;
   } = {},
 ) {
   const selection = createSelectionStore();
@@ -134,6 +143,7 @@ function harness(
     quick,
     target,
     ...(opts.collections ? { collections: opts.collections } : {}),
+    ...(opts.folderPicker ? { folderPicker: opts.folderPicker } : {}),
     openUrl,
     membershipStore: opts.membershipStore,
     ...(opts.omitCurrentOwner ? {} : { currentOwner }),
@@ -826,13 +836,21 @@ describe("escape / help / selection coaching", () => {
     "%s consumes Lasso commands without changing the page behind it",
     (modal) => {
       const filter = createFilterStore({ navLanguages: ["en"] });
-      const h = harness({ filter });
+      const collections: CollectionsClient = {
+        saveToDefaultFolder: vi.fn(),
+        undoSave: vi.fn(),
+        listFolders: vi.fn(async () => []),
+        foldersHolding: vi.fn(async () => []),
+        saveToFolder: vi.fn(),
+      };
+      const h = harness({ filter, collections });
       h.app[modal].value = true;
 
       expect(h.controller.command("toggle-select-mode")).toBe(true);
       expect(h.controller.command("add-to-list")).toBe(true);
       expect(h.controller.command("toggle-filter")).toBe(true);
       expect(h.controller.command("not-interested")).toBe(true);
+      expect(h.controller.command("save-to-default-folder")).toBe(true);
       expect(h.controller.command("undo")).toBe(true);
 
       expect(h.selection.selectMode.value).toBe(false);
@@ -840,12 +858,20 @@ describe("escape / help / selection coaching", () => {
       expect(h.app.pickerOpen.value).toBe(false);
       expect(filter.state.value.enabled).toBe(true);
       expect(h.quick.notInterested).not.toHaveBeenCalled();
+      expect(collections.saveToDefaultFolder).not.toHaveBeenCalled();
     },
   );
 
   it("Picker consumes commands while focus is on its non-input controls", () => {
     const filter = createFilterStore({ navLanguages: ["en"] });
-    const h = harness({ filter });
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(),
+      listFolders: vi.fn(async () => []),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(),
+    };
+    const h = harness({ filter, collections });
     h.selection.add({ screenName: "kept" });
     h.app.pickerOpen.value = true;
 
@@ -854,6 +880,7 @@ describe("escape / help / selection coaching", () => {
     expect(h.controller.command("add-to-list")).toBe(true);
     expect(h.controller.command("add-to-default-list")).toBe(true);
     expect(h.controller.command("toggle-filter")).toBe(true);
+    expect(h.controller.command("save-to-default-folder")).toBe(true);
     expect(h.controller.command("undo")).toBe(true);
 
     expect(h.app.shortcutsOpen.value).toBe(false);
@@ -861,6 +888,7 @@ describe("escape / help / selection coaching", () => {
     expect(h.selection.selectMode.value).toBe(false);
     expect(h.selection.list()).toEqual([{ screenName: "kept" }]);
     expect(filter.state.value.enabled).toBe(true);
+    expect(collections.saveToDefaultFolder).not.toHaveBeenCalled();
   });
 
   it("Escape closes the current modal before the Picker", async () => {
@@ -887,7 +915,7 @@ describe("escape / help / selection coaching", () => {
     const h = harness();
     for (const s of ["a", "b", "c"]) h.controller.toggleSelect({ screenName: s });
     await flush();
-    expect(titles(h)).toContain("Tip: press s to select by clicking posts");
+    expect(titles(h)).toContain("Tip: press c to select by clicking posts");
     h.toasts.clear();
     h.controller.toggleSelect({ screenName: "d" });
     await flush();
@@ -1542,6 +1570,28 @@ describe("keyboard command surface (story beat 6)", () => {
     expect(titles(h)).toEqual(["Hover a post first — or press j to focus one"]);
   });
 
+  it("select-and-add-to-list keeps the author selected and opens the List picker", () => {
+    const h = harness();
+    expect(h.controller.command("select-and-add-to-list")).toBe(true);
+    expect(h.selection.isSelected("jane")).toBe(true);
+    expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("select-and-add-to-list does not toggle an already-selected author off", () => {
+    const h = harness();
+    h.selection.add({ screenName: "jane" });
+    expect(h.controller.command("select-and-add-to-list")).toBe(true);
+    expect(h.selection.isSelected("jane")).toBe(true);
+    expect(h.app.pickerOpen.value).toBe(true);
+  });
+
+  it("select-and-add-to-list with no target and empty selection nudges", () => {
+    const h = harness({ targetAuthor: null });
+    expect(h.controller.command("select-and-add-to-list")).toBe(true);
+    expect(h.app.pickerOpen.value).toBe(false);
+    expect(titles(h)).toEqual(["Hover a post first — or press j to focus one"]);
+  });
+
   it("add-to-list with an existing selection opens the picker without re-adding", () => {
     const h = harness();
     h.selection.add({ screenName: "alreadythere" });
@@ -1948,11 +1998,19 @@ describe("default clock fallback", () => {
 const SAVE_STATUS = "1234567890";
 const FOLDER_ID = "fld_abcdefghijklmnopqrst";
 
-/** A timeline cell whose host post is `statusId`, optionally quoting another. */
-function postCell(statusId: string, quoted?: string): Element {
+/**
+ * A timeline cell whose host post is `statusId`, optionally quoting another.
+ * `decoyStatusId`, when given, adds a foreign-origin `/status/` anchor before
+ * the host's own User-Name block — outside `[data-testid="User-Name"]`, so
+ * capture()'s host- and origin-checked `readPermalink` never considers it, but
+ * exactly the shape identity()'s loose, unchecked `statusId()` would take as
+ * its FIRST document-order match.
+ */
+function postCell(statusId: string, quoted?: string, decoyStatusId?: string): Element {
   const wrap = document.createElement("div");
   wrap.innerHTML =
     `<article data-testid="tweet">` +
+    (decoyStatusId ? `<a href="https://evil.example/status/${decoyStatusId}">decoy</a>` : "") +
     `<div data-testid="User-Name"><a href="/jack">Jack</a>` +
     `<a href="/jack/status/${statusId}">@jack</a></div>` +
     `<div data-testid="tweetText">host</div>` +
@@ -1991,6 +2049,9 @@ function saveHarness(
     undoSave: vi.fn(async (save) => {
       undone.push(save);
     }),
+    listFolders: vi.fn(async () => []),
+    foldersHolding: vi.fn(async () => []),
+    saveToFolder: vi.fn(),
   };
   const h = harness({ collections, targetTweet });
   return { ...h, collections, captures, undone };
@@ -2009,6 +2070,11 @@ describe("save to the default Folder", () => {
     expect(h.captures).toEqual([SAVE_STATUS]);
     expect(toastTitles(h)).toEqual(["Saved to Research"]);
     expect(h.toasts.toasts.value[0]?.actions?.[0]).toMatchObject({ label: "Undo", kbd: "Z" });
+    // The window is the offer: a toast that outlives the armed Undo, or an Undo
+    // that outlives its toast, is a broken promise rather than a cosmetic drift.
+    // Pinned the way the assign flow pins it, because the harness stubs the undo
+    // registry's timers and the arm duration is otherwise unobservable.
+    expect(h.toasts.toasts.value[0]?.durationMs).toBe(UNDO_WINDOW_MS);
 
     h.undo.trigger();
     await settle();
@@ -2018,11 +2084,16 @@ describe("save to the default Folder", () => {
   });
 
   it("files the HOST post when the cursor sits inside a quoted post", async () => {
-    const host = postCell(SAVE_STATUS, "999");
+    // The host article also carries a foreign-origin decoy `/status/` anchor
+    // before its own — identity()'s loose statusId() takes the FIRST such
+    // anchor with no origin check and would return the decoy id "999999";
+    // capture()'s parseHostedPermalink rejects the foreign origin and reads
+    // the host's own User-Name anchor. Substituting identity() here fails the
+    // assertion below.
+    const host = postCell(SAVE_STATUS, "999", "999999");
     const h = saveHarness(savedOutcome(), host.querySelector("article") as Element);
     h.controller.command("save-to-default-folder");
     await settle();
-    // identity() would have taken the quoted id; the durable capture does not.
     expect(h.captures).toEqual([SAVE_STATUS]);
   });
 
@@ -2110,6 +2181,27 @@ describe("save to the default Folder", () => {
     expect(toastTitles(h)).toEqual(["Couldn't save this post"]);
   });
 
+  it("stays consumed but fires nothing while an assignment run is in flight", async () => {
+    const firstAdd = deferred<void>();
+    const firstStarted = deferred<void>();
+    const h = saveHarness(savedOutcome(), postCell(SAVE_STATUS));
+    h.selection.add({ screenName: "a" });
+    h.backend.addImpl = async (author) => {
+      if (author.screenName === "a") {
+        firstStarted.resolve();
+        await firstAdd.promise;
+      }
+    };
+    const run = h.assign(LISTS[0]!);
+    await firstStarted.promise;
+
+    expect(h.controller.command("save-to-default-folder")).toBe(true);
+    expect(h.collections.saveToDefaultFolder).not.toHaveBeenCalled();
+
+    firstAdd.resolve();
+    await run;
+  });
+
   it("keeps the Saved Post on Undo when this gesture did not mint it", async () => {
     const h = saveHarness(savedOutcome({ createdSavedPost: false }), postCell(SAVE_STATUS));
     h.controller.command("save-to-default-folder");
@@ -2152,5 +2244,533 @@ describe("save to the default Folder", () => {
     await settle();
     expect(fetchSpy).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("the save path never reads the signed-in X account", () => {
+  it("calls currentOwner zero times across all three default-Folder states, the save and Undo", async () => {
+    let calls = 0;
+    const currentOwner = (): Owner => {
+      calls += 1;
+      return OWNER;
+    };
+    // (a) a named Folder, (b) explicit always-ask, (c) seeded/adopted — the three
+    // states story 5's second acceptance check distinguishes. The controller
+    // never inspects which one it got; it just relays whatever collections answers.
+    const states: DefaultSaveOutcome[] = [
+      savedOutcome({ folderId: "fld_named00000000000a", folderName: "Named" }),
+      { status: "ask" },
+      savedOutcome({ folderId: "fld_seeded000000000c", folderName: "Saved" }),
+    ];
+    for (const outcome of states) {
+      const h = harness({
+        collections: {
+          saveToDefaultFolder: vi.fn(async () => outcome),
+          undoSave: vi.fn(async () => {}),
+          listFolders: vi.fn(async () => []),
+          foldersHolding: vi.fn(async () => []),
+          saveToFolder: vi.fn(),
+        },
+        targetTweet: postCell(SAVE_STATUS),
+        currentOwner,
+      });
+      h.controller.command("save-to-default-folder");
+      await settle();
+      h.undo.trigger(); // triggerable (a no-op off "ask", live off a real save)
+      await settle();
+    }
+    expect(calls).toBe(0);
+  });
+
+  it("re-files the same post the same way across an account switch (A → null → B)", async () => {
+    const folderId = "fld_stateful00000000001";
+    const folderName = "Research";
+    const filed = new Set<string>();
+    const outcomes: DefaultSaveOutcome[] = [];
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(async (capture) => {
+        const statusId = capture.statusId!;
+        const outcome: DefaultSaveOutcome = filed.has(statusId)
+          ? {
+              status: "saved",
+              saved: "already-there",
+              createdSavedPost: false,
+              folderId,
+              folderName,
+              statusId,
+            }
+          : {
+              status: "saved",
+              saved: "created",
+              createdSavedPost: true,
+              folderId,
+              folderName,
+              statusId,
+            };
+        filed.add(statusId);
+        outcomes.push(outcome);
+        return outcome;
+      }),
+      undoSave: vi.fn(async () => {}),
+      listFolders: vi.fn(async () => []),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(),
+    };
+    let owner: Owner | null = OWNER;
+    const h = harness({
+      collections,
+      targetTweet: postCell(SAVE_STATUS),
+      currentOwner: () => owner,
+    });
+
+    h.controller.command("save-to-default-folder");
+    await settle();
+    owner = null;
+    h.controller.command("save-to-default-folder");
+    await settle();
+    owner = { userId: "200", screenName: "other" };
+    h.controller.command("save-to-default-folder");
+    await settle();
+
+    expect(outcomes.map((o) => (o.status === "saved" ? o.saved : o.status))).toEqual([
+      "created",
+      "already-there",
+      "already-there",
+    ]);
+    // One target Folder, one Saved Post: every outcome names the same folderId,
+    // and the fake never grew a second membership row for this status id.
+    const folderIds = new Set(outcomes.map((o) => (o.status === "saved" ? o.folderId : null)));
+    expect(folderIds).toEqual(new Set([folderId]));
+    expect(filed.size).toBe(1);
+  });
+});
+
+// --- Alt+B: open the Folder Picker for the post under the cursor --------------
+
+function folderPickerHarness(collections: CollectionsClient, targetTweet?: Element | null) {
+  const folderPicker = createFolderPickerController({ collections });
+  const h = harness({ collections, folderPicker, targetTweet });
+  return { ...h, folderPicker };
+}
+
+describe("Alt+B — open the Folder Picker", () => {
+  it("opens the picker, which loads Folders and marks the ones holding this post", async () => {
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(),
+      listFolders: vi.fn(async () => [
+        {
+          folderId: "fld_a",
+          name: "Alpha",
+          sortIndex: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          deletedAt: null,
+        },
+        {
+          folderId: "fld_b",
+          name: "Beta",
+          sortIndex: 1,
+          createdAt: 0,
+          updatedAt: 0,
+          deletedAt: null,
+        },
+      ]),
+      foldersHolding: vi.fn(async () => ["fld_a"]),
+      saveToFolder: vi.fn(),
+    };
+    const h = folderPickerHarness(collections, postCell(SAVE_STATUS));
+
+    expect(h.controller.command("open-folder-picker")).toBe(true);
+    expect(h.app.folderPickerOpen.value).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const view = h.folderPicker.view.value;
+    expect(view.status).toBe("ready");
+    expect(view.rows).toHaveLength(2);
+    expect(view.rows[0]?.holding).toBe(true);
+    expect(view.rows[1]?.holding).toBe(false);
+  });
+
+  it("nudges when nothing is under the cursor", () => {
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(),
+      listFolders: vi.fn(async () => []),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(),
+    };
+    const h = folderPickerHarness(collections, null);
+
+    expect(h.controller.command("open-folder-picker")).toBe(true);
+    expect(h.app.folderPickerOpen.value).toBe(false);
+    expect(toastTitles(h)).toEqual(["Hover a post first — or press j to focus one"]);
+  });
+
+  it("refuses a post whose durable identity cannot be read", () => {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<article data-testid="tweet"><div data-testid="tweetText">no link</div></article>`;
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(),
+      listFolders: vi.fn(async () => []),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(),
+    };
+    const h = folderPickerHarness(collections, wrap.querySelector("article"));
+
+    expect(h.controller.command("open-folder-picker")).toBe(true);
+    expect(h.app.folderPickerOpen.value).toBe(false);
+    expect(toastTitles(h)).toEqual(["Can't save this post — X exposed no link for it"]);
+  });
+
+  it("consumes the command while a modal is open without opening the picker", () => {
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(),
+      listFolders: vi.fn(async () => []),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(),
+    };
+    const h = folderPickerHarness(collections, postCell(SAVE_STATUS));
+    h.app.welcomeOpen.value = true;
+
+    expect(h.controller.command("open-folder-picker")).toBe(true);
+    expect(h.app.folderPickerOpen.value).toBe(false);
+    expect(collections.listFolders).not.toHaveBeenCalled();
+  });
+
+  it("folderPickerEffect saves to the chosen Folder and arms Undo", async () => {
+    const savedPost = postCell(SAVE_STATUS);
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(async () => {}),
+      listFolders: vi.fn(async () => [
+        {
+          folderId: "fld_a",
+          name: "Alpha",
+          sortIndex: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          deletedAt: null,
+        },
+      ]),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(
+        async (): Promise<SaveToFolderOutcome> => ({
+          status: "saved",
+          statusId: SAVE_STATUS,
+          createdSavedPost: true,
+        }),
+      ),
+    };
+    const h = folderPickerHarness(collections, savedPost);
+
+    h.controller.command("open-folder-picker");
+    await new Promise((r) => setTimeout(r, 0));
+
+    const effect = h.folderPicker.act({ type: "choose", rowKey: "fld_a" });
+    expect(effect).not.toBeNull();
+    await h.controller.folderPickerEffect(effect!);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(collections.saveToFolder).toHaveBeenCalledWith(
+      "fld_a",
+      expect.objectContaining({ statusId: SAVE_STATUS }),
+    );
+    expect(h.app.folderPickerOpen.value).toBe(false);
+    expect(toastTitles(h)).toContain("Saved to Alpha");
+
+    h.undo.trigger();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(collections.undoSave).toHaveBeenCalled();
+  });
+
+  it("folderPickerEffect says already-there and arms no Undo", async () => {
+    const savedPost = postCell(SAVE_STATUS);
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(async () => {}),
+      listFolders: vi.fn(async () => [
+        {
+          folderId: "fld_a",
+          name: "Alpha",
+          sortIndex: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          deletedAt: null,
+        },
+      ]),
+      foldersHolding: vi.fn(async () => ["fld_a"]),
+      saveToFolder: vi.fn(
+        async (): Promise<SaveToFolderOutcome> => ({
+          status: "already-there",
+          statusId: SAVE_STATUS,
+          createdSavedPost: false,
+        }),
+      ),
+    };
+    const h = folderPickerHarness(collections, savedPost);
+
+    h.controller.command("open-folder-picker");
+    await new Promise((r) => setTimeout(r, 0));
+
+    const effect = h.folderPicker.act({ type: "choose", rowKey: "fld_a" });
+    await h.controller.folderPickerEffect(effect!);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toastTitles(h)).toContain("Already in Alpha");
+    expect(h.undo.trigger()).toBe(false);
+  });
+
+  it("Escape closes the Folder Picker", async () => {
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(),
+      listFolders: vi.fn(async () => []),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(),
+    };
+    const h = folderPickerHarness(collections, postCell(SAVE_STATUS));
+
+    h.controller.command("open-folder-picker");
+    expect(h.app.folderPickerOpen.value).toBe(true);
+
+    expect(h.controller.command("escape")).toBe(true);
+    expect(h.app.folderPickerOpen.value).toBe(false);
+  });
+
+  it("reports failure when Folders are not wired at all", async () => {
+    const h = harness({ targetTweet: postCell(SAVE_STATUS) }); // no collections, no folderPicker
+    const effect: Exclude<FolderPickerEffect, null> = {
+      type: "chosen",
+      folderId: "fld_a",
+      folderName: "Alpha",
+      capture: { statusId: SAVE_STATUS, permalink: null, media: [] },
+    };
+    await h.controller.folderPickerEffect(effect);
+    expect(toastTitles(h)).toEqual(["Couldn't save this post"]);
+  });
+
+  it("refuses to open when the Folder Picker or Folders are not wired at all", () => {
+    const h = harness({ targetTweet: postCell(SAVE_STATUS) }); // no collections, no folderPicker
+    expect(h.controller.command("open-folder-picker")).toBe(true);
+    expect(h.app.folderPickerOpen.value).toBe(false);
+    expect(toastTitles(h)).toEqual(["Couldn't save this post"]);
+  });
+
+  it("refuses a chosen effect whose capture carries no durable identity", async () => {
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(),
+      listFolders: vi.fn(async () => []),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(),
+    };
+    const h = folderPickerHarness(collections, postCell(SAVE_STATUS));
+    const effect: Exclude<FolderPickerEffect, null> = {
+      type: "chosen",
+      folderId: "fld_a",
+      folderName: "Alpha",
+      capture: { statusId: null, permalink: null, media: [] },
+    };
+    await h.controller.folderPickerEffect(effect);
+    expect(toastTitles(h)).toEqual(["Can't save this post — X exposed no link for it"]);
+    expect(collections.saveToFolder).not.toHaveBeenCalled();
+  });
+
+  it("relays an unsavable answer from the worker for a chosen Folder", async () => {
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(),
+      listFolders: vi.fn(async () => [
+        {
+          folderId: "fld_a",
+          name: "Alpha",
+          sortIndex: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          deletedAt: null,
+        },
+      ]),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(
+        async (): Promise<SaveToFolderOutcome> => ({
+          status: "unsavable",
+          createdSavedPost: false,
+        }),
+      ),
+    };
+    const h = folderPickerHarness(collections, postCell(SAVE_STATUS));
+    h.controller.command("open-folder-picker");
+    await new Promise((r) => setTimeout(r, 0));
+    const effect = h.folderPicker.act({ type: "choose", rowKey: "fld_a" });
+    await h.controller.folderPickerEffect(effect!);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(toastTitles(h)).toEqual(["Can't save this post — X exposed no link for it"]);
+    expect(h.undo.trigger()).toBe(false);
+  });
+
+  it("runs Undo from the toast action and Retry from the danger toast", async () => {
+    const savedPost = postCell(SAVE_STATUS);
+    const collections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(async () => {}),
+      listFolders: vi.fn(async () => [
+        {
+          folderId: "fld_a",
+          name: "Alpha",
+          sortIndex: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          deletedAt: null,
+        },
+      ]),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: vi.fn(
+        async (): Promise<SaveToFolderOutcome> => ({
+          status: "saved",
+          statusId: SAVE_STATUS,
+          createdSavedPost: true,
+        }),
+      ),
+    };
+    const h = folderPickerHarness(collections, savedPost);
+    h.controller.command("open-folder-picker");
+    await new Promise((r) => setTimeout(r, 0));
+    const effect = h.folderPicker.act({ type: "choose", rowKey: "fld_a" });
+    await h.controller.folderPickerEffect(effect!);
+    await new Promise((r) => setTimeout(r, 0));
+    // The toast's own Undo button, not the keyboard path.
+    h.toasts.toasts.value[0]?.actions?.[0]?.run();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(collections.undoSave).toHaveBeenCalled();
+
+    let attempts = 0;
+    const retrySaveToFolder = vi.fn(async (): Promise<SaveToFolderOutcome> => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("worker down");
+      return { status: "saved", statusId: SAVE_STATUS, createdSavedPost: true };
+    });
+    const retryCollections: CollectionsClient = {
+      saveToDefaultFolder: vi.fn(),
+      undoSave: vi.fn(async () => {}),
+      listFolders: vi.fn(async () => [
+        {
+          folderId: "fld_a",
+          name: "Alpha",
+          sortIndex: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          deletedAt: null,
+        },
+      ]),
+      foldersHolding: vi.fn(async () => []),
+      saveToFolder: retrySaveToFolder,
+    };
+    const r = folderPickerHarness(retryCollections, postCell(SAVE_STATUS));
+    r.controller.command("open-folder-picker");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const retryEffect = r.folderPicker.act({ type: "choose", rowKey: "fld_a" });
+    await r.controller.folderPickerEffect(retryEffect!);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(toastTitles(r)).toEqual(["Couldn't save this post"]);
+    r.toasts.toasts.value[0]?.actions?.[0]?.run();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(attempts).toBe(2);
+  });
+});
+
+// --- Both save gestures work off a Filter scope (thread / detail pages) ------
+
+describe("save gestures work in thread pages (filter out of scope)", () => {
+  const threadCollections = (): CollectionsClient => ({
+    saveToDefaultFolder: vi.fn(async () => savedOutcome()),
+    undoSave: vi.fn(async () => {}),
+    listFolders: vi.fn(async () => [
+      {
+        folderId: "fld_a",
+        name: "Alpha",
+        sortIndex: 0,
+        createdAt: 0,
+        updatedAt: 0,
+        deletedAt: null,
+      },
+    ]),
+    foldersHolding: vi.fn(async () => []),
+    saveToFolder: vi.fn(
+      async (): Promise<SaveToFolderOutcome> => ({
+        status: "saved",
+        statusId: SAVE_STATUS,
+        createdSavedPost: true,
+      }),
+    ),
+  });
+
+  it("Alt+Shift+B saves to the default Folder on a thread page (filterInScope false)", async () => {
+    const collections = threadCollections();
+    const h = harness({
+      collections,
+      targetTweet: postCell(SAVE_STATUS),
+      filterInScope: () => false, // thread / detail page — filter is inert here
+    });
+
+    expect(h.controller.command("save-to-default-folder")).toBe(true);
+    await settle();
+
+    expect(collections.saveToDefaultFolder).toHaveBeenCalledOnce();
+    expect(toastTitles(h)).toContain("Saved to Research");
+  });
+
+  it("Alt+B opens the Folder Picker on a thread page (filterInScope false)", async () => {
+    const collections = threadCollections();
+    const folderPicker = createFolderPickerController({ collections });
+    const h = harness({
+      collections,
+      folderPicker,
+      targetTweet: postCell(SAVE_STATUS),
+      filterInScope: () => false,
+    });
+
+    expect(h.controller.command("open-folder-picker")).toBe(true);
+    expect(h.app.folderPickerOpen.value).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const view = folderPicker.view.value;
+    expect(view.status).toBe("ready");
+    expect(view.rows).toHaveLength(1);
+
+    const effect = folderPicker.act({ type: "choose", rowKey: "fld_a" });
+    expect(effect).not.toBeNull();
+    await h.controller.folderPickerEffect(effect!);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(collections.saveToFolder).toHaveBeenCalledOnce();
+    expect(toastTitles(h)).toContain("Saved to Alpha");
+  });
+
+  it("per-post save opens the Folder Picker from the article itself (no hover/j-k target)", async () => {
+    const collections = threadCollections();
+    const folderPicker = createFolderPickerController({ collections });
+    // Intentionally no targetTweet — the article is passed in directly.
+    const h = harness({
+      collections,
+      folderPicker,
+      targetTweet: null,
+      filterInScope: () => false,
+    });
+    const article = postCell(SAVE_STATUS);
+
+    h.controller.openFolderPickerForArticle(article);
+    expect(h.app.folderPickerOpen.value).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const effect = folderPicker.act({ type: "choose", rowKey: "fld_a" });
+    expect(effect).not.toBeNull();
+    await h.controller.folderPickerEffect(effect!);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(collections.saveToFolder).toHaveBeenCalledOnce();
+    expect(toastTitles(h)).toContain("Saved to Alpha");
   });
 });

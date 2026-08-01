@@ -87,6 +87,29 @@ describe("runtime message capability policy", () => {
     }
   });
 
+  it("pins x-content's collections allow-list as an exact set: the save gesture and its picker, nothing else (ticket #71)", () => {
+    // Same walk as the popup's pin above. `delete-saved-post` completes the
+    // Undo a Folder Picker save arms: its first leg (`remove-from-folder`) was
+    // already granted, but the second (deleting a post THIS gesture minted)
+    // was missing here, so the worker silently dropped it.
+    const X_CONTENT_ALLOWED: readonly CollectionsOperation[] = [
+      "begin",
+      "list-folders",
+      "folders-holding",
+      "create-folder",
+      "save-post",
+      "save-to-default-folder",
+      "remove-from-folder",
+      "delete-saved-post",
+    ];
+    for (const operation of COLLECTIONS_OPERATIONS) {
+      const message = { type: "lasso:collections", operation };
+      expect(canHandleMessage("x-content", message), operation).toBe(
+        X_CONTENT_ALLOWED.includes(operation),
+      );
+    }
+  });
+
   it("fails closed for unknown senders, routes, operations, and malformed inputs", () => {
     for (const message of [
       null,

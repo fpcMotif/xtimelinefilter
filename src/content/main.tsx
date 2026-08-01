@@ -22,6 +22,7 @@ import { mountTweetOverlay, TWEET_OVERLAY_ATTRIBUTE } from "@/content/tweet-over
 import { createTweetScanner } from "@/content/tweet-scanner";
 import { createCoach } from "@/core/coach";
 import { createFilterStore } from "@/core/filter-store";
+import { createFolderPickerController } from "@/core/folder-picker-controller";
 import { detectPlatform } from "@/core/keycaps";
 import { createListCache } from "@/core/list-cache";
 import { createListUsage } from "@/core/list-usage";
@@ -173,18 +174,27 @@ async function install(
     let isFilterStubbed = neverStubbed;
     const assignableTweet = (): Element | null => {
       const tweet = hover.targetTweet();
-      return tweet && !isFilterStubbed(tweet) ? tweet : null;
+      if (!tweet) {
+        return null;
+      }
+      if (isFilterStubbed(tweet)) {
+        return null;
+      }
+      return tweet;
     };
+    const collectionsClient = createCollectionsClient();
+    const folderPicker = createFolderPickerController({ collections: collectionsClient });
     const controller = createLassoController({
       selection,
       app: appState,
       picker,
+      folderPicker,
       toasts,
       undo,
       coach,
       backend,
       cache: listCache,
-      collections: createCollectionsClient(),
+      collections: collectionsClient,
       filter: filterStore,
       filterInScope: () => isInScope(location.pathname),
       settings: settingsStore,
@@ -232,6 +242,7 @@ async function install(
         selection={selection}
         appState={appState}
         picker={picker}
+        folderPicker={folderPicker}
         toasts={toasts}
         controller={controller}
         coach={coach}

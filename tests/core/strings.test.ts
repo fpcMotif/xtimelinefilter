@@ -62,6 +62,29 @@ describe("canonical strings", () => {
     expect(S.NO_TARGET_NUDGE).toBe("Hover a post first — or press j to focus one");
   });
 
+  it("10b — saving into a Folder", () => {
+    expect(S.savedToFolderLine("Research")).toBe("Saved to Research");
+    expect(S.alreadyInFolderLine("Research")).toBe("Already in Research");
+    expect(S.SAVE_FAILED).toBe("Couldn't save this post");
+    expect(S.CANNOT_SAVE_POST).toBe("Can't save this post — X exposed no link for it");
+    expect(S.NO_DEFAULT_FOLDER).toBe("No default Folder set — choose one in Options");
+    expect(S.SEEDED_FOLDER_NAME).toBe("Saved");
+  });
+
+  it("10b2 — Folder Picker", () => {
+    expect(S.FOLDER_PICKER_TITLE).toBe("Save to a Folder");
+    expect(S.FOLDER_PICKER_SEARCH).toBe("Search Folders");
+    expect(S.FOLDER_PICKER_EMPTY_TITLE).toBe("You don't have any Folders yet");
+    expect(S.FOLDER_PICKER_EMPTY_BODY).toBe("Create one in Options to start filing posts");
+    expect(S.FOLDER_PICKER_ERROR_TITLE).toBe("Couldn't load your Folders");
+    expect(S.FOLDER_PICKER_ERROR_UNKNOWN).toBe("Something went wrong — try again");
+    expect(S.FOLDER_PICKER_NO_MATCH("des")).toBe('No Folders match "des"');
+    expect(S.FOLDER_PICKER_FOOTER).toBe("↑↓ Navigate · Enter Save · Esc Dismiss");
+    expect(S.FOLDER_PICKER_LIST_LABEL).toBe("Your Folders");
+    expect(S.FOLDER_PICKER_HOLDING_LABEL).toBe("Already in this Folder");
+    expect(S.SAVE_POST_LABEL).toBe("Save post to a Folder");
+  });
+
   it("10c — the popup's Saved row counts posts, not people", () => {
     expect(S.SAVED_EMPTY).toBe("No saved posts yet");
     expect(S.savedPostsCountLine(1)).toBe("1 post");
@@ -81,7 +104,7 @@ describe("canonical strings", () => {
   });
 
   it("12 — select-mode bar", () => {
-    expect(S.SELECT_MODE_BAR).toBe("Select mode · click posts or press x · s when done");
+    expect(S.SELECT_MODE_BAR).toBe("Select mode · click posts or press s · c when done");
   });
 
   it("13 — post-assign tip", () => {
@@ -89,7 +112,7 @@ describe("canonical strings", () => {
   });
 
   it("14 — select-mode nudge", () => {
-    expect(S.SELECT_MODE_NUDGE).toBe("Tip: press s to select by clicking posts");
+    expect(S.SELECT_MODE_NUDGE).toBe("Tip: press c to select by clicking posts");
   });
 
   it("15 — trust line", () => {

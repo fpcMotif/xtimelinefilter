@@ -80,6 +80,7 @@ const H = vi.hoisted(() => {
         trySelectMode: vi.fn(),
         wake: vi.fn(),
         toggleSelect: vi.fn(),
+        openFolderPickerForArticle: vi.fn(),
         reportBreakage: vi.fn(),
       },
       filter: {
@@ -192,7 +193,7 @@ vi.mock("@/content/hover-tracker", () => ({
   },
 }));
 vi.mock("@/content/keyboard", () => ({
-  DEFAULT_KEYMAP: [{ combo: "s", command: "toggle-select-mode" }],
+  DEFAULT_KEYMAP: [{ combo: "c", command: "toggle-select-mode" }],
   installKeyboardLayer: (opts: {
     keymap: Array<{ combo: string; command: string }>;
     run: AnyFn;
@@ -891,7 +892,7 @@ describe("content boot (main.tsx)", () => {
     H.config.onboarded = false;
     await importMain();
     const dormant = H.cap.keyboardLayers![0]!;
-    expect(dormant.keymap).toEqual([{ combo: "s", command: "toggle-select-mode" }]);
+    expect(dormant.keymap).toEqual([{ combo: "c", command: "toggle-select-mode" }]);
 
     dormant.run("toggle-select-mode");
     expect(H.fake.controller.trySelectMode).not.toHaveBeenCalled();

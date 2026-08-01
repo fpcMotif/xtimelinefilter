@@ -25,6 +25,7 @@ export interface AppState {
   welcomeOpen: Signal<boolean>;
   shortcutsOpen: Signal<boolean>;
   pickerOpen: Signal<boolean>;
+  folderPickerOpen: Signal<boolean>;
   reviewOpen: Signal<boolean>;
   pickerAnchor: Signal<PickerAnchor | null>;
   running: Signal<RunningAssign | null>;
@@ -37,11 +38,13 @@ export function createAppState(selection: SelectionStore): AppState {
   const welcomeOpen = signal(false);
   const shortcutsOpen = signal(false);
   const pickerOpen = signal(false);
+  const folderPickerOpen = signal(false);
   const reviewOpen = signal(false);
   const pickerAnchor = signal<PickerAnchor | null>(null);
   const running = signal<RunningAssign | null>(null);
 
-  const modalOpen = (): boolean => welcomeOpen.value || shortcutsOpen.value || pickerOpen.value;
+  const modalOpen = (): boolean =>
+    welcomeOpen.value || shortcutsOpen.value || pickerOpen.value || folderPickerOpen.value;
 
   function handleEscape(): boolean {
     if (welcomeOpen.value) {
@@ -54,6 +57,10 @@ export function createAppState(selection: SelectionStore): AppState {
     }
     if (pickerOpen.value) {
       pickerOpen.value = false;
+      return true;
+    }
+    if (folderPickerOpen.value) {
+      folderPickerOpen.value = false;
       return true;
     }
     if (reviewOpen.value) {
@@ -75,6 +82,7 @@ export function createAppState(selection: SelectionStore): AppState {
     welcomeOpen,
     shortcutsOpen,
     pickerOpen,
+    folderPickerOpen,
     reviewOpen,
     pickerAnchor,
     running,

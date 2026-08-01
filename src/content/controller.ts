@@ -10,6 +10,7 @@ import {
 import { feedbackFor } from "@/core/assign-feedback";
 import type { Coach } from "@/core/coach";
 import type { FilterStore } from "@/core/filter-store";
+import type { FolderPickerController, FolderPickerEffect } from "@/core/folder-picker-controller";
 import type { ListCache } from "@/core/list-cache";
 import type { ListUsage } from "@/core/list-usage";
 import type { PickerController, PickerEffect } from "@/core/picker-controller";
@@ -40,7 +41,7 @@ import {
 } from "@/core/strings";
 import type { ToastAction, ToastSpec, ToastStore } from "@/core/toast-store";
 import { UNDO_WINDOW_MS, type UndoRegistry } from "@/core/undo";
-import type { PostCapture } from "@/packages/folders/types";
+import type { PostCapture, SaveOutcome } from "@/packages/folders/types";
 import { membershipIdentityOf, NullMembershipStore } from "@/packages/membership-store";
 import type { MembershipChange, MembershipStore, Owner } from "@/packages/membership-store/types";
 import { capture } from "@/packages/tweet-read";
@@ -107,6 +108,8 @@ export interface ControllerDeps {
   usage?: ListUsage;
   /** Folders. Absent ⇒ the save gesture reports that it cannot save. */
   collections?: CollectionsClient;
+  /** Folder Picker controller; absent ⇒ Alt+B nudges. */
+  folderPicker?: FolderPickerController;
   /** The one global filter store; absent ⇒ filter commands are no-ops (ADR-0010 — never load-bearing). */
   filter?: FilterStore;
   /** Filter commands only operate on supported timeline routes. */
@@ -140,6 +143,15 @@ export interface LassoController {
   openPicker(source?: AssignSource): void;
   /** Runs only a Picker-approved assignment. */
   pickerEffect(effect: Exclude<PickerEffect, null>): Promise<void>;
+  /** Opens the Folder Picker with the captured post under the cursor / j/k focus. */
+  openFolderPicker(): void;
+  /**
+   * Opens the Folder Picker for a concrete article (per-post overlay). Bypasses
+   * hover/j-k target resolution so save works on thread pages where focus fails.
+   */
+  openFolderPickerForArticle(article: Element): void;
+  /** Runs only a Folder Picker-approved save. */
+  folderPickerEffect(effect: Exclude<FolderPickerEffect, null>): Promise<void>;
   stopRun(): void;
   toggleSelect(author: TweetAuthor): void;
   trySelectMode(): void;
@@ -155,6 +167,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
   const membershipStore = deps.membershipStore ?? new NullMembershipStore();
   const currentOwner = deps.currentOwner ?? ((): Owner | null => null);
   const collections = deps.collections;
+  const folderPicker = deps.folderPicker;
   const filter = deps.filter;
   const filterInScope = deps.filterInScope ?? (() => true);
   let stopRequested = false;
@@ -368,6 +381,40 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     await runAssign([...effect.authors], effect, lastSource);
   }
 
+  /**
+   * Open the Folder Picker for a concrete article (per-post overlay path). The
+   * capture is taken synchronously (the timeline is virtualized) and handed to
+   * the picker, which files it into the user's chosen Folder on confirm.
+   */
+  function openFolderPickerForArticle(article: Element): void {
+    if (!folderPicker || !collections) {
+      toasts.show({ kind: "danger", title: SAVE_FAILED });
+      return;
+    }
+    const post = capture(outermostTweet(article) as Element);
+    if (!post.statusId) {
+      toasts.show({ kind: "danger", title: CANNOT_SAVE_POST });
+      return;
+    }
+    app.pickerAnchor.value = deps.anchorFor?.(article) ?? null;
+    app.folderPickerOpen.value = true;
+    void folderPicker.open(post);
+  }
+
+  function openFolderPicker(): void {
+    const tweet = target.tweet();
+    if (!tweet) {
+      nudge();
+      return;
+    }
+    openFolderPickerForArticle(tweet);
+  }
+
+  async function folderPickerEffect(effect: Exclude<FolderPickerEffect, null>): Promise<void> {
+    app.folderPickerOpen.value = false;
+    await saveToFolder(effect.folderId, effect.folderName, effect.capture);
+  }
+
   async function addToDefaultList(): Promise<void> {
     const author = target.author();
     if (!author) {
@@ -501,6 +548,58 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     });
   }
 
+  /**
+   * File a captured post into a specific Folder (chosen by the Folder Picker).
+   * Like the default-Folder save, the capture was taken synchronously at
+   * keydown time. Undo unfills the post from this Folder only — the SavedPost
+   * may also sit in other Folders.
+   */
+  async function saveToFolder(
+    folderId: string,
+    folderName: string,
+    post: PostCapture,
+  ): Promise<void> {
+    if (!post.statusId) {
+      toasts.show({ kind: "danger", title: CANNOT_SAVE_POST });
+      return;
+    }
+    const folders = collections;
+    if (!folders) {
+      toasts.show({ kind: "danger", title: SAVE_FAILED });
+      return;
+    }
+    const attempt = (): Promise<SaveOutcome & { createdSavedPost: boolean }> =>
+      folders.saveToFolder(folderId, post);
+    await quickAction({
+      attempt,
+      onOk: (outcome) => {
+        if (outcome.status !== "saved") return;
+        undo.arm(
+          () =>
+            void folders.undoSave({
+              folderId,
+              statusId: post.statusId!,
+              createdSavedPost: outcome.createdSavedPost,
+            }),
+          UNDO_WINDOW_MS,
+        );
+      },
+      successToast: (outcome) => {
+        if (outcome.status === "unsavable") return { kind: "danger", title: CANNOT_SAVE_POST };
+        if (outcome.status === "already-there")
+          return { kind: "info", title: alreadyInFolderLine(folderName) };
+        return {
+          kind: "success",
+          title: savedToFolderLine(folderName),
+          durationMs: UNDO_WINDOW_MS,
+          actions: [{ label: UNDO, kbd: "Z", run: () => void undo.trigger() }],
+        };
+      },
+      failTitle: SAVE_FAILED,
+      retry: () => void saveToFolder(folderId, folderName, post),
+    });
+  }
+
   function muteAuthor(author: TweetAuthor): Promise<void> {
     return quickAction({
       attempt: () => quick.mute(author.screenName),
@@ -611,6 +710,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         app.welcomeOpen.value ||
         app.shortcutsOpen.value ||
         app.pickerOpen.value ||
+        app.folderPickerOpen.value ||
         app.reviewOpen.value
       ) {
         return app.handleEscape();
@@ -623,7 +723,7 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         app.shortcutsOpen.value = false;
         return true;
       }
-      if (app.welcomeOpen.value || app.pickerOpen.value) return true;
+      if (app.welcomeOpen.value || app.pickerOpen.value || app.folderPickerOpen.value) return true;
       app.shortcutsOpen.value = true;
       return true;
     }
@@ -657,6 +757,22 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         else nudge();
         return true;
       }
+      case "select-and-add-to-list": {
+        // Double-tap s: ensure the focused author stays selected, then open the
+        // List picker (does not toggle off if the first s already selected them).
+        const author = target.author();
+        if (!author) {
+          if (selection.count.value === 0) {
+            nudge();
+            return true;
+          }
+          openPicker("keyboard");
+          return true;
+        }
+        selection.add(author);
+        openPicker("keyboard");
+        return true;
+      }
       case "add-to-list": {
         if (selection.count.value > 0) {
           openPicker("keyboard");
@@ -684,7 +800,12 @@ export function createLassoController(deps: ControllerDeps): LassoController {
         // HOST post, and a repost the underlying one. outermostTweet returns its
         // argument when nothing encloses it and null only for a null input, so
         // the non-null assertion cannot fire for a non-null tweet.
-        void saveToDefaultFolder(capture(outermostTweet(tweet) as Element));
+        const post = capture(outermostTweet(tweet) as Element);
+        void saveToDefaultFolder(post);
+        return true;
+      }
+      case "open-folder-picker": {
+        openFolderPicker();
         return true;
       }
       case "mute": {
@@ -713,6 +834,9 @@ export function createLassoController(deps: ControllerDeps): LassoController {
     filterCommand,
     openPicker,
     pickerEffect,
+    openFolderPicker,
+    openFolderPickerForArticle,
+    folderPickerEffect,
     stopRun() {
       stopRequested = true;
     },

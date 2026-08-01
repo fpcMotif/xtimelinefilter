@@ -5,12 +5,14 @@ import type { AppState } from "@/content/app-state";
 import type { LassoController } from "@/content/controller";
 import type { KeyBinding } from "@/content/keyboard";
 import type { Coach } from "@/core/coach";
+import type { FolderPickerController } from "@/core/folder-picker-controller";
 import { keycaps, type Platform } from "@/core/keycaps";
 import type { PickerController } from "@/core/picker-controller";
 import type { SelectionStore, TweetAuthor } from "@/core/selection-store";
 import { CREATE_LIST_URL, FIRST_HOVER_TIP, UNIT_TOOLTIP } from "@/core/strings";
 import type { ToastStore } from "@/core/toast-store";
 import { ActionBar } from "@/ui/ActionBar";
+import { FolderPicker } from "@/ui/FolderPicker";
 import { UI_LAYER } from "@/ui/layers";
 import { ListPicker } from "@/ui/ListPicker";
 import { ShortcutsSheet } from "@/ui/ShortcutsSheet";
@@ -26,6 +28,8 @@ export interface OverlayBindingProps {
   hovered: ReadonlySignal<boolean>;
   coach?: Coach;
   onToggle(): void;
+  /** Opens Folder Picker for this post; optional so tests can omit it. */
+  onSave?: () => void;
 }
 
 /**
@@ -39,6 +43,7 @@ export function OverlayBinding({
   hovered,
   coach,
   onToggle,
+  onSave,
 }: OverlayBindingProps) {
   useSignalValue(selection.count);
   const isHovered = useSignalValue(hovered);
@@ -66,6 +71,7 @@ export function OverlayBinding({
       selected={selection.isSelected(author.screenName)}
       visible={isHovered || selectMode || focused}
       onToggle={onToggle}
+      onSave={onSave}
       onFocusChange={setFocused}
       tooltip={tip}
     />
@@ -76,6 +82,7 @@ export interface AppProps {
   selection: SelectionStore;
   appState: AppState;
   picker: PickerController;
+  folderPicker: FolderPickerController;
   toasts: ToastStore;
   controller: LassoController;
   coach: Coach;
@@ -89,6 +96,7 @@ export function App({
   selection,
   appState,
   picker,
+  folderPicker,
   toasts,
   controller,
   coach,
@@ -100,6 +108,7 @@ export function App({
   const selectMode = useSignalValue(selection.selectMode);
   const running = useSignalValue(appState.running);
   const pickerOpen = useSignalValue(appState.pickerOpen);
+  const folderPickerOpen = useSignalValue(appState.folderPickerOpen);
   const pickerAnchor = useSignalValue(appState.pickerAnchor);
   const reviewOpen = useSignalValue(appState.reviewOpen);
   const welcomeOpen = useSignalValue(appState.welcomeOpen);
@@ -175,6 +184,40 @@ export function App({
                 appState.pickerOpen.value = false;
               }}
               onCreateList={() => openUrl(CREATE_LIST_URL)}
+            />
+          </div>
+        </>
+      )}
+      {folderPickerOpen && (
+        <>
+          <div
+            aria-hidden="true"
+            data-folder-picker-backdrop
+            class="fixed inset-0 bg-transparent"
+            style={{ zIndex: UI_LAYER.modal }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              folderPicker.act({ type: "close" });
+              appState.folderPickerOpen.value = false;
+            }}
+          />
+          <div
+            data-folder-picker-panel
+            class="fixed"
+            style={{
+              zIndex: UI_LAYER.modal,
+              ...(pickerAnchor
+                ? { left: `${pickerAnchor.left}px`, top: `${pickerAnchor.top}px` }
+                : { bottom: "88px", left: "50%", transform: "translateX(-50%)" }),
+            }}
+          >
+            <FolderPicker
+              picker={folderPicker}
+              onEffect={(effect) => void controller.folderPickerEffect(effect)}
+              onCancel={() => {
+                appState.folderPickerOpen.value = false;
+              }}
             />
           </div>
         </>

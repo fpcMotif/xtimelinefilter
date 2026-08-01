@@ -299,7 +299,7 @@ test.describe("content UI (real bundle, chrome stubbed)", () => {
     await page.getByText("Skip", { exact: true }).click();
     await page.keyboard.press("s");
     await expect(
-      page.getByText("Select mode · click posts or press x · s when done"),
+      page.getByText("Select mode · click posts or press s · c when done"),
     ).toBeVisible();
 
     // Clicking anywhere on the post body toggles its author (beat 7).
@@ -307,7 +307,7 @@ test.describe("content UI (real bundle, chrome stubbed)", () => {
     await expect(page.getByText("1 person selected")).toBeVisible();
     await page.getByText("hello timeline").click();
     await expect(
-      page.getByText("Select mode · click posts or press x · s when done"),
+      page.getByText("Select mode · click posts or press s · c when done"),
     ).toBeVisible();
   });
 });

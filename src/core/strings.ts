@@ -73,6 +73,20 @@ export const NO_DEFAULT_FOLDER = "No default Folder set — choose one in Option
 /** Seeded on a fresh install when the user has never chosen a default Folder. */
 export const SEEDED_FOLDER_NAME = "Saved";
 
+// 10b2 — Folder Picker
+export const FOLDER_PICKER_TITLE = "Save to a Folder";
+export const FOLDER_PICKER_SEARCH = "Search Folders";
+export const FOLDER_PICKER_EMPTY_TITLE = "You don't have any Folders yet";
+export const FOLDER_PICKER_EMPTY_BODY = "Create one in Options to start filing posts";
+export const FOLDER_PICKER_ERROR_TITLE = "Couldn't load your Folders";
+export const FOLDER_PICKER_ERROR_UNKNOWN = "Something went wrong — try again";
+export const FOLDER_PICKER_NO_MATCH = (query: string): string => `No Folders match "${query}"`;
+export const FOLDER_PICKER_FOOTER = "↑↓ Navigate · Enter Save · Esc Dismiss";
+export const FOLDER_PICKER_LIST_LABEL = "Your Folders";
+export const FOLDER_PICKER_HOLDING_LABEL = "Already in this Folder";
+/** Per-post overlay control — works without j/k focus or hover-sticky target. */
+export const SAVE_POST_LABEL = "Save post to a Folder";
+
 // 10c — the popup's Saved row (ticket #74). Counts POSTS, not people — see the
 // module header. The row names no keyboard binding: the save gesture is a
 // separate surface's concern, and the empty state must not advertise a key
@@ -90,13 +104,13 @@ export const mutedLine = (screenName: string): string => `Muted @${screenName}`;
 export const muteFailedLine = (screenName: string): string => `Couldn't mute @${screenName}`;
 
 // 12 — select-mode bar
-export const SELECT_MODE_BAR = "Select mode · click posts or press x · s when done";
+export const SELECT_MODE_BAR = "Select mode · click posts or press s · c when done";
 
 // 13 — post-assign tip
 export const POST_ASSIGN_TIP = "Tip: Alt+L on a hovered post does this without the mouse";
 
 // 14 — select-mode nudge
-export const SELECT_MODE_NUDGE = "Tip: press s to select by clicking posts";
+export const SELECT_MODE_NUDGE = "Tip: press c to select by clicking posts";
 
 // 15 — trust line
 export const TRUST_LINE =

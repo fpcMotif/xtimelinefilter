@@ -87,4 +87,65 @@ describe("the page's door to Folders", () => {
       "Invalid collections response",
     );
   });
+
+  it("lists live Folders, excluding deleted ones", async () => {
+    const w = worker({
+      ok: true,
+      folders: [
+        {
+          folderId: FOLDER,
+          name: "Research",
+          sortIndex: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          deletedAt: null,
+        },
+      ],
+    });
+    const folders = await createCollectionsClient().listFolders();
+    expect(folders).toEqual([
+      {
+        folderId: FOLDER,
+        name: "Research",
+        sortIndex: 0,
+        createdAt: 0,
+        updatedAt: 0,
+        deletedAt: null,
+      },
+    ]);
+    expect(w.sent[0]).toEqual({
+      type: "lasso:collections",
+      operation: "list-folders",
+      includeDeleted: false,
+    });
+  });
+
+  it("asks which Folders already hold a post", async () => {
+    const w = worker({ ok: true, folderIds: [FOLDER] });
+    const folderIds = await createCollectionsClient().foldersHolding(STATUS);
+    expect(folderIds).toEqual([FOLDER]);
+    expect(w.sent[0]).toEqual({
+      type: "lasso:collections",
+      operation: "folders-holding",
+      statusId: STATUS,
+    });
+  });
+
+  it("saves into a chosen Folder, minting a fence and reporting whether it minted the post", async () => {
+    const w = worker({
+      ok: true,
+      outcome: { status: "saved", statusId: STATUS },
+      createdSavedPost: true,
+    });
+    const outcome = await createCollectionsClient().saveToFolder(FOLDER, capture);
+    expect(outcome).toEqual({ status: "saved", statusId: STATUS, createdSavedPost: true });
+    expect(w.operations()).toEqual(["begin", "save-post"]);
+    expect(w.sent[1]).toEqual({
+      type: "lasso:collections",
+      operation: "save-post",
+      folderId: FOLDER,
+      capture,
+      token: TOKEN,
+    });
+  });
 });

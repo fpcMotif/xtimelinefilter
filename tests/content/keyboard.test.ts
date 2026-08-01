@@ -17,7 +17,7 @@ import { SYNTHETIC_EVENT_FLAG } from "@/content/selectors";
 const keymap: KeyBinding[] = [
   { combo: "Alt+m", command: "mute" },
   { combo: "Alt+l", command: "add-to-list" },
-  { combo: "x", command: "toggle-select" },
+  { combo: "s", command: "toggle-select" },
 ];
 
 function pressKey(key: string, init: KeyboardEventInit = {}): KeyboardEvent {
@@ -136,7 +136,7 @@ describe("installKeyboardLayer", () => {
   it("uses the default document when none is passed", () => {
     const run = vi.fn();
     dispose = installKeyboardLayer({ keymap, run });
-    const e = new KeyboardEvent("keydown", { key: "x", cancelable: true });
+    const e = new KeyboardEvent("keydown", { key: "s", cancelable: true });
     document.dispatchEvent(e);
     expect(run).toHaveBeenCalledWith("toggle-select");
   });
@@ -152,7 +152,7 @@ describe("installKeyboardLayer", () => {
     } as unknown as Document;
     dispose = installKeyboardLayer({ keymap, run, doc });
     handler?.({
-      key: "x",
+      key: "s",
       altKey: false,
       ctrlKey: false,
       metaKey: false,
@@ -209,11 +209,33 @@ describe("installKeyboardLayer", () => {
     expect(run).toHaveBeenCalledWith("not-interested");
   });
 
-  it("runs bare x for selection", () => {
+  it("runs bare s for selection", () => {
     const run = vi.fn();
     dispose = installKeyboardLayer({ keymap, run, doc: document });
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s" }));
     expect(run).toHaveBeenCalledWith("toggle-select");
+  });
+
+  it("upgrades a second s within the double-tap window to select-and-add-to-list", () => {
+    const run = vi.fn();
+    let t = 0;
+    dispose = installKeyboardLayer({ keymap, run, doc: document, now: () => t });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", cancelable: true }));
+    expect(run).toHaveBeenCalledWith("toggle-select");
+    t = 200;
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", cancelable: true }));
+    expect(run).toHaveBeenNthCalledWith(2, "select-and-add-to-list");
+  });
+
+  it("treats a late second s as another toggle-select", () => {
+    const run = vi.fn();
+    let t = 0;
+    dispose = installKeyboardLayer({ keymap, run, doc: document, now: () => t });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", cancelable: true }));
+    t = 500;
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", cancelable: true }));
+    expect(run).toHaveBeenNthCalledWith(1, "toggle-select");
+    expect(run).toHaveBeenNthCalledWith(2, "toggle-select");
   });
 
   it("ignores unbound keys (e.g. native j/k)", () => {
@@ -244,30 +266,19 @@ describe("installKeyboardLayer", () => {
 
   it("still dispatches documented Alt chords on keydown", () => {
     const run = vi.fn(() => true);
-    // Explicit map mirrors the product Alt chords (DEFAULT may grow without weakening this pin).
-    const documented: KeyBinding[] = [
-      { combo: "Alt+n", command: "not-interested" },
-      { combo: "Alt+l", command: "add-to-list" },
-      { combo: "Alt+Shift+l", command: "add-to-default-list" },
-      { combo: "Alt+Shift+b", command: "save-to-default-folder" },
-    ];
-    dispose = installKeyboardLayer({ keymap: documented, run, doc: document });
-    const n = pressKey("n", { altKey: true });
-    const l = pressKey("l", { altKey: true });
-    const shiftL = pressKey("l", { altKey: true, shiftKey: true });
+    dispose = installKeyboardLayer({ keymap: DEFAULT_KEYMAP, run, doc: document });
+    const b = pressKey("b", { altKey: true });
     const shiftB = pressKey("b", { altKey: true, shiftKey: true });
-    // bare Alt+b is intentionally unbound on this commit — must stay free
-    const bareB = pressKey("b", { altKey: true });
-    expect(run).toHaveBeenCalledWith("not-interested");
-    expect(run).toHaveBeenCalledWith("add-to-list");
-    expect(run).toHaveBeenCalledWith("add-to-default-list");
+    const l = pressKey("l", { altKey: true });
+    const n = pressKey("n", { altKey: true });
+    expect(run).toHaveBeenCalledWith("open-folder-picker");
     expect(run).toHaveBeenCalledWith("save-to-default-folder");
-    expect(n.defaultPrevented).toBe(true);
-    expect(l.defaultPrevented).toBe(true);
-    expect(shiftL.defaultPrevented).toBe(true);
+    expect(run).toHaveBeenCalledWith("add-to-list");
+    expect(run).toHaveBeenCalledWith("not-interested");
+    expect(b.defaultPrevented).toBe(true);
     expect(shiftB.defaultPrevented).toBe(true);
-    expect(bareB.defaultPrevented).toBe(false);
-    expect(run).toHaveBeenCalledTimes(4);
+    expect(l.defaultPrevented).toBe(true);
+    expect(n.defaultPrevented).toBe(true);
   });
 
   it("ignores keys while typing in an input", () => {
@@ -279,17 +290,17 @@ describe("installKeyboardLayer", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("leaves dormant select-mode s alone while typing", () => {
+  it("leaves select-mode c alone while typing", () => {
     const activate = vi.fn();
     const input = document.createElement("input");
     document.body.appendChild(input);
     dispose = installKeyboardLayer({
-      keymap: [{ combo: "s", command: "toggle-select-mode" }],
+      keymap: [{ combo: "c", command: "toggle-select-mode" }],
       run: activate,
       doc: document,
     });
     const event = new KeyboardEvent("keydown", {
-      key: "s",
+      key: "c",
       bubbles: true,
       cancelable: true,
     });
@@ -526,6 +537,14 @@ describe("palette hotkey validation", () => {
     expect(validatePaletteHotkey("Mod+Shift+p")).toBeNull();
   });
 
+  it("rejects the default save-to-Folder combo as already used", () => {
+    expect(validatePaletteHotkey("Alt+Shift+b")).toBe("That key is already used by Lasso.");
+  });
+
+  it("rejects the folder-picker combo as already used", () => {
+    expect(validatePaletteHotkey("Alt+b")).toBe("That key is already used by Lasso.");
+  });
+
   it("recognizes Mod collisions with platform-specific bindings", () => {
     expect(combosCollide("Mod+p", "Ctrl+p")).toBe(true);
     expect(combosCollide("Mod+p", "Meta+p")).toBe(true);
@@ -608,10 +627,13 @@ describe("story beats 5 & 6 — the full keyboard layer", () => {
     const commands = Object.fromEntries(DEFAULT_KEYMAP.map((b) => [b.combo, b.command]));
     expect(commands["Alt+l"]).toBe("add-to-list");
     expect(commands["Alt+Shift+l"]).toBe("add-to-default-list");
+    expect(commands["Alt+Shift+b"]).toBe("save-to-default-folder");
+    expect(commands["Alt+b"]).toBe("open-folder-picker");
     expect(commands["Alt+m"]).toBeUndefined(); // mute is intentionally unbound
     expect(commands["Alt+n"]).toBe("not-interested");
-    expect(commands["s"]).toBe("toggle-select-mode");
-    expect(commands["x"]).toBe("toggle-select");
+    expect(commands["s"]).toBe("toggle-select");
+    expect(commands["c"]).toBe("toggle-select-mode");
+    expect(commands["x"]).toBeUndefined(); // bare x is X's block
     expect(commands["f"]).toBe("toggle-filter");
     expect(commands["h"]).toBe("toggle-reveal");
     expect(commands["?"]).toBe("help");
@@ -619,9 +641,10 @@ describe("story beats 5 & 6 — the full keyboard layer", () => {
     expect(commands["z"]).toBe("undo");
   });
 
-  it("never binds X's own action/navigation keys (i/k/l/j/b/u/r/t/o/n stay native)", () => {
+  it("never binds X's own action/navigation keys (i/k/l/j/b/u/r/t/o/n/x stay native)", () => {
     const bound = new Set(DEFAULT_KEYMAP.map((b) => b.combo));
-    for (const native of ["i", "k", "l", "j", "b", "u", "r", "t", "o", "n", "g", "."]) {
+    // bare s is intentionally overridden (X's Share) for Lasso select.
+    for (const native of ["i", "k", "l", "j", "b", "u", "r", "t", "o", "n", "x", "g", "."]) {
       expect(bound.has(native)).toBe(false);
     }
   });
@@ -629,7 +652,8 @@ describe("story beats 5 & 6 — the full keyboard layer", () => {
 
 describe("X g-chord passthrough (g+h Home, g+s Settings, g+f Drafts, …)", () => {
   const chordMap: KeyBinding[] = [
-    { combo: "s", command: "toggle-select-mode" },
+    { combo: "s", command: "toggle-select" },
+    { combo: "c", command: "toggle-select-mode" },
     { combo: "h", command: "toggle-reveal" },
     { combo: "f", command: "toggle-filter" },
   ];
@@ -639,7 +663,7 @@ describe("X g-chord passthrough (g+h Home, g+s Settings, g+f Drafts, …)", () =
     dispose = undefined;
   });
 
-  it("leaves dormant select-mode s to X while g+s is armed", () => {
+  it("leaves bare s to X while g+s is armed", () => {
     const run = vi.fn();
     dispose = installKeyboardLayer({ keymap: chordMap, run, doc: document });
     const g = pressKey("g");
@@ -649,7 +673,7 @@ describe("X g-chord passthrough (g+h Home, g+s Settings, g+f Drafts, …)", () =
     expect(s.defaultPrevented).toBe(false);
     // The chord is concluded — a plain s afterwards is Lasso's again.
     pressKey("s");
-    expect(run).toHaveBeenCalledWith("toggle-select-mode");
+    expect(run).toHaveBeenCalledWith("toggle-select");
   });
 
   it("an expired chord window hands the key back to Lasso", () => {
@@ -682,5 +706,18 @@ describe("X g-chord passthrough (g+h Home, g+s Settings, g+f Drafts, …)", () =
     pressKey("g", { ctrlKey: true });
     pressKey("f");
     expect(run).toHaveBeenCalledWith("toggle-filter");
+  });
+
+  it("Alt+Shift+B pressed inside the g-chord window is left for X, not the save gesture", () => {
+    const run = vi.fn();
+    const saveMap: KeyBinding[] = [
+      ...chordMap,
+      { combo: "Alt+Shift+b", command: "save-to-default-folder" },
+    ];
+    dispose = installKeyboardLayer({ keymap: saveMap, run, doc: document });
+    pressKey("g");
+    const e = pressKey("B", { code: "KeyB", altKey: true, shiftKey: true });
+    expect(run).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
   });
 });

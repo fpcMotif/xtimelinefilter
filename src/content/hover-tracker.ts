@@ -35,8 +35,13 @@ export function installHoverTracker(deps: HoverTrackerDeps): HoverTracker {
   doc.addEventListener("mousemove", handler, { capture: true, passive: true });
 
   return {
-    targetTweet: () =>
-      hoveredSticky && doc.contains(hoveredSticky) ? hoveredSticky : deps.fallback(),
+    targetTweet: () => {
+      if (hoveredSticky && doc.contains(hoveredSticky)) {
+        return hoveredSticky;
+      }
+      const fallback = deps.fallback();
+      return fallback;
+    },
     release(article) {
       if (hoveredSticky === article) hoveredSticky = null;
     },

@@ -1,6 +1,6 @@
 import type { CacheObservation } from "@/core/cache-observation";
 import { requestCollections, type DefaultSaveOutcome } from "@/core/protocol/collections";
-import type { PostCapture } from "@/packages/folders/types";
+import type { Folder, PostCapture, SaveOutcome } from "@/packages/folders/types";
 
 /**
  * The page's narrow door to Folders. Every call is one worker round-trip: the
@@ -16,6 +16,15 @@ export interface CollectionsClient {
   saveToDefaultFolder(capture: PostCapture): Promise<DefaultSaveOutcome>;
   /** Reverse exactly what one save wrote — and nothing it did not. */
   undoSave(save: SavedByGesture): Promise<void>;
+  /** Live (non-deleted) Folders for the Folder Picker. */
+  listFolders(): Promise<Folder[]>;
+  /** Which Folders already hold this post (so the picker can mark them). */
+  foldersHolding(statusId: string): Promise<string[]>;
+  /** File this post into a specific Folder. */
+  saveToFolder(
+    folderId: string,
+    capture: PostCapture,
+  ): Promise<SaveOutcome & { createdSavedPost: boolean }>;
 }
 
 /** What a single save gesture created, which is all Undo may take back. */
@@ -79,6 +88,35 @@ export function createCollectionsClient(): CollectionsClient {
           token: fence,
         });
       }
+    },
+
+    async listFolders() {
+      const response = (await requestCollections({
+        type: TYPE,
+        operation: "list-folders",
+        includeDeleted: false,
+      })) as { folders: Folder[] };
+      return response.folders;
+    },
+
+    async foldersHolding(statusId) {
+      const response = (await requestCollections({
+        type: TYPE,
+        operation: "folders-holding",
+        statusId,
+      })) as { folderIds: string[] };
+      return response.folderIds;
+    },
+
+    async saveToFolder(folderId, capture) {
+      const response = (await requestCollections({
+        type: TYPE,
+        operation: "save-post",
+        folderId,
+        capture,
+        token: await token(),
+      })) as { outcome: SaveOutcome; createdSavedPost: boolean };
+      return { ...response.outcome, createdSavedPost: response.createdSavedPost };
     },
   };
 }

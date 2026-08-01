@@ -6,8 +6,11 @@ export type CommandId =
   | "add-to-list"
   | "add-to-default-list"
   | "save-to-default-folder"
+  | "open-folder-picker"
   | "block"
   | "toggle-select"
+  /** Double-tap `s`: keep the focused author selected and open the List picker. */
+  | "select-and-add-to-list"
   | "toggle-select-mode"
   | "toggle-filter"
   | "toggle-reveal"
@@ -32,27 +35,29 @@ export interface KeyboardSurfaces {
 /**
  * Default bindings (Alt+key per the user's choice). X's own action/navigation keys
  * are NOT bound: j/k (cursor), l (like), i (unassigned by X but left free), b
- * (bookmark), u (mute account), r/t/o/n, and every g-chord (see CHORD_WINDOW_MS)
- * keep their native meaning. Bare `b` is X's bookmark on the current build (the
- * fetched shortcut manifest lists `bookmark: B`; older Twitter-era cheat-sheets
- * mapping B to Block are out of date) and Lasso leaves it alone.
+ * (bookmark), u (mute account), r/t/o/n, x (block), and every g-chord
+ * (see CHORD_WINDOW_MS) keep their native meaning. Bare `b` is X's bookmark and
+ * bare `x` is X's block — Lasso leaves both alone.
+ *
+ * Selection uses `s` (live X maps bare `s` to Share; we intentionally override it):
+ * one `s` toggles the focused author, a second `s` within SS_WINDOW_MS keeps them
+ * selected and opens the List picker. Select mode is on free `c`.
  *
  * Alt+B and Alt+Shift+B are the Folder pair: Alt+Shift+B files into the default
- * Folder, Alt+B opens the Folder Picker (#71). Alt+B was previously reserved for
- * `block`; that reservation is spent, and if `block` is ever bound it must take a
- * different combo. Mute (Alt+m) is intentionally unbound at the user's request — the `mute`
- * command still exists for programmatic use, it just has no default key. Escape/z/?
- * and the filter keys' handlers return false when Lasso has nothing to do, so X's
- * own keys keep working. f/h are free on x.com (only g+f / g+h chords use them,
- * which the chord guard passes through).
+ * Folder, Alt+B opens the Folder Picker (#71). Mute (Alt+m) is intentionally
+ * unbound at the user's request — the `mute` command still exists for
+ * programmatic use. Escape/z/? and the filter keys' handlers return false when
+ * Lasso has nothing to do, so X's own keys keep working. f/h are free on x.com
+ * (only g+f / g+h chords use them, which the chord guard passes through).
  */
 export const DEFAULT_KEYMAP: KeyBinding[] = [
   { combo: "Alt+n", command: "not-interested" },
   { combo: "Alt+l", command: "add-to-list" },
   { combo: "Alt+Shift+l", command: "add-to-default-list" },
   { combo: "Alt+Shift+b", command: "save-to-default-folder" },
-  { combo: "x", command: "toggle-select" },
-  { combo: "s", command: "toggle-select-mode" },
+  { combo: "Alt+b", command: "open-folder-picker" },
+  { combo: "s", command: "toggle-select" },
+  { combo: "c", command: "toggle-select-mode" },
   { combo: "f", command: "toggle-filter" },
   { combo: "h", command: "toggle-reveal" },
   { combo: "?", command: "help" },
@@ -67,6 +72,8 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
  */
 export const CHORD_WINDOW_MS = 1000;
 
+/** Double-tap window for `s` then `s` → select-and-add-to-list. */
+export const SS_WINDOW_MS = 400;
 const MOD_ORDER = ["Alt", "Ctrl", "Meta", "Shift"] as const;
 
 type ComboSpec = {
@@ -228,6 +235,9 @@ export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
   // X's g-chords (g+h, g+s, g+f, …): a bare `g` arms this window; the next
   // keydown inside it belongs to X, whatever Lasso has bound on it.
   let chordArmedUntil = 0;
+  // Double-tap `s`: first toggle-select arms this; a second `s` upgrades to
+  // select-and-add-to-list instead of toggling off.
+  let selectTapUntil = 0;
 
   const handler = (e: KeyboardEvent): void => {
     // Lasso's own driver synthesizes Escape to dismiss stuck X menus — that is
@@ -248,21 +258,37 @@ export function installKeyboardLayer(opts: KeyboardLayerOptions): () => void {
     const combo = eventToCombo(e);
     if (combo === "g") {
       chordArmedUntil = now() + CHORD_WINDOW_MS;
+      selectTapUntil = 0;
       return; // g itself is X's chord prefix — never Lasso's
     }
     const chordPending = now() < chordArmedUntil;
     const xChordOwnsKey = chordPending && !modifiedModalInput;
     chordArmedUntil = 0; // any key concludes (or breaks) the chord
-    const command = table.get(combo);
+    let command = table.get(combo);
     // Static bindings always win a collision. Settings are checked on each keydown,
     // so a changed palette binding needs no listener rebind.
     if (command) {
-      if (xChordOwnsKey) return; // the second key of g+h / g+s / g+f — X's, not ours
+      if (xChordOwnsKey) {
+        selectTapUntil = 0;
+        return; // the second key of g+h / g+s / g+f — X's, not ours
+      }
+      // s then s → select-and-add-to-list (only when bare s is toggle-select).
+      if (command === "toggle-select") {
+        if (now() < selectTapUntil) {
+          command = "select-and-add-to-list";
+          selectTapUntil = 0;
+        } else {
+          selectTapUntil = now() + SS_WINDOW_MS;
+        }
+      } else {
+        selectTapUntil = 0;
+      }
       if (opts.run(command) === false) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       return;
     }
+    selectTapUntil = 0;
     if (xChordOwnsKey) return;
     const paletteHotkey = opts.surfaces?.paletteHotkey();
     if (!paletteHotkey || validatePaletteHotkey(paletteHotkey, opts.keymap)) return;
