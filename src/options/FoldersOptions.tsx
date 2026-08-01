@@ -11,11 +11,12 @@ import {
   FOLDER_CONTENTS_BACK,
   FOLDER_CONTENTS_EMPTY,
   FOLDER_CONTENTS_ERROR,
+  FOLDER_CONTENTS_LOAD_MORE,
   FOLDER_CONTENTS_OPEN_ORIGINAL,
   SEEDED_FOLDER_NAME,
 } from "@/core/strings";
 import type { FoldersClient } from "@/options/folders-client";
-import type { Folder, FolderDisposition, FolderPage, SavedPost } from "@/packages/folders/types";
+import type { Folder, FolderDisposition, SavedPost } from "@/packages/folders/types";
 import { Button, Input } from "@/ui/components";
 
 export const FOLDERS_EMPTY = "No Folders yet — create one above to start filing posts.";
@@ -26,6 +27,7 @@ export const FOLDER_CAP_REACHED = `You can have at most ${MAX_LIVE_FOLDERS} fold
 export const DEFAULT_FOLDER_ASK = "None — always ask";
 /** The value the tri-state select carries for the never-set (or dangling-id) state. */
 const DEFAULT_FOLDER_UNSET = "";
+const FOLDER_PAGE_SIZE = 25;
 
 const codePointsAtMost = (value: string, max: number): boolean => {
   let count = 0;
@@ -338,7 +340,7 @@ function FolderRow({
   );
 }
 
-/** One bounded page of a Folder's Saved Posts, with honest empty/error states. */
+/** A Folder's Saved Posts, paged through the store cursor, with honest empty/error states. */
 function FolderContents({
   folder,
   client,
@@ -348,17 +350,26 @@ function FolderContents({
   client: FoldersClient;
   onBack: () => void;
 }) {
-  const [page, setPage] = useState<FolderPage | null>(null);
+  const [posts, setPosts] = useState<SavedPost[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     let active = true;
     setError(false);
+    setPosts([]);
+    setNextCursor(null);
+    setLoaded(false);
     client
-      .readFolderPage(folder.folderId, 25, null)
+      .readFolderPage(folder.folderId, FOLDER_PAGE_SIZE, null)
       .then((p) => {
-        if (active) setPage(p);
+        if (!active) return;
+        setPosts(p.posts);
+        setNextCursor(p.nextCursor);
+        setLoaded(true);
       })
       .catch(() => {
         if (active) setError(true);
@@ -367,6 +378,27 @@ function FolderContents({
       active = false;
     };
   }, [client, folder.folderId, retryCount]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onBack();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onBack]);
+
+  const loadMore = useCallback(() => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    client
+      .readFolderPage(folder.folderId, FOLDER_PAGE_SIZE, nextCursor)
+      .then((p) => {
+        setPosts((prev) => [...prev, ...p.posts]);
+        setNextCursor(p.nextCursor);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [client, folder.folderId, nextCursor, loadingMore]);
 
   return (
     <div class="flex flex-col gap-3">
@@ -390,25 +422,39 @@ function FolderContents({
         </div>
       )}
 
-      {!error && page === null && (
+      {!error && !loaded && (
         <div class="flex flex-col gap-2">
           <div class="bg-secondary h-12 w-full animate-pulse rounded-lg" />
           <div class="bg-secondary h-12 w-full animate-pulse rounded-lg" />
         </div>
       )}
 
-      {!error && page !== null && page.posts.length === 0 && (
+      {!error && loaded && posts.length === 0 && (
         <p class="text-muted-foreground text-compact border-border rounded-xl border border-dashed px-4 py-6 text-center">
           {FOLDER_CONTENTS_EMPTY}
         </p>
       )}
 
-      {!error && page !== null && page.posts.length > 0 && (
-        <ul class="flex flex-col gap-2">
-          {page.posts.map((post) => (
-            <SavedPostRow key={post.statusId} post={post} />
-          ))}
-        </ul>
+      {!error && loaded && posts.length > 0 && (
+        <>
+          <ul class="flex flex-col gap-2">
+            {posts.map((post) => (
+              <SavedPostRow key={post.statusId} post={post} />
+            ))}
+          </ul>
+          {nextCursor !== null && (
+            <div class="flex justify-center">
+              <Button
+                variant="outline"
+                size="pill"
+                disabled={loadingMore}
+                onClick={loadMore}
+              >
+                {FOLDER_CONTENTS_LOAD_MORE}
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

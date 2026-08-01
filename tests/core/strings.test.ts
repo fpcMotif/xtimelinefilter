@@ -90,6 +90,7 @@ describe("canonical strings", () => {
     expect(S.FOLDER_CONTENTS_EMPTY).toBe("This Folder has no saved posts yet.");
     expect(S.FOLDER_CONTENTS_ERROR).toBe("Couldn't load this Folder's posts.");
     expect(S.FOLDER_CONTENTS_OPEN_ORIGINAL).toBe("Open on X");
+    expect(S.FOLDER_CONTENTS_LOAD_MORE).toBe("Load more");
   });
 
   it("10c — the popup's Saved row counts posts, not people", () => {

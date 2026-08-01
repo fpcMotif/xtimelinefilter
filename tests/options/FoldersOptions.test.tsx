@@ -757,3 +757,88 @@ describe("FoldersOptions — Folder contents browser (#82)", () => {
     await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
   });
 });
+
+describe("FoldersOptions — Folder contents paging (#83)", () => {
+  it("loads the next page and appends it when more posts remain", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    // Seed 26 posts so the first page (25) has a nextCursor.
+    for (let i = 0; i < 26; i++) {
+      const id = `p${i}`;
+      fake.seedSavedPost(post({ statusId: id, text: `post ${i}` }));
+      fake.seedMembership(folder!.folderId, id);
+    }
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    // First page shows posts 0–24.
+    await waitFor(() => expect(r.getByText("post 0")).toBeTruthy());
+    expect(r.getByText("post 24")).toBeTruthy();
+    expect(r.queryByText("post 25")).toBeNull();
+
+    // Load more appends post 25.
+    fireEvent.click(r.getByText("Load more"));
+    await waitFor(() => expect(r.getByText("post 25")).toBeTruthy());
+    // Earlier posts still visible.
+    expect(r.getByText("post 0")).toBeTruthy();
+  });
+
+  it("shows no load-more when the Folder is fully read", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(post());
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+    expect(r.queryByText("Load more")).toBeNull();
+  });
+
+  it("Escape returns to the Folder list", async () => {
+    const fake = fakeFoldersClient(["Research", "Design refs"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(post());
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(r.getByText("Design refs")).toBeTruthy());
+    expect(r.getByText("Research")).toBeTruthy();
+  });
+
+  it("re-opening a Folder shows a fresh first page after new saves", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(post());
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    // First visit: one post.
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+    expect(r.queryByText("new arrival")).toBeNull();
+
+    // Go back, save another post, re-open.
+    fireEvent.click(r.getByText("Back to Folders"));
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fake.seedSavedPost(post({ statusId: "3000", text: "new arrival" }));
+    fake.seedMembership(folder!.folderId, "3000");
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("new arrival")).toBeTruthy());
+    expect(r.getByText("hello folders")).toBeTruthy();
+  });
+});

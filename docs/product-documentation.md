@@ -299,7 +299,7 @@ If no Lists are available yet, Lasso asks you to open x.com once so it can see y
 
 ### Manage Folders
 
-Create, rename, reorder, and delete Folders. Each row shows how many posts it holds. Click **Browse** to see the posts inside a Folder: author, text, when Lasso filed it, and a link to the original on X. Empty Folders say so; a failed read offers Retry.
+Create, rename, reorder, and delete Folders. Each row shows how many posts it holds. Click **Browse** to see the posts inside a Folder: author, text, when Lasso filed it, and a link to the original on X. When a Folder holds more than one page, **Load more** fetches the next batch. Press **Escape** or **Back to Folders** to return to the list. Empty Folders say so; a failed read offers Retry.
 
 ### Keyboard Shortcuts
 

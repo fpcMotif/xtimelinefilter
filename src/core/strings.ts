@@ -92,6 +92,7 @@ export const FOLDER_CONTENTS_BACK = "Back to Folders";
 export const FOLDER_CONTENTS_EMPTY = "This Folder has no saved posts yet.";
 export const FOLDER_CONTENTS_ERROR = "Couldn't load this Folder's posts.";
 export const FOLDER_CONTENTS_OPEN_ORIGINAL = "Open on X";
+export const FOLDER_CONTENTS_LOAD_MORE = "Load more";
 
 // 10c — the popup's Saved row (ticket #74). Counts POSTS, not people — see the
 // module header. The row names no keyboard binding: the save gesture is a
