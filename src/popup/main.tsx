@@ -1,5 +1,6 @@
 import { render } from "preact";
 
+import { readSavedSummary } from "@/core/collections-summary";
 import { createMirrorStatusStore } from "@/core/mirror-status";
 import { sendToTab, type LassoStatusResponse } from "@/core/protocol";
 
@@ -60,6 +61,7 @@ render(
     }}
     mirrorStatus={mirrorStore.read}
     subscribeMirrorStatus={mirrorStore.subscribe}
+    savedSummary={readSavedSummary}
   />,
   document.getElementById("root") as HTMLElement,
 );

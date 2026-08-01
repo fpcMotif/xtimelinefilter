@@ -1,6 +1,10 @@
 /**
  * Canonical user-facing strings (product story "Canonical strings — implement
- * verbatim"). Every surface counts PEOPLE, not posts; confirmations are past
+ * verbatim"). Assignment copy counts PEOPLE, not posts — but the popup's Saved
+ * row (ADR-0013) counts the opposite thing on purpose: a Saved Post is filed
+ * once regardless of how many Folders hold it or which X account bookmarked
+ * it, so its copy counts POSTS, never people. The two units are never unified
+ * into one pluralizer, and the strings test pins both. Confirmations are past
  * tense; failure copy is literal. Copy lives here so no component invents its
  * own wording and the strings test pins each one.
  */
@@ -68,6 +72,18 @@ export const CANNOT_SAVE_POST = "Can't save this post — X exposed no link for 
 export const NO_DEFAULT_FOLDER = "No default Folder set — choose one in Options";
 /** Seeded on a fresh install when the user has never chosen a default Folder. */
 export const SEEDED_FOLDER_NAME = "Saved";
+
+// 10c — the popup's Saved row (ticket #74). Counts POSTS, not people — see the
+// module header. The row names no keyboard binding: the save gesture is a
+// separate surface's concern, and the empty state must not advertise a key
+// that surface may not have bound.
+export const SAVED_EMPTY = "No saved posts yet";
+/** The row's primary number, singular at 1 like every other count here. */
+export const savedPostsCountLine = (n: number): string =>
+  n === 1 ? "1 post" : `${formatCount(n)} posts`;
+/** The Folder count as the row's secondary cue; singular at 1 like every other count here. */
+export const folderCountLine = (n: number): string =>
+  n === 1 ? "1 Folder" : `${formatCount(n)} Folders`;
 
 // 11 — mute
 export const mutedLine = (screenName: string): string => `Muted @${screenName}`;

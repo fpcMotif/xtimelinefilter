@@ -19,6 +19,9 @@ vi.mock("@/core/mirror-status", () => ({
   createMirrorStatusStore: () => mirrorStore,
 }));
 
+const { readSavedSummary } = vi.hoisted(() => ({ readSavedSummary: vi.fn() }));
+vi.mock("@/core/collections-summary", () => ({ readSavedSummary }));
+
 type PopupProps = {
   queryState(): Promise<TabState>;
   wake(): Promise<boolean>;
@@ -27,6 +30,7 @@ type PopupProps = {
   subscribeMirrorStatus(
     cb: (status: { ok: boolean; at: number; configId: string } | null) => void,
   ): () => void;
+  savedSummary(): Promise<{ folders: number; savedPosts: number } | null>;
 };
 
 let query: ReturnType<typeof vi.fn>;
@@ -51,6 +55,7 @@ beforeEach(() => {
   mirrorStore.publish.mockClear();
   mirrorStore.read.mockClear();
   mirrorStore.subscribe.mockClear();
+  readSavedSummary.mockClear();
   globalThis.chrome = {
     ...(previousChrome as typeof chrome),
     tabs: { query, sendMessage },
@@ -159,5 +164,12 @@ describe("popup entry", () => {
 
     expect(subscribeMirrorStatus(listener)).toBe(dispose);
     expect(mirrorStore.subscribe).toHaveBeenCalledWith(listener);
+  });
+
+  it("savedSummary is the collections-summary reader, wired straight through", async () => {
+    const { savedSummary } = await loadProps();
+    readSavedSummary.mockResolvedValueOnce({ folders: 2, savedPosts: 4 });
+    expect(await savedSummary()).toEqual({ folders: 2, savedPosts: 4 });
+    expect(readSavedSummary).toHaveBeenCalledTimes(1);
   });
 });

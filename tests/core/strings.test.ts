@@ -62,6 +62,19 @@ describe("canonical strings", () => {
     expect(S.NO_TARGET_NUDGE).toBe("Hover a post first — or press j to focus one");
   });
 
+  it("10c — the popup's Saved row counts posts, not people", () => {
+    expect(S.SAVED_EMPTY).toBe("No saved posts yet");
+    expect(S.savedPostsCountLine(1)).toBe("1 post");
+    expect(S.savedPostsCountLine(2)).toBe("2 posts");
+    expect(S.savedPostsCountLine(1204)).toBe("1,204 posts");
+    expect(S.folderCountLine(1)).toBe("1 Folder");
+    expect(S.folderCountLine(12)).toBe("12 Folders");
+    // Same count, two units: Saved counts posts, assignment counts people —
+    // the module header amendment pins that the two are never unified.
+    expect(S.savedPostsCountLine(3)).toBe("3 posts");
+    expect(S.peopleSelected(3)).toBe("3 people selected");
+  });
+
   it("11 — mute confirmation and failure", () => {
     expect(S.mutedLine("jane")).toBe("Muted @jane");
     expect(S.muteFailedLine("jane")).toBe("Couldn't mute @jane");

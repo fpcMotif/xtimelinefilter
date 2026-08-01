@@ -780,3 +780,235 @@ describe("Mirror status row — instant sync observability (ADR-0009)", () => {
     expect(r.queryByText(/Last Mirror write succeeded/)).toBeNull();
   });
 });
+
+describe("Saved row — the popup's entire collections grant (ADR-0013)", () => {
+  const base = {
+    queryState: async () => "active" as const,
+    wake: async () => {},
+    openOptions: () => {},
+  };
+
+  it("renders the deduped post count with the Folder count as a secondary cue", async () => {
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => ({ folders: 3, savedPosts: 1 })}
+      />,
+    );
+    // One post filed in three Folders and bookmarked from two accounts is one
+    // Saved Post: the row renders 1, never 3 and never 2.
+    await waitFor(() => expect(r.getByText("1 post")).toBeTruthy());
+    expect(r.getByText("3 Folders")).toBeTruthy();
+    expect(r.queryByText("2 Folders")).toBeNull();
+  });
+
+  it("pluralizes both counts, and reads singular at 1 for each independently", async () => {
+    const many = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => ({ folders: 5, savedPosts: 128 })}
+      />,
+    );
+    await waitFor(() => expect(many.getByText("128 posts")).toBeTruthy());
+    expect(many.getByText("5 Folders")).toBeTruthy();
+
+    const oneEach = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => ({ folders: 1, savedPosts: 1 })}
+      />,
+    );
+    await waitFor(() => expect(oneEach.getByText("1 post")).toBeTruthy());
+    expect(oneEach.getByText("1 Folder")).toBeTruthy();
+  });
+
+  it("shows the empty pile and no sync line, spinner or Retry affordance", async () => {
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => ({ folders: 0, savedPosts: 0 })}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("No saved posts yet")).toBeTruthy());
+    expect(r.queryByText(/Folder/)).toBeNull();
+    expect(r.queryByText("Retry")).toBeNull();
+    expect(r.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("paints before the summary resolves — no row and no number until it does", async () => {
+    let resolveSummary!: (counts: { folders: number; savedPosts: number }) => void;
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={() =>
+          new Promise((resolve) => {
+            resolveSummary = resolve;
+          })
+        }
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+    expect(r.queryByText("Saved")).toBeNull();
+
+    resolveSummary({ folders: 2, savedPosts: 4 });
+    await waitFor(() => expect(r.getByText("4 posts")).toBeTruthy());
+  });
+
+  it("opens Options from a click in both the empty and the count state", async () => {
+    const openEmpty = vi.fn();
+    const empty = render(
+      <PopupApp
+        {...base}
+        openOptions={openEmpty}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => ({ folders: 0, savedPosts: 0 })}
+      />,
+    );
+    fireEvent.click(await waitFor(() => empty.getByText("Saved")));
+    expect(openEmpty).toHaveBeenCalledTimes(1);
+    empty.unmount();
+
+    const openCount = vi.fn();
+    const count = render(
+      <PopupApp
+        {...base}
+        openOptions={openCount}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => ({ folders: 2, savedPosts: 4 })}
+      />,
+    );
+    fireEvent.click(await waitFor(() => count.getByText("Saved")));
+    expect(openCount).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the summary exactly once per mount — no subscription, no second channel", async () => {
+    const savedSummary = vi.fn(async () => ({ folders: 2, savedPosts: 4 }));
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={savedSummary}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("4 posts")).toBeTruthy());
+
+    // A cosmetic re-render elsewhere in the popup must not re-trigger the read.
+    fireEvent.click(r.getByLabelText("Only my languages"));
+    expect(savedSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders no Saved row when the reader is absent, null, or the counts never resolve", async () => {
+    const absent = render(
+      <PopupApp {...base} filter={createFilterStore({ storage: fakeStorage() })} />,
+    );
+    await waitFor(() => expect(absent.getByText("Active")).toBeTruthy());
+    expect(absent.queryByText("Saved")).toBeNull();
+
+    const nullish = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => null}
+      />,
+    );
+    await waitFor(() => expect(nullish.getByText("Active")).toBeTruthy());
+    expect(nullish.queryByText("Saved")).toBeNull();
+  });
+
+  it("leaves the Saved row absent when its reader rejects", async () => {
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => Promise.reject(new Error("worker unavailable"))}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+    expect(r.queryByText("Saved")).toBeNull();
+  });
+
+  it("leaves the Saved row absent when its reader throws before returning a promise", async () => {
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={() => {
+          throw new Error("chrome.runtime unavailable");
+        }}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+    expect(r.queryByText("Saved")).toBeNull();
+  });
+
+  it("does not update an unmounted popup after the summary resolves late", async () => {
+    let resolveSummary!: (counts: { folders: number; savedPosts: number }) => void;
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={() =>
+          new Promise((resolve) => {
+            resolveSummary = resolve;
+          })
+        }
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+    r.unmount();
+    await act(async () => resolveSummary({ folders: 1, savedPosts: 1 }));
+  });
+
+  it("does not update an unmounted popup after the summary rejects late", async () => {
+    let rejectSummary!: (reason: unknown) => void;
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={() =>
+          new Promise((_resolve, reject) => {
+            rejectSummary = reject;
+          })
+        }
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+    r.unmount();
+    await act(async () => rejectSummary(new Error("worker unavailable")));
+  });
+
+  it("renders alongside the Mirror row without either affecting the other", async () => {
+    const { settings } = configuredSettings();
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        settings={settings}
+        mirrorStatus={async () => ({ ok: true, at: Date.now(), configId: "mirror-1" })}
+        savedSummary={async () => ({ folders: 2, savedPosts: 4 })}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Last Mirror write succeeded just now")).toBeTruthy());
+    await waitFor(() => expect(r.getByText("4 posts")).toBeTruthy());
+    expect(r.getByText("2 Folders")).toBeTruthy();
+  });
+
+  it("does not host the criteria chips, presets card or Mirror row on a failing read", async () => {
+    const r = render(
+      <PopupApp
+        {...base}
+        filter={createFilterStore({ storage: fakeStorage() })}
+        savedSummary={async () => Promise.reject(new Error("worker unavailable"))}
+      />,
+    );
+    await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
+    expect(r.getByLabelText("Only my languages")).toBeTruthy();
+    expect(r.getByText("Save one from the funnel on x.com")).toBeTruthy();
+    expect(r.getByLabelText("Hide filtered posts")).toBeTruthy();
+  });
+});

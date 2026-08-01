@@ -94,6 +94,14 @@ module.exports = {
       to: { path: "^src/(?:content|background)/", reachable: true },
     },
     {
+      name: "popup-cannot-open-collections-store",
+      comment:
+        "The popup's collections grant is the worker-mediated counts summary alone (ADR-0013) — it must never gain a way to open Folders storage directly. This bans the folders package's store-opening entry point (`index.ts`, which pulls in IndexedDB via `createCollectionStore`) from the popup; `database.ts`, `types.ts` and `ids.ts` stay reachable because they carry no store code. ADDING a Destination adapter package (Convex/Notion/Airtable, ticket #41)? Its entry point opens a remote store the same way a local one opens IndexedDB — add its path here the day it lands, or this rule stops covering half of what it promises.",
+      severity: "error",
+      from: { path: "^src/popup/" },
+      to: { path: ["^src/packages/folders/index\\.ts$", "^src/packages/[^/]*destination[^/]*/"] },
+    },
+    {
       name: "tweet-read-is-account-free",
       comment:
         "tweet-read answers 'which post is this' from the article alone. Its durable capture is keyed by status id and nothing else, so the same article captures identically whichever X account the page is signed in as — the package may not reach a current-account, Owner or session module. ADDING an account-bearing module elsewhere? Add it to this `to` list, or the guard silently stops covering it.",

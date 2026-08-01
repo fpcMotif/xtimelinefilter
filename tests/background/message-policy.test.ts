@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { canHandleMessage } from "@/background/message-policy";
 import type { SenderCapability } from "@/background/message-sender";
+import { COLLECTIONS_OPERATIONS, type CollectionsOperation } from "@/core/protocol/collections";
 
 const allowed = (capability: SenderCapability, message: unknown): void =>
   expect(canHandleMessage(capability, message)).toBe(true);
@@ -56,17 +57,34 @@ describe("runtime message capability policy", () => {
     });
     denied("x-content", { type: "lasso:coach", command: { kind: "replay-intro" } });
     denied("x-content", { type: "lasso:list-cache", operation: "all" });
+    // The page saves and browses Folders but renders no count: the popup's
+    // summary read is refused here (ticket #74).
+    denied("x-content", { type: "lasso:collections", operation: "counts" });
   });
 
-  it("gives the popup Filter read/commands, Settings read, and Mirror read", () => {
+  it("gives the popup Filter read/commands, Settings read, Mirror read, and the collections counts summary", () => {
     allowed("popup", { type: "lasso:filter", operation: "read" });
     allowed("popup", { type: "lasso:filter", operation: "command" });
     allowed("popup", { type: "lasso:settings", operation: "read" });
     allowed("popup", { type: "lasso:mirror-status", operation: "read" });
+    allowed("popup", { type: "lasso:collections", operation: "counts" });
     denied("popup", { type: "lasso:settings", operation: "patch", patch: {} });
     denied("popup", { type: "lasso:mirror-status", operation: "report" });
     denied("popup", { type: "lasso:list-cache", operation: "all" });
     denied("popup", { type: "lasso:clear-data" });
+  });
+
+  it("pins the popup's collections allow-list as an exact set: the counts summary and nothing else (ticket #74)", () => {
+    // Walks every operation the family knows about, so an operation added later
+    // (e.g. a Destination-seam `destination-status` or `sync-now`) must extend
+    // this literal ON PURPOSE rather than being granted to the popup by
+    // omission. #69 already scoped the family this way; this pins it here too,
+    // beside the popup's other capabilities, per ticket #74.
+    const POPUP_ALLOWED: readonly CollectionsOperation[] = ["counts"];
+    for (const operation of COLLECTIONS_OPERATIONS) {
+      const message = { type: "lasso:collections", operation };
+      expect(canHandleMessage("popup", message), operation).toBe(POPUP_ALLOWED.includes(operation));
+    }
   });
 
   it("fails closed for unknown senders, routes, operations, and malformed inputs", () => {

@@ -4,8 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { activeCriteriaCount } from "@/core/filter-projection";
 import { createFilterStore, type FilterStore } from "@/core/filter-store";
 import { mirrorAgeLabel, type MirrorStatus } from "@/core/mirror-status";
+import type { CollectionCounts } from "@/core/protocol/collections";
 import { createSettings, type SettingsStore } from "@/core/settings";
-import { POPUP_ACTIVE, POPUP_ASLEEP } from "@/core/strings";
+import {
+  folderCountLine,
+  POPUP_ACTIVE,
+  POPUP_ASLEEP,
+  SAVED_EMPTY,
+  savedPostsCountLine,
+} from "@/core/strings";
 import { Badge, Button, Card, LassoMark, PresetApplyPill, Switch } from "@/ui/components";
 import { useSignalValue } from "@/ui/use-signal-value";
 
@@ -25,6 +32,12 @@ export interface PopupDeps {
   mirrorStatus?(): Promise<MirrorStatus | null>;
   /** Live Mirror status changes while the popup remains open. */
   subscribeMirrorStatus?(cb: (status: MirrorStatus | null) => void): () => void;
+  /**
+   * The popup's entire collections grant (ADR-0013): one account-free read of
+   * how much the user has saved. Read once on mount — never subscribed —
+   * absent/null ⇒ no Saved row.
+   */
+  savedSummary?(): Promise<CollectionCounts | null>;
   now?: () => number;
 }
 
@@ -52,6 +65,7 @@ export function PopupApp({
   settings: settingsProp,
   mirrorStatus,
   subscribeMirrorStatus,
+  savedSummary,
   now,
 }: PopupDeps) {
   // Create the stores ONCE per mount — never as a parameter default. A
@@ -64,6 +78,7 @@ export function PopupApp({
   const [state, setState] = useState<TabState | null>(null);
   const [mirror, setMirror] = useState<MirrorStatus | null>(null);
   const [mirrorConfigId, setMirrorConfigId] = useState<string | null>(null);
+  const [savedCounts, setSavedCounts] = useState<CollectionCounts | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
   const filterState = useSignalValue(filter.state);
 
@@ -157,6 +172,27 @@ export function PopupApp({
       }
     };
   }, [mirrorStatus, subscribeMirrorStatus]);
+
+  useEffect(() => {
+    // One-shot on mount — no subscription, no storage watch. The timeline
+    // cannot be touched while the popup has focus, so a second channel would
+    // buy nothing (ADR-0013).
+    let mounted = true;
+    try {
+      void savedSummary?.()
+        .then((next) => {
+          if (mounted) setSavedCounts(next);
+        })
+        .catch(() => {
+          // Cosmetic — a rejecting reader just leaves the row absent.
+        });
+    } catch {
+      // An injected reader can throw before returning its promise.
+    }
+    return () => {
+      mounted = false;
+    };
+  }, [savedSummary]);
 
   useEffect(() => {
     if (!applied) return;
@@ -284,6 +320,8 @@ export function PopupApp({
           checked={filterState.compactHidden}
           onChange={(on) => filter.setCompactHidden(on)}
         />
+
+        {savedCounts && <SavedRow counts={savedCounts} onOpen={openOptions} />}
       </Card>
 
       <div class="flex flex-col gap-1.5 px-0.5">
@@ -325,5 +363,34 @@ function ToggleRow({
       </span>
       <Switch id={id} label={label} checked={checked} onChange={onChange} />
     </label>
+  );
+}
+
+/**
+ * The popup's entire collections grant, rendered (ADR-0013): an at-a-glance
+ * count of how much the user has kept, with no sync line, no spinner and no
+ * Retry — a local count that asked the user to retry would be a bug. Two
+ * states only, both open Options: an empty pile, and the Saved-Post count with
+ * the live Folder count as a secondary cue.
+ */
+function SavedRow({ counts, onOpen }: { counts: CollectionCounts; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      class="hover:bg-secondary/50 focus-visible:ring-ring/55 flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors outline-none focus-visible:ring-2"
+    >
+      <span class="text-compact font-medium">Saved</span>
+      {counts.savedPosts === 0 ? (
+        <span class="text-faint text-xs">{SAVED_EMPTY}</span>
+      ) : (
+        <span class="flex flex-col items-end">
+          <span class="text-compact font-semibold tabular-nums">
+            {savedPostsCountLine(counts.savedPosts)}
+          </span>
+          <span class="text-faint text-2xs">{folderCountLine(counts.folders)}</span>
+        </span>
+      )}
+    </button>
   );
 }

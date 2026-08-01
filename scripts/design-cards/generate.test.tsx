@@ -712,6 +712,63 @@ describe("design-card generator", () => {
         ),
     );
 
+    /* ── proposed: popup Saved row (spec #41, ticket #74) ─────────────────
+       A DESIGN MOCKUP, not a shipping component — ticket #74 requires this
+       reviewed before the row's code lands. Composed from the real Switch
+       primitive and the exact row classes the implementation will use, next to
+       the popup's real "Only my languages" / "Hide filtered posts" rows so the
+       reviewer sees it in place rather than in isolation. */
+    await card(
+      {
+        group: "Extension pages",
+        name: "Popup — Saved row (proposed, ticket #74)",
+        file: "page-popup-saved-row.html",
+        minHeight: 340,
+      },
+      async () => {
+        const toggleRow = (label: string) => (
+          <label class="flex cursor-pointer items-center justify-between gap-3 px-3.5 py-2.5">
+            <span class="text-compact font-medium">{label}</span>
+            <Switch label={label} checked={false} onChange={noop} />
+          </label>
+        );
+        const savedRow = (empty: boolean) => (
+          <button
+            type="button"
+            class="hover:bg-secondary/50 focus-visible:ring-ring/55 flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors outline-none focus-visible:ring-2"
+          >
+            <span class="text-compact font-medium">Saved</span>
+            {empty ? (
+              <span class="text-faint text-xs">No saved posts yet</span>
+            ) : (
+              <span class="flex flex-col items-end">
+                <span class="text-compact font-semibold tabular-nums">128 posts</span>
+                <span class="text-faint text-2xs">12 Folders</span>
+              </span>
+            )}
+          </button>
+        );
+        const shell = (empty: boolean) =>
+          snap(
+            <div
+              style="max-width:320px"
+              class="bg-card text-card-foreground border-border divide-border flex flex-col gap-0 divide-y rounded-2xl border p-0 shadow-[var(--shadow-elevated)]"
+            >
+              {toggleRow("Only my languages")}
+              {savedRow(empty)}
+              {toggleRow("Hide filtered posts")}
+            </div>,
+          );
+        return (
+          section("Empty pile — no saves yet", await shell(true)) +
+          section(
+            "With saves — 128 saved posts across 12 Folders, click opens Options",
+            await shell(false),
+          )
+        );
+      },
+    );
+
     await card(
       {
         group: "Extension pages",
