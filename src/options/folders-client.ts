@@ -5,7 +5,7 @@ import {
   type FolderCounts,
 } from "@/core/protocol/collections";
 import { hasWorkerTransport } from "@/core/worker-transport";
-import type { Folder, FolderDisposition } from "@/packages/folders/types";
+import type { Folder, FolderDisposition, FolderPage } from "@/packages/folders/types";
 
 /**
  * The Options page's door to Folders — the workshop's narrow surface over the
@@ -37,6 +37,8 @@ export interface FoldersClient {
   countFolderForDelete(folderId: string): Promise<FolderCounts>;
   /** The deduped, global summary: live Folder count and distinct Saved-Post total. */
   counts(): Promise<CollectionCounts>;
+  /** One bounded page of a Folder's Saved Posts. `cursor` null for the first page. */
+  readFolderPage(folderId: string, limit: number, cursor: string | null): Promise<FolderPage>;
 }
 
 const TYPE = "lasso:collections";
@@ -84,6 +86,9 @@ function createInertFoldersClient(): FoldersClient {
     },
     async counts() {
       return { folders: 0, savedPosts: 0 };
+    },
+    async readFolderPage() {
+      return { posts: [], nextCursor: null };
     },
   };
 }
@@ -161,6 +166,17 @@ function createWorkerFoldersClient(): FoldersClient {
         counts: CollectionCounts;
       };
       return response.counts;
+    },
+
+    async readFolderPage(folderId, limit, cursor) {
+      const response = (await requestCollections({
+        type: TYPE,
+        operation: "read-folder-page",
+        folderId,
+        limit,
+        cursor,
+      })) as { page: FolderPage };
+      return response.page;
     },
   };
 }

@@ -9,7 +9,7 @@ import {
   FOLDER_NAME_TOO_LONG,
   FoldersOptions,
 } from "@/options/FoldersOptions";
-import type { Folder, FolderDisposition } from "@/packages/folders/types";
+import type { Folder, FolderDisposition, SavedPost } from "@/packages/folders/types";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -40,10 +40,12 @@ function fakeFoldersClient(seed: string[] = []) {
     deletedAt: null,
   }));
   const membership = new Map<string, Set<string>>();
+  const savedPosts = new Map<string, SavedPost>();
   const calls: string[] = [];
   let listFoldersImpl = async () => folders.filter((f) => !f.deletedAt).map((f) => ({ ...f }));
   let writeShouldFail = false;
   let deletePreviewShouldFail = false;
+  let readFolderPageShouldFail = false;
 
   const held = (folderId: string) => membership.get(folderId) ?? new Set<string>();
 
@@ -118,6 +120,18 @@ function fakeFoldersClient(seed: string[] = []) {
       for (const set of membership.values()) for (const statusId of set) distinct.add(statusId);
       return { folders: folders.filter((f) => !f.deletedAt).length, savedPosts: distinct.size };
     },
+    async readFolderPage(folderId, limit, cursor) {
+      calls.push("readFolderPage");
+      if (readFolderPageShouldFail) throw new Error("worker rejected it");
+      const ids = [...(membership.get(folderId) ?? [])];
+      const start = cursor ? Number(cursor) : 0;
+      const slice = ids.slice(start, start + limit);
+      const posts = slice
+        .map((id) => savedPosts.get(id))
+        .filter((p): p is SavedPost => !!p);
+      const nextCursor = start + limit < ids.length ? String(start + limit) : null;
+      return { posts, nextCursor };
+    },
   };
 
   return {
@@ -127,6 +141,12 @@ function fakeFoldersClient(seed: string[] = []) {
     seedMembership(folderId: string, statusId: string) {
       if (!membership.has(folderId)) membership.set(folderId, new Set());
       membership.get(folderId)!.add(statusId);
+    },
+    seedSavedPost(post: SavedPost) {
+      savedPosts.set(post.statusId, post);
+    },
+    failReadFolderPage(on: boolean) {
+      readFolderPageShouldFail = on;
     },
     failWrites(on: boolean) {
       writeShouldFail = on;
@@ -621,5 +641,119 @@ describe("FoldersOptions — late async work is dropped after unmount", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+  });
+});
+
+const post = (over: Partial<SavedPost> = {}): SavedPost => ({
+  statusId: "2082",
+  permalink: "https://x.com/ada/status/2082",
+  author: { screenName: "ada" },
+  text: "hello folders",
+  media: [],
+  capturedAt: 1_700_000_000_000,
+  note: "",
+  tags: [],
+  ...over,
+});
+
+describe("FoldersOptions — Folder contents browser (#82)", () => {
+  it("opens a Folder and shows its first page of Saved Posts", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(post());
+    fake.seedSavedPost(post({ statusId: "2083", text: "second post", author: { screenName: "bob" } }));
+    fake.seedMembership(folder!.folderId, "2082");
+    fake.seedMembership(folder!.folderId, "2083");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+    expect(r.getByText("second post")).toBeTruthy();
+    expect(r.getByText("@ada")).toBeTruthy();
+    expect(r.getByText("@bob")).toBeTruthy();
+    expect(r.getByText("Back to Folders")).toBeTruthy();
+  });
+
+  it("shows an honest empty state when the Folder holds nothing", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("This Folder has no saved posts yet.")).toBeTruthy());
+    expect(r.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows an error with Retry when the page read fails", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    fake.failReadFolderPage(true);
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByRole("alert")).toBeTruthy());
+    expect(r.getByText("Couldn't load this Folder's posts.")).toBeTruthy();
+
+    fake.failReadFolderPage(false);
+    fake.seedSavedPost(post());
+    const [folder] = fake.folders();
+    fake.seedMembership(folder!.folderId, "2082");
+    fireEvent.click(r.getByText("Retry"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+  });
+
+  it("links each row to the original post on X", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    fake.seedSavedPost(post());
+    fake.seedMembership(folder!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+
+    const link = r.getByText("Open on X").closest("a");
+    expect(link?.getAttribute("href")).toBe("https://x.com/ada/status/2082");
+    expect(link?.getAttribute("target")).toBe("_blank");
+  });
+
+  it("goes back to the Folder list without losing workshop context", async () => {
+    const fake = fakeFoldersClient(["Research", "Design refs"]);
+    const [research] = fake.folders();
+    fake.seedSavedPost(post());
+    fake.seedMembership(research!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+
+    fireEvent.click(r.getByText("Back to Folders"));
+    await waitFor(() => expect(r.getByText("Design refs")).toBeTruthy());
+    expect(r.getByText("Research")).toBeTruthy();
+  });
+
+  it("a post filed in two Folders appears when browsing either", async () => {
+    const fake = fakeFoldersClient(["Research", "Design refs"]);
+    const [research, design] = fake.folders();
+    fake.seedSavedPost(post());
+    fake.seedMembership(research!.folderId, "2082");
+    fake.seedMembership(design!.folderId, "2082");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+    fireEvent.click(r.getByText("Back to Folders"));
+    await waitFor(() => expect(r.getByText("Design refs")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Design refs"));
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
   });
 });

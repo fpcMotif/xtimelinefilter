@@ -120,6 +120,36 @@ describe("the Options workshop's door to Folders", () => {
     expect(w.operations()).toEqual(["counts"]);
   });
 
+  it("reads one bounded Folder page with no fence and no Owner field", async () => {
+    const page = {
+      posts: [
+        {
+          statusId: "2082",
+          permalink: "https://x.com/ada/status/2082",
+          author: { screenName: "ada" },
+          text: "hello folders",
+          media: [],
+          capturedAt: 1_700_000_000_000,
+          note: "",
+          tags: [],
+        },
+      ],
+      nextCursor: null,
+    };
+    const w = worker({ ok: true, page });
+    expect(await createFoldersClient().readFolderPage(FOLDER, 25, null)).toEqual(page);
+    expect(w.operations()).toEqual(["read-folder-page"]);
+    expect(w.sent[0]).toEqual({
+      type: "lasso:collections",
+      operation: "read-folder-page",
+      folderId: FOLDER,
+      limit: 25,
+      cursor: null,
+    });
+    expect(w.sent[0]).not.toHaveProperty("ownerUserId");
+    expect(w.sent[0]).not.toHaveProperty("owner");
+  });
+
   it("throws rather than reporting a write that did not happen", async () => {
     const sendMessage = vi.fn(async () => ({ ok: false, error: "Folders unavailable" }));
     globalThis.chrome = { runtime: { sendMessage } } as unknown as typeof chrome;
@@ -146,6 +176,7 @@ describe("the Options workshop's door to Folders", () => {
       { ok: true, count: 3 },
       { ok: true, count: 3, shared: 1 },
       { ok: true, counts: { folders: 1, savedPosts: 0 } },
+      { ok: true, page: { posts: [], nextCursor: null } },
     );
     const client = createFoldersClient();
     await client.listFolders();
@@ -156,6 +187,7 @@ describe("the Options workshop's door to Folders", () => {
     await client.countFolder(FOLDER);
     await client.countFolderForDelete(FOLDER);
     await client.counts();
+    await client.readFolderPage(FOLDER, 25, null);
 
     expect(w.sent.length).toBeGreaterThan(0);
     for (const message of w.sent) {
@@ -178,5 +210,6 @@ describe("the Options workshop's door to Folders", () => {
     expect(await client.countFolder(FOLDER)).toBe(0);
     expect(await client.countFolderForDelete(FOLDER)).toEqual({ count: 0, shared: 0 });
     expect(await client.counts()).toEqual({ folders: 0, savedPosts: 0 });
+    expect(await client.readFolderPage(FOLDER, 25, null)).toEqual({ posts: [], nextCursor: null });
   });
 });

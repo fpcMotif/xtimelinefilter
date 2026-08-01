@@ -297,6 +297,10 @@ Choose a default List to make `Alt+Shift+L` add directly without opening the pic
 
 If no Lists are available yet, Lasso asks you to open x.com once so it can see your Lists.
 
+### Manage Folders
+
+Create, rename, reorder, and delete Folders. Each row shows how many posts it holds. Click **Browse** to see the posts inside a Folder: author, text, when Lasso filed it, and a link to the original on X. Empty Folders say so; a failed read offers Retry.
+
 ### Keyboard Shortcuts
 
 The settings page lists the active shortcuts. The same list appears in the `?` sheet on x.com.

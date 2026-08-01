@@ -87,6 +87,12 @@ export const FOLDER_PICKER_HOLDING_LABEL = "Already in this Folder";
 /** Per-post overlay control — works without j/k focus or hover-sticky target. */
 export const SAVE_POST_LABEL = "Save post to a Folder";
 
+// 10d — Folder contents browser (ticket #82)
+export const FOLDER_CONTENTS_BACK = "Back to Folders";
+export const FOLDER_CONTENTS_EMPTY = "This Folder has no saved posts yet.";
+export const FOLDER_CONTENTS_ERROR = "Couldn't load this Folder's posts.";
+export const FOLDER_CONTENTS_OPEN_ORIGINAL = "Open on X";
+
 // 10c — the popup's Saved row (ticket #74). Counts POSTS, not people — see the
 // module header. The row names no keyboard binding: the save gesture is a
 // separate surface's concern, and the empty state must not advertise a key

@@ -7,9 +7,15 @@ import {
   type FolderCounts,
 } from "@/core/protocol/collections";
 import { ALWAYS_ASK } from "@/core/settings-domain";
-import { SEEDED_FOLDER_NAME } from "@/core/strings";
+import {
+  FOLDER_CONTENTS_BACK,
+  FOLDER_CONTENTS_EMPTY,
+  FOLDER_CONTENTS_ERROR,
+  FOLDER_CONTENTS_OPEN_ORIGINAL,
+  SEEDED_FOLDER_NAME,
+} from "@/core/strings";
 import type { FoldersClient } from "@/options/folders-client";
-import type { Folder, FolderDisposition } from "@/packages/folders/types";
+import type { Folder, FolderDisposition, FolderPage, SavedPost } from "@/packages/folders/types";
 import { Button, Input } from "@/ui/components";
 
 export const FOLDERS_EMPTY = "No Folders yet — create one above to start filing posts.";
@@ -214,6 +220,7 @@ function FolderRow({
   onRename,
   onMove,
   onDeleteRequested,
+  onBrowse,
 }: {
   folder: Folder;
   index: number;
@@ -222,6 +229,7 @@ function FolderRow({
   onRename: (folderId: string, name: string) => void;
   onMove: (folderId: string, direction: "up" | "down") => void;
   onDeleteRequested: (folder: Folder, counts: FolderCounts) => void;
+  onBrowse: (folder: Folder) => void;
 }) {
   const [draft, setDraft] = useState(folder.name);
   const [editing, setEditing] = useState(false);
@@ -313,11 +321,122 @@ function FolderRow({
       <Button
         variant="outline"
         size="sm"
+        aria-label={`Browse ${folder.name}`}
+        onClick={() => onBrowse(folder)}
+      >
+        Browse
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
         aria-label={`Delete ${folder.name}`}
         onClick={() => void requestDelete()}
       >
         Delete
       </Button>
+    </li>
+  );
+}
+
+/** One bounded page of a Folder's Saved Posts, with honest empty/error states. */
+function FolderContents({
+  folder,
+  client,
+  onBack,
+}: {
+  folder: Folder;
+  client: FoldersClient;
+  onBack: () => void;
+}) {
+  const [page, setPage] = useState<FolderPage | null>(null);
+  const [error, setError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setError(false);
+    client
+      .readFolderPage(folder.folderId, 25, null)
+      .then((p) => {
+        if (active) setPage(p);
+      })
+      .catch(() => {
+        if (active) setError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, folder.folderId, retryCount]);
+
+  return (
+    <div class="flex flex-col gap-3">
+      <div class="flex items-center gap-3">
+        <Button variant="ghost" size="pill" onClick={onBack}>
+          {FOLDER_CONTENTS_BACK}
+        </Button>
+        <h3 class="text-md font-semibold">{folder.name}</h3>
+      </div>
+
+      {error && (
+        <div class="flex flex-col gap-2">
+          <p role="alert" class="text-destructive text-sm">
+            {FOLDER_CONTENTS_ERROR}
+          </p>
+          <div>
+            <Button variant="outline" size="pill" onClick={() => setRetryCount((c) => c + 1)}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!error && page === null && (
+        <div class="flex flex-col gap-2">
+          <div class="bg-secondary h-12 w-full animate-pulse rounded-lg" />
+          <div class="bg-secondary h-12 w-full animate-pulse rounded-lg" />
+        </div>
+      )}
+
+      {!error && page !== null && page.posts.length === 0 && (
+        <p class="text-muted-foreground text-compact border-border rounded-xl border border-dashed px-4 py-6 text-center">
+          {FOLDER_CONTENTS_EMPTY}
+        </p>
+      )}
+
+      {!error && page !== null && page.posts.length > 0 && (
+        <ul class="flex flex-col gap-2">
+          {page.posts.map((post) => (
+            <SavedPostRow key={post.statusId} post={post} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function SavedPostRow({ post }: { post: SavedPost }) {
+  const filedAt = new Date(post.capturedAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return (
+    <li class="border-border flex flex-col gap-1.5 rounded-xl border px-3.5 py-2.5 text-sm">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-foreground font-medium">@{post.author?.screenName ?? "unknown"}</span>
+        <span class="text-faint text-compact">{filedAt}</span>
+      </div>
+      {post.text && <p class="text-muted-foreground line-clamp-2">{post.text}</p>}
+      {post.permalink && (
+        <a
+          href={post.permalink}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-primary text-compact hover:underline"
+        >
+          {FOLDER_CONTENTS_OPEN_ORIGINAL}
+        </a>
+      )}
     </li>
   );
 }
@@ -374,6 +493,7 @@ export interface FoldersOptionsProps {
 export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: FoldersOptionsProps) {
   const draft = useFoldersDraft(client);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [browsing, setBrowsing] = useState<Folder | null>(null);
 
   if (draft.loadError) {
     return (
@@ -405,6 +525,16 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
   const namedDefault = draft.folders.find((f) => f.folderId === defaultFolderId);
   const selectValue =
     defaultFolderId === ALWAYS_ASK ? ALWAYS_ASK : (namedDefault?.folderId ?? DEFAULT_FOLDER_UNSET);
+
+  if (browsing) {
+    return (
+      <FolderContents
+        folder={browsing}
+        client={client}
+        onBack={() => setBrowsing(null)}
+      />
+    );
+  }
 
   return (
     <div class="flex flex-col gap-4">
@@ -444,6 +574,7 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
               onRename={(folderId, name) => void draft.rename(folderId, name)}
               onMove={(folderId, direction) => void draft.move(folderId, direction)}
               onDeleteRequested={(target, counts) => setPendingDelete({ folder: target, counts })}
+              onBrowse={setBrowsing}
             />
           ))}
         </ul>

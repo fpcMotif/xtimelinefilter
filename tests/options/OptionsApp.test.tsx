@@ -56,6 +56,9 @@ function fakeFoldersClient(folders: Folder[] = []): FoldersClient {
     async counts() {
       return { folders: folders.length, savedPosts: 0 };
     },
+    async readFolderPage() {
+      return { posts: [], nextCursor: null };
+    },
   };
 }
 

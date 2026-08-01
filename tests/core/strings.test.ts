@@ -85,6 +85,13 @@ describe("canonical strings", () => {
     expect(S.SAVE_POST_LABEL).toBe("Save post to a Folder");
   });
 
+  it("10d — Folder contents browser", () => {
+    expect(S.FOLDER_CONTENTS_BACK).toBe("Back to Folders");
+    expect(S.FOLDER_CONTENTS_EMPTY).toBe("This Folder has no saved posts yet.");
+    expect(S.FOLDER_CONTENTS_ERROR).toBe("Couldn't load this Folder's posts.");
+    expect(S.FOLDER_CONTENTS_OPEN_ORIGINAL).toBe("Open on X");
+  });
+
   it("10c — the popup's Saved row counts posts, not people", () => {
     expect(S.SAVED_EMPTY).toBe("No saved posts yet");
     expect(S.savedPostsCountLine(1)).toBe("1 post");
