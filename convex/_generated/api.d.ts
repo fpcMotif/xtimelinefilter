@@ -10,10 +10,14 @@
 
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 
+import type * as folderReplica from "../folderReplica.js";
+import type * as folderReplicaValidators from "../folderReplicaValidators.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as membership from "../membership.js";
 
 declare const fullApi: ApiFromModules<{
+  folderReplica: typeof folderReplica;
+  folderReplicaValidators: typeof folderReplicaValidators;
   "lib/auth": typeof lib_auth;
   membership: typeof membership;
 }>;

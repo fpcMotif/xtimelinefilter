@@ -9,7 +9,7 @@ The code favors deep modules: a small interface hides substantial implementation
 - `src/ui/` owns Shadow DOM presentation.
 - `src/background/` owns browser-data authority and Chrome lifecycle duties.
 - `src/packages/` contains deep modules. Consumers import only package-root entry points. See [`src/packages/README.md`](../src/packages/README.md).
-- `convex/` owns the optional Mirror's schema and server functions.
+- `convex/` owns the optional Membership Mirror and the optional Folder Replica schema and server functions.
 
 The dependency boundary gate checks cycles and package privacy across `src/`, `tests/`, `convex/`, `e2e/`, and `scripts/`.
 
@@ -20,6 +20,7 @@ The dependency boundary gate checks cycles and package privacy across `src/`, `t
 - `tweet-actions` owns one-Tweet UI actions. Content injects keyboard-safe Escape dispatch. It injects author-caret lookup into `x-client`'s DOM driver.
 - `membership-store` exposes the optional Mirror seam. Convex and null implementations share one contract.
 - `folders` owns the Folders domain and the `CollectionStore` seam: the local-first database now, a Destination adapter later, chosen by one factory. It is headless and standalone — no Chrome API, no DOM, no x.com — and declares the post capture's shape itself rather than importing it, so it never reaches the content tree. No operation takes an account (ADR-0013).
+- `folders` also owns the local replica bookkeeping and its small `CollectionReplicaRemote` seam. It scans and queues account-free Folder changes inside the worker-owned database; the only source file naming generated Convex functions is the HTTP adapter.
 
 Keeping these interfaces narrow improves locality: X drift, Mirror transport, and Tweet parsing each change behind one boundary. Their leverage comes from every caller sharing the same policy.
 
@@ -37,11 +38,12 @@ Keeping these interfaces narrow improves locality: X drift, Mirror transport, an
 
 - X is authoritative for Lists and memberships.
 - The Mirror records and caches X answers. It never drives X.
+- A configured Convex Folder Replica is authoritative only for convergence among local Folder replicas. It never drives X; unconfigured or unavailable Convex never changes a local Folder result.
 - Only the active Owner's Lists are writable. Code fences Owner changes; live Owner switching still needs proof.
 - The worker serializes migration, Settings, Filter, Coach, List cache and usage, GraphQL catalog, Mirror status, collections, and Privacy clear.
 - Settings live in `chrome.storage.local`; Filter preferences live in `chrome.storage.sync`.
-- Folders and Saved Posts live in a worker-owned IndexedDB database, not `chrome.storage`: `sync` has a quota a pill-drag has already burned once, and `local` is deliberately closed to content. The worker is the only context that opens it, through an injected factory, so no surface names the implementation. Destination tokens live under their own worker-owned key outside the Settings record, so a Settings read grant cannot reach one.
-- Sender capabilities are narrow: Options owns clear and full Settings/Filter work and every collections operation; Popup reads Settings and Mirror status, reads/commands Filter, and reads the collections counts summary alone; top-level x.com content gets its allowed commands only, and for collections that is list/holding/create/save/unsave with no count read. Unknown senders fail closed.
+- Folders and Saved Posts live in a worker-owned IndexedDB database, not `chrome.storage`: `sync` has a quota a pill-drag has already burned once, and `local` is deliberately closed to content. The worker is the only context that opens it, through an injected factory, so no surface names the implementation. The same database holds configuration-scoped replica cursor, outbox, conflict, and tombstone metadata; none names an Owner, an X account, or Chrome profile. Destination tokens live under their own worker-owned key outside the Settings record, so a Settings read grant cannot reach one.
+- Sender capabilities are narrow: Options owns clear and full Settings/Filter work and every collections operation, including Folder-replica status and Sync now; Popup reads Settings and Mirror status, reads/commands Filter, and reads the collections counts summary alone; top-level x.com content gets its allowed commands only, and for collections that is list/holding/create/save/unsave with no count or replica read. Unknown senders fail closed.
 - Storage changes fan out in order per area/key to extension pages and top-level tab content.
 - Filter state is display-only and never load-bearing for List assignment.
 
@@ -61,7 +63,7 @@ Keeping these interfaces narrow improves locality: X drift, Mirror transport, an
 - UI data is rendered through Preact in open Shadow DOM, never fetched HTML.
 - Mirror failure cannot alter assignment, undo, selection, or feedback.
 - Hidden Filter cells remain in the DOM for restoration. Their retained overlay is CSS-hidden; keyboard and pointer target seams reject the cell until it is shown.
-- Privacy clear writes a terminal migration tombstone and rotates the persisted cache-observation epoch before deletion. Old cache commits cannot revive cleared data; later work may write fresh data. It also destroys the collections database and the reserved Destination-secrets key, and reports `localCleared: false` unless the database went too — so a collections write fenced by a pre-clear token is refused rather than landing after the wipe.
+- Privacy clear writes a terminal migration tombstone and rotates the persisted cache-observation epoch before deletion. Old cache commits cannot revive cleared data; later work may write fresh data. It also destroys the collections database, its local replica cursor/outbox/status, Convex configuration, and the reserved Destination-secrets key, and reports `localCleared: false` unless the database went too — so a collections write fenced by a pre-clear token is refused rather than landing after the wipe. It does not delete the optional personal Convex replica remotely.
 
 ## Current stack
 

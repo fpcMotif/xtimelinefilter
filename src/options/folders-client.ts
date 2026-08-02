@@ -6,6 +6,7 @@ import {
 } from "@/core/protocol/collections";
 import { hasWorkerTransport } from "@/core/worker-transport";
 import type { Folder, FolderDisposition, FolderPage } from "@/packages/folders/types";
+import type { CollectionReplicaStatus } from "@/packages/folders/replica";
 
 /**
  * The Options page's door to Folders — the workshop's narrow surface over the
@@ -39,9 +40,20 @@ export interface FoldersClient {
   counts(): Promise<CollectionCounts>;
   /** One bounded page of a Folder's Saved Posts. `cursor` null for the first page. */
   readFolderPage(folderId: string, limit: number, cursor: string | null): Promise<FolderPage>;
+  /** Ask the worker to reconcile the optional account-free replica now. */
+  syncNow(): Promise<CollectionReplicaStatus>;
+  /** The worker's current account-free replica outcome, without starting work. */
+  replicaStatus(): Promise<CollectionReplicaStatus>;
 }
 
 const TYPE = "lasso:collections";
+
+const LOCAL_ONLY_REPLICA_STATUS: CollectionReplicaStatus = {
+  state: "local-only",
+  updatedAt: null,
+  error: null,
+  conflicts: 0,
+};
 
 /** A fence minted per write, exactly like the content-script client. */
 async function token(): Promise<CacheObservation> {
@@ -89,6 +101,12 @@ function createInertFoldersClient(): FoldersClient {
     },
     async readFolderPage() {
       return { posts: [], nextCursor: null };
+    },
+    async syncNow() {
+      return LOCAL_ONLY_REPLICA_STATUS;
+    },
+    async replicaStatus() {
+      return LOCAL_ONLY_REPLICA_STATUS;
     },
   };
 }
@@ -177,6 +195,22 @@ function createWorkerFoldersClient(): FoldersClient {
         cursor,
       })) as { page: FolderPage };
       return response.page;
+    },
+
+    async syncNow() {
+      const response = (await requestCollections({
+        type: TYPE,
+        operation: "sync-now",
+      })) as { replicaStatus: CollectionReplicaStatus };
+      return response.replicaStatus;
+    },
+
+    async replicaStatus() {
+      const response = (await requestCollections({
+        type: TYPE,
+        operation: "replica-status",
+      })) as { replicaStatus: CollectionReplicaStatus };
+      return response.replicaStatus;
     },
   };
 }

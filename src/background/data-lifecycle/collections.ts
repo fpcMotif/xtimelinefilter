@@ -15,6 +15,12 @@ import type { StorageLike } from "@/core/storage-areas";
 import { COLLECTIONS_DATABASE, STORAGE_KEYS } from "@/core/storage-keys";
 import { SEEDED_FOLDER_NAME } from "@/core/strings";
 import { createCollectionStore } from "@/packages/folders";
+import {
+  isReplicatedCollectionStore,
+  type CollectionReplicaConfig,
+  type CollectionReplicaRemote,
+  type CollectionReplicaStatus,
+} from "@/packages/folders/replica";
 import type { CollectionStore, Folder, PostCapture } from "@/packages/folders/types";
 
 /** Builds the one store this worker will ever own. Tests substitute an in-memory one. */
@@ -22,6 +28,28 @@ export type CollectionStoreFactory = () => Promise<CollectionStore>;
 
 /** Destroys the collections database. True only when it is really gone. */
 export type DatabaseDestroyer = () => Promise<boolean>;
+
+/** The configured personal Convex deployment behind one local Folder replica. */
+export interface CollectionReplicaConnection extends CollectionReplicaConfig {
+  url: string;
+  deviceKey: string;
+}
+
+export type CollectionReplicaRemoteFactory = (
+  connection: CollectionReplicaConnection,
+) => CollectionReplicaRemote;
+
+export interface CollectionReplicaDependencies {
+  connection(): Promise<CollectionReplicaConnection | null>;
+  createRemote: CollectionReplicaRemoteFactory;
+}
+
+const localOnlyReplicaStatus = (): CollectionReplicaStatus => ({
+  state: "local-only",
+  updatedAt: null,
+  error: null,
+  conflicts: 0,
+});
 
 /** The default-Folder setting, narrowed to what the compound save needs. */
 export interface DefaultFolderSetting {
@@ -70,6 +98,7 @@ export function createCollections(
    * to these two calls so nothing here can reach an account-bearing field.
    */
   defaultFolder: DefaultFolderSetting,
+  replica?: CollectionReplicaDependencies,
 ) {
   // MV3 kills the worker; the store is reopened lazily on the next operation and
   // a failed open is not cached, so a transient failure can recover.
@@ -80,6 +109,20 @@ export function createCollections(
       throw new CollectionsUnavailableError();
     });
     return pending;
+  };
+
+  const synchronizeReplica = async (db: CollectionStore): Promise<CollectionReplicaStatus> => {
+    if (!replica || !isReplicatedCollectionStore(db)) return localOnlyReplicaStatus();
+    const connection = await replica.connection();
+    if (!connection) return localOnlyReplicaStatus();
+    return db.synchronizeReplica(connection, replica.createRemote(connection));
+  };
+
+  const replicaStatus = async (db: CollectionStore): Promise<CollectionReplicaStatus> => {
+    if (!replica || !isReplicatedCollectionStore(db)) return localOnlyReplicaStatus();
+    const connection = await replica.connection();
+    if (!connection) return localOnlyReplicaStatus();
+    return db.replicaStatus(connection);
   };
 
   const clock = async () =>
@@ -265,6 +308,10 @@ export function createCollections(
             cursor: request.cursor,
           }),
         };
+      case "sync-now":
+        return { replicaStatus: await synchronizeReplica(db) };
+      case "replica-status":
+        return { replicaStatus: await replicaStatus(db) };
     }
   };
 

@@ -14,6 +14,7 @@ import {
 import { isCollectionsRequest } from "@/core/protocol/collections";
 import { rawLocalArea, rawSyncArea } from "@/core/storage-areas";
 import { isReactiveStorageKey } from "@/core/storage-keys";
+import { buildConvexFolderReplica } from "@/packages/folders/replica-client";
 
 // Minimal service worker (ADR-0002): no X tokens, no long-lived X state, no auth fetch.
 import { badgePresentationFor, handleInstalled } from "./lifecycle";
@@ -43,7 +44,9 @@ const badgeWriter = new TabBadgeWriter({
     }
   },
 });
-const dataLifecycle = createDataLifecycle(rawLocalArea(), rawSyncArea());
+const dataLifecycle = createDataLifecycle(rawLocalArea(), rawSyncArea(), undefined, {
+  replica: buildConvexFolderReplica,
+});
 const classifySender = createMessageSenderClassifier(chrome.runtime);
 const storageChangeFanout = createStorageChangeFanout({
   runtime: chrome.runtime,

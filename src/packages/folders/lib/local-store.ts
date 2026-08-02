@@ -1,4 +1,9 @@
 import type {
+  CollectionReplicaConfig,
+  CollectionReplicaRemote,
+  CollectionReplicaStatus,
+} from "../replica";
+import type {
   BookmarkEvidence,
   CollectionStore,
   CountFolderParams,
@@ -25,6 +30,7 @@ import type {
   SetTagsParams,
 } from "../types";
 import { mintFolderId } from "./ids";
+import { LocalCollectionReplica } from "./replica-store";
 import { applySchema, Indexes, FOLDERS_DB_NAME, FOLDERS_DB_VERSION, Stores } from "./schema";
 
 /** Tags are user-typed; bound them so one post can't grow without limit. */
@@ -103,10 +109,14 @@ function toSavedPost(capture: PostCapture, statusId: string, capturedAt: number)
  * `xAccountId` on a bookmark-evidence row.
  */
 export class LocalCollectionStore implements CollectionStore {
+  private readonly replica: LocalCollectionReplica;
+
   constructor(
     private readonly db: IDBDatabase,
     private readonly keyRange: typeof IDBKeyRange,
-  ) {}
+  ) {
+    this.replica = new LocalCollectionReplica(db, keyRange);
+  }
 
   private tx(stores: string[], mode: IDBTransactionMode): IDBTransaction {
     return this.db.transaction(stores, mode);
@@ -391,6 +401,16 @@ export class LocalCollectionStore implements CollectionStore {
     const req = tx.objectStore(Stores.SAVED_POSTS).count();
     await txDone(tx);
     return req.result;
+  }
+  async synchronizeReplica(
+    config: CollectionReplicaConfig,
+    remote: CollectionReplicaRemote,
+  ): Promise<CollectionReplicaStatus> {
+    return this.replica.synchronize(config, remote);
+  }
+
+  async replicaStatus(config: CollectionReplicaConfig): Promise<CollectionReplicaStatus> {
+    return this.replica.status(config);
   }
 
   close(): void {

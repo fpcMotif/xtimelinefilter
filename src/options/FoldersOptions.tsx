@@ -17,6 +17,7 @@ import {
 } from "@/core/strings";
 import type { FoldersClient } from "@/options/folders-client";
 import type { Folder, FolderDisposition, SavedPost } from "@/packages/folders/types";
+import type { CollectionReplicaStatus } from "@/packages/folders/replica";
 import { Button, Input } from "@/ui/components";
 
 export const FOLDERS_EMPTY = "No Folders yet — create one above to start filing posts.";
@@ -53,7 +54,9 @@ interface FoldersDraft {
   loadError: boolean;
   counts: CollectionCounts | null;
   writeError: boolean;
+  dataVersion: number;
   retry(): void;
+  refresh(): Promise<boolean>;
   create(name: string): Promise<void>;
   rename(folderId: string, name: string): Promise<void>;
   move(folderId: string, direction: "up" | "down"): Promise<void>;
@@ -72,6 +75,7 @@ function useFoldersDraft(client: FoldersClient): FoldersDraft {
   const [counts, setCounts] = useState<CollectionCounts | null>(null);
   const [writeError, setWriteError] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [dataVersion, setDataVersion] = useState(0);
   const mounted = useRef(false);
 
   useEffect(() => {
@@ -89,6 +93,7 @@ function useFoldersDraft(client: FoldersClient): FoldersDraft {
         if (!active || !mounted.current) return;
         setFolders(list);
         setCounts(summary);
+        setDataVersion((v) => v + 1);
       })
       .catch(() => {
         // Never an empty list on failure — that would read as "no Folders",
@@ -103,17 +108,20 @@ function useFoldersDraft(client: FoldersClient): FoldersDraft {
 
   const retry = useCallback(() => setRevision((r) => r + 1), []);
 
-  const refresh = useCallback(async (): Promise<void> => {
+  const refresh = useCallback(async (): Promise<boolean> => {
     try {
       const [list, summary] = await Promise.all([client.listFolders(), client.counts()]);
       if (mounted.current) {
         setFolders(list);
         setCounts(summary);
+        setDataVersion((v) => v + 1);
         setLoadError(false);
       }
+      return true;
     } catch {
-      // The write already reported its own outcome; leave the prior list
-      // showing rather than turning a display refresh into a write failure.
+      // The write or sync already reported its own outcome; leave the prior list
+      // showing rather than turning a display refresh into a visible read failure.
+      return false;
     }
   }, [client]);
 
@@ -168,7 +176,114 @@ function useFoldersDraft(client: FoldersClient): FoldersDraft {
     [client, guardedWrite],
   );
 
-  return { folders, loadError, counts, writeError, retry, create, rename, move, remove };
+  return { folders, loadError, counts, writeError, dataVersion, retry, refresh, create, rename, move, remove };
+}
+
+export const FOLDERS_SYNC_NOW = "Sync now";
+const LOCAL_ONLY_REPLICA_STATUS: CollectionReplicaStatus = {
+  state: "local-only",
+  updatedAt: null,
+  error: null,
+  conflicts: 0,
+};
+
+
+function syncFailureStatus(
+  error: unknown,
+  current: CollectionReplicaStatus | null,
+): CollectionReplicaStatus {
+  return {
+    state: "failed",
+    updatedAt: current?.updatedAt ?? null,
+    error: error instanceof Error ? error.message : "Sync failed",
+    conflicts: current?.conflicts ?? 0,
+  };
+}
+
+function replicaStatusCopy(
+  status: CollectionReplicaStatus | null,
+  syncing: boolean,
+): { title: string; detail: string } {
+  if (syncing) {
+    return {
+      title: "Syncing Folders…",
+      detail: "Folders stay account-free; sync uses only the configured replica endpoint.",
+    };
+  }
+  if (!status) {
+    return {
+      title: "Checking Folder sync…",
+      detail: "Folders stay account-free; sync never uses X credentials or Chrome profile identity.",
+    };
+  }
+
+  switch (status.state) {
+    case "syncing":
+      return {
+        title: "Syncing Folders…",
+        detail: "Folders stay account-free; sync uses only the configured replica endpoint.",
+      };
+    case "local-only":
+      return {
+        title: "Local only",
+        detail: "Replication is not configured; Folders stay on this Chrome installation.",
+      };
+    case "current":
+      return {
+        title: "Synced",
+        detail: "Folders are account-free and this Chrome installation is current.",
+      };
+    case "offline":
+      return {
+        title: "Offline",
+        detail: "Showing cached Folders; sync will resume when the replica is reachable.",
+      };
+    case "failed":
+      return {
+        title: "Sync failed",
+        detail: "Showing cached Folders; normal Folder reads stay local.",
+      };
+    case "conflict":
+      return {
+        title: "Sync conflicts",
+        detail: `${status.conflicts} conflict${status.conflicts === 1 ? "" : "s"} need attention; accepted changes remain local.`,
+      };
+  }
+}
+
+function ReplicaStatusPanel({
+  status,
+  syncing,
+  onSyncNow,
+}: {
+  status: CollectionReplicaStatus | null;
+  syncing: boolean;
+  onSyncNow: () => void;
+}) {
+  const copy = replicaStatusCopy(status, syncing);
+  const updatedAt = status?.updatedAt ?? null;
+  return (
+    <div
+      aria-live="polite"
+      class="border-border bg-secondary/35 flex flex-col gap-2 rounded-xl border px-4 py-3"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <span class="flex min-w-0 flex-col gap-0.5">
+          <span class="text-compact font-medium">{copy.title}</span>
+          <span class="text-muted-foreground text-compact">{copy.detail}</span>
+        </span>
+        <Button variant="outline" size="pill" disabled={syncing} onClick={onSyncNow}>
+          {syncing ? "Syncing…" : FOLDERS_SYNC_NOW}
+        </Button>
+      </div>
+      {updatedAt !== null && (
+        <p class="text-faint text-compact">
+          Last sync {new Date(updatedAt).toLocaleString()}
+        </p>
+      )}
+      {status?.error && <p class="text-muted-foreground text-compact">{status.error}</p>}
+    </div>
+  );
 }
 
 function CreateFolderField({
@@ -219,6 +334,7 @@ function FolderRow({
   index,
   total,
   client,
+  refreshVersion,
   onRename,
   onMove,
   onDeleteRequested,
@@ -228,6 +344,7 @@ function FolderRow({
   index: number;
   total: number;
   client: FoldersClient;
+  refreshVersion: number;
   onRename: (folderId: string, name: string) => void;
   onMove: (folderId: string, direction: "up" | "down") => void;
   onDeleteRequested: (folder: Folder, counts: FolderCounts) => void;
@@ -261,7 +378,7 @@ function FolderRow({
     return () => {
       active = false;
     };
-  }, [client, folder.folderId]);
+  }, [client, folder.folderId, refreshVersion]);
 
   const commit = () => {
     setEditing(false);
@@ -344,10 +461,14 @@ function FolderRow({
 function FolderContents({
   folder,
   client,
+  refreshVersion,
+  onCachedPageLoaded,
   onBack,
 }: {
   folder: Folder;
   client: FoldersClient;
+  refreshVersion: number;
+  onCachedPageLoaded: () => void;
   onBack: () => void;
 }) {
   const [posts, setPosts] = useState<SavedPost[]>([]);
@@ -356,6 +477,7 @@ function FolderContents({
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const lastRefresh = useRef({ folderId: folder.folderId, version: refreshVersion });
 
   useEffect(() => {
     let active = true;
@@ -370,6 +492,7 @@ function FolderContents({
         setPosts(p.posts);
         setNextCursor(p.nextCursor);
         setLoaded(true);
+        void onCachedPageLoaded();
       })
       .catch(() => {
         if (active) setError(true);
@@ -377,7 +500,33 @@ function FolderContents({
     return () => {
       active = false;
     };
-  }, [client, folder.folderId, retryCount]);
+  }, [client, folder.folderId, onCachedPageLoaded, retryCount]);
+
+  useEffect(() => {
+    if (lastRefresh.current.folderId !== folder.folderId) {
+      lastRefresh.current = { folderId: folder.folderId, version: refreshVersion };
+      return;
+    }
+    if (!loaded || refreshVersion === lastRefresh.current.version) return;
+    lastRefresh.current.version = refreshVersion;
+    let active = true;
+    client
+      .readFolderPage(folder.folderId, FOLDER_PAGE_SIZE, null)
+      .then((p) => {
+        if (!active) return;
+        setPosts(p.posts);
+        setNextCursor(p.nextCursor);
+        setError(false);
+        setLoaded(true);
+      })
+      .catch(() => {
+        // A post-sync page refresh is opportunistic. Keep whatever cached page
+        // is visible rather than replacing it with an error or empty state.
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, folder.folderId, loaded, refreshVersion]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -587,6 +736,57 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
   const draft = useFoldersDraft(client);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [browsing, setBrowsing] = useState<Folder | null>(null);
+  const [replicaStatus, setReplicaStatus] = useState<CollectionReplicaStatus | null>(null);
+  const [syncingReplica, setSyncingReplica] = useState(false);
+  const replicaMounted = useRef(false);
+  const autoSyncClient = useRef<FoldersClient | null>(null);
+  const syncInFlight = useRef(false);
+  const refreshFolders = draft.refresh;
+
+  useEffect(() => {
+    replicaMounted.current = true;
+    return () => {
+      replicaMounted.current = false;
+    };
+  }, []);
+
+  const runSyncNow = useCallback(async () => {
+    if (!replicaMounted.current || syncInFlight.current) return;
+    syncInFlight.current = true;
+    setSyncingReplica(true);
+    setReplicaStatus((current) => ({
+      ...(current ?? LOCAL_ONLY_REPLICA_STATUS),
+      state: "syncing",
+      error: null,
+    }));
+    try {
+      const next = await client.syncNow();
+      if (!replicaMounted.current) return;
+      setReplicaStatus(next);
+      if (next.state === "current" || next.state === "conflict") await refreshFolders();
+    } catch (error) {
+      if (replicaMounted.current) setReplicaStatus((current) => syncFailureStatus(error, current));
+    } finally {
+      syncInFlight.current = false;
+      if (replicaMounted.current) setSyncingReplica(false);
+    }
+  }, [client, refreshFolders]);
+
+  const runInitialSync = useCallback(async () => {
+    try {
+      const status = await client.replicaStatus();
+      if (replicaMounted.current) setReplicaStatus(status);
+    } catch (error) {
+      if (replicaMounted.current) setReplicaStatus((current) => syncFailureStatus(error, current));
+    }
+    if (replicaMounted.current) await runSyncNow();
+  }, [client, runSyncNow]);
+
+  useEffect(() => {
+    if (draft.folders === null || autoSyncClient.current === client) return;
+    autoSyncClient.current = client;
+    void runInitialSync();
+  }, [client, draft.folders, runInitialSync]);
 
   if (draft.loadError) {
     return (
@@ -621,16 +821,31 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
 
   if (browsing) {
     return (
-      <FolderContents
-        folder={browsing}
-        client={client}
-        onBack={() => setBrowsing(null)}
-      />
+      <div class="flex flex-col gap-4">
+        <ReplicaStatusPanel
+          status={replicaStatus}
+          syncing={syncingReplica}
+          onSyncNow={() => void runSyncNow()}
+        />
+        <FolderContents
+          folder={browsing}
+          client={client}
+          refreshVersion={draft.dataVersion}
+          onCachedPageLoaded={runSyncNow}
+          onBack={() => setBrowsing(null)}
+        />
+      </div>
     );
   }
 
   return (
     <div class="flex flex-col gap-4">
+      <ReplicaStatusPanel
+        status={replicaStatus}
+        syncing={syncingReplica}
+        onSyncNow={() => void runSyncNow()}
+      />
+
       <CreateFolderField atCap={atCap} onCreate={(name) => void draft.create(name)} />
 
       {draft.writeError && (
@@ -664,6 +879,7 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
               index={index}
               total={draft.folders!.length}
               client={client}
+              refreshVersion={draft.dataVersion}
               onRename={(folderId, name) => void draft.rename(folderId, name)}
               onMove={(folderId, direction) => void draft.move(folderId, direction)}
               onDeleteRequested={(target, counts) => setPendingDelete({ folder: target, counts })}

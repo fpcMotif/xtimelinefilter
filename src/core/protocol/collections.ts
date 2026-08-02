@@ -1,6 +1,7 @@
 import { isCacheObservation, type CacheObservation } from "@/core/cache-observation";
 import { isXId } from "@/core/protocol/x-id";
 import { FOLDER_ID_RE } from "@/packages/folders/ids";
+import type { CollectionReplicaStatus } from "@/packages/folders/replica";
 import type {
   BookmarkEvidence,
   BookmarkOutcome,
@@ -95,7 +96,9 @@ export type CollectionsOperation =
   | "count-folder-shared"
   | "counts"
   | "read-folder-page"
-  | "save-to-default-folder";
+  | "save-to-default-folder"
+  | "sync-now"
+  | "replica-status";
 
 export type CollectionsRequest =
   | { type: typeof TYPE; operation: "begin" }
@@ -189,7 +192,9 @@ export type CollectionsRequest =
       operation: "save-to-default-folder";
       capture: PostCapture;
       token: CacheObservation;
-    };
+    }
+  | { type: typeof TYPE; operation: "sync-now" }
+  | { type: typeof TYPE; operation: "replica-status" };
 
 /** Folder count is bounded by MAX_LIVE_FOLDERS; posts is the deduped total. */
 export interface CollectionCounts {
@@ -245,6 +250,7 @@ export type CollectionsSuccess =
   | { counts: CollectionCounts }
   | { page: FolderPage }
   | { defaultSave: DefaultSaveOutcome }
+  | { replicaStatus: CollectionReplicaStatus }
   | Record<string, never>;
 
 export type CollectionsResponse =
@@ -356,6 +362,8 @@ const REQUEST_KEYS: Record<CollectionsOperation, readonly string[]> = {
   counts: ["type", "operation"],
   "read-folder-page": ["type", "operation", "folderId", "limit", "cursor"],
   "save-to-default-folder": ["type", "operation", "capture", "token"],
+  "sync-now": ["type", "operation"],
+  "replica-status": ["type", "operation"],
 };
 
 /**
@@ -388,6 +396,8 @@ export function isCollectionsRequest(msg: unknown): msg is CollectionsRequest {
   switch (operation) {
     case "begin":
     case "counts":
+    case "sync-now":
+    case "replica-status":
       return true;
     case "list-folders":
       return typeof msg.includeDeleted === "boolean";
@@ -522,6 +532,19 @@ const isCounts = (value: unknown): value is CollectionCounts =>
   value.folders <= MAX_LIVE_FOLDERS &&
   nonNegativeInt(value.savedPosts);
 
+const isReplicaStatus = (value: unknown): value is CollectionReplicaStatus =>
+  record(value) &&
+  keysAre(value, ["state", "updatedAt", "error", "conflicts"]) &&
+  (value.state === "local-only" ||
+    value.state === "syncing" ||
+    value.state === "current" ||
+    value.state === "offline" ||
+    value.state === "failed" ||
+    value.state === "conflict") &&
+  (value.updatedAt === null || nonNegativeInt(value.updatedAt)) &&
+  (value.error === null || boundedString(value.error, MAX_NOTE)) &&
+  nonNegativeInt(value.conflicts);
+
 /** Exact key set per successful response, so a stray field is a failure. */
 function validateSuccess(request: CollectionsRequest, response: Record<string, unknown>): boolean {
   const payload = { ...response };
@@ -571,6 +594,9 @@ function validateSuccess(request: CollectionsRequest, response: Record<string, u
       return only("page", (value) => isPage(value, request.limit));
     case "save-to-default-folder":
       return only("defaultSave", isDefaultSaveOutcome);
+    case "sync-now":
+    case "replica-status":
+      return only("replicaStatus", isReplicaStatus);
     default:
       // Every write answers with an acknowledgement and nothing else.
       return Object.keys(payload).length === 0;

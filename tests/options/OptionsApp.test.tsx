@@ -23,10 +23,18 @@ import {
   OptionsApp,
   RAIL,
 } from "@/options/OptionsApp";
+import type { CollectionReplicaStatus } from "@/packages/folders/replica";
 import type { Folder } from "@/packages/folders/types";
 import type { MembershipStoreProbe } from "@/packages/membership-store/types";
 
 import { createMemoryArea as memoryArea } from "../helpers/chrome-fake";
+
+const LOCAL_ONLY_REPLICA_STATUS: CollectionReplicaStatus = {
+  state: "local-only",
+  updatedAt: null,
+  error: null,
+  conflicts: 0,
+};
 
 /** A stable, inert Folders port — these tests care about the rest of the page. */
 function fakeFoldersClient(folders: Folder[] = []): FoldersClient {
@@ -58,6 +66,12 @@ function fakeFoldersClient(folders: Folder[] = []): FoldersClient {
     },
     async readFolderPage() {
       return { posts: [], nextCursor: null };
+    },
+    async syncNow() {
+      return LOCAL_ONLY_REPLICA_STATUS;
+    },
+    async replicaStatus() {
+      return LOCAL_ONLY_REPLICA_STATUS;
     },
   };
 }
@@ -144,6 +158,17 @@ describe("OptionsApp — story beat 9", () => {
     await waitFor(() =>
       expect((r.getByLabelText("Higher-contrast buttons") as HTMLInputElement).checked).toBe(true),
     );
+  });
+
+  it("explains that the same Convex connection shares Folders across Chrome installations", async () => {
+    const r = await setup();
+
+    expect(r.getByText("Sync across Chrome installations")).toBeTruthy();
+    expect(
+      r.getByText(
+        "Use the same deployment URL and device key in another Chrome installation to replicate your account-free Folders and Saved Posts. The same personal connection also enables the optional Owner/List Mirror. Anyone with that pair can access the same personal collection; leave either blank for local-only Folders.",
+      ),
+    ).toBeTruthy();
   });
 
   it("shows an error and restores confirmed controls after rejected setting writes", async () => {

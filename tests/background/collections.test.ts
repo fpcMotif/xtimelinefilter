@@ -101,6 +101,8 @@ const VALID_BY_OPERATION: Record<CollectionsOperation, CollectionsRequest> = {
     limit: 25,
     cursor: null,
   },
+  "sync-now": { type: TYPE, operation: "sync-now" },
+  "replica-status": { type: TYPE, operation: "replica-status" },
 };
 
 /**

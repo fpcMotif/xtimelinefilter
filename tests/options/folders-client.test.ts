@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFoldersClient } from "@/options/folders-client";
+import type { CollectionReplicaStatus } from "@/packages/folders/replica";
 
 const TOKEN = { epoch: "00000000-0000-4000-8000-000000000001", sequence: 1 };
 const FOLDER = "fld_abcdefghijklmnopqrst";
@@ -12,6 +13,20 @@ const FOLDER_ROW = {
   createdAt: 1,
   updatedAt: 1,
   deletedAt: null,
+};
+
+const CURRENT_REPLICA_STATUS: CollectionReplicaStatus = {
+  state: "current",
+  updatedAt: 1_700_000_000_000,
+  error: null,
+  conflicts: 0,
+};
+
+const LOCAL_ONLY_REPLICA_STATUS: CollectionReplicaStatus = {
+  state: "local-only",
+  updatedAt: null,
+  error: null,
+  conflicts: 0,
 };
 
 /** Answers each request in order, recording what Options actually sent. */
@@ -150,6 +165,39 @@ describe("the Options workshop's door to Folders", () => {
     expect(w.sent[0]).not.toHaveProperty("owner");
   });
 
+  it("starts the optional replica sync without a fence, account, or credential field", async () => {
+    const w = worker({ ok: true, replicaStatus: CURRENT_REPLICA_STATUS });
+    expect(await createFoldersClient().syncNow()).toEqual(CURRENT_REPLICA_STATUS);
+    expect(w.operations()).toEqual(["sync-now"]);
+    expect(w.sent[0]).toEqual({
+      type: "lasso:collections",
+      operation: "sync-now",
+    });
+    expect(w.sent[0]).not.toHaveProperty("xAccountId");
+    expect(w.sent[0]).not.toHaveProperty("convexDeviceKey");
+    expect(w.sent[0]).not.toHaveProperty("chromeProfileId");
+  });
+
+  it("reads the optional replica status without starting another sync", async () => {
+    const w = worker({ ok: true, replicaStatus: CURRENT_REPLICA_STATUS });
+    expect(await createFoldersClient().replicaStatus()).toEqual(CURRENT_REPLICA_STATUS);
+    expect(w.operations()).toEqual(["replica-status"]);
+    expect(w.sent[0]).toEqual({
+      type: "lasso:collections",
+      operation: "replica-status",
+    });
+  });
+
+  it("throws on a malformed replica status rather than returning secret-shaped data", async () => {
+    worker({
+      ok: true,
+      replicaStatus: { ...CURRENT_REPLICA_STATUS, convexDeviceKey: "secret" },
+    });
+    await expect(createFoldersClient().replicaStatus()).rejects.toThrow(
+      "Invalid collections response",
+    );
+  });
+
   it("throws rather than reporting a write that did not happen", async () => {
     const sendMessage = vi.fn(async () => ({ ok: false, error: "Folders unavailable" }));
     globalThis.chrome = { runtime: { sendMessage } } as unknown as typeof chrome;
@@ -177,6 +225,8 @@ describe("the Options workshop's door to Folders", () => {
       { ok: true, count: 3, shared: 1 },
       { ok: true, counts: { folders: 1, savedPosts: 0 } },
       { ok: true, page: { posts: [], nextCursor: null } },
+      { ok: true, replicaStatus: CURRENT_REPLICA_STATUS },
+      { ok: true, replicaStatus: CURRENT_REPLICA_STATUS },
     );
     const client = createFoldersClient();
     await client.listFolders();
@@ -188,12 +238,17 @@ describe("the Options workshop's door to Folders", () => {
     await client.countFolderForDelete(FOLDER);
     await client.counts();
     await client.readFolderPage(FOLDER, 25, null);
+    await client.syncNow();
+    await client.replicaStatus();
 
     expect(w.sent.length).toBeGreaterThan(0);
     for (const message of w.sent) {
       expect(message, JSON.stringify(message)).not.toHaveProperty("parent");
       expect(message, JSON.stringify(message)).not.toHaveProperty("path");
       expect(message, JSON.stringify(message)).not.toHaveProperty("depth");
+      expect(message, JSON.stringify(message)).not.toHaveProperty("xAccountId");
+      expect(message, JSON.stringify(message)).not.toHaveProperty("convexDeviceKey");
+      expect(message, JSON.stringify(message)).not.toHaveProperty("chromeProfileId");
     }
   });
 
@@ -211,5 +266,7 @@ describe("the Options workshop's door to Folders", () => {
     expect(await client.countFolderForDelete(FOLDER)).toEqual({ count: 0, shared: 0 });
     expect(await client.counts()).toEqual({ folders: 0, savedPosts: 0 });
     expect(await client.readFolderPage(FOLDER, 25, null)).toEqual({ posts: [], nextCursor: null });
+    expect(await client.syncNow()).toEqual(LOCAL_ONLY_REPLICA_STATUS);
+    expect(await client.replicaStatus()).toEqual(LOCAL_ONLY_REPLICA_STATUS);
   });
 });

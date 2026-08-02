@@ -1,6 +1,8 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import { replicaEntityValidator } from "./folderReplicaValidators";
+
 export default defineSchema({
   // Owners — the X account logged in at action time. "Account/Author" stays
   // reserved for the *member*; the operator is the Owner.
@@ -74,4 +76,33 @@ export default defineSchema({
     .index("by_list", ["listId"])
     .index("by_owner", ["ownerUserId"])
     .index("by_at", ["at"]),
+  // Account-free state for the optional cross-install Folder replica. The
+  // device key gates functions only; it is never part of a stored document.
+  folderReplicaEntities: defineTable({
+    key: v.string(),
+    revision: v.number(),
+    entity: replicaEntityValidator,
+  }).index("by_key", ["key"]),
+
+  folderReplicaChanges: defineTable({
+    revision: v.number(),
+    operationId: v.string(),
+    baseRevision: v.number(),
+    atomicGroupId: v.optional(v.string()),
+    atomicGroupSize: v.optional(v.number()),
+    entity: replicaEntityValidator,
+  }).index("by_revision", ["revision"]),
+
+  folderReplicaReceipts: defineTable({
+    operationId: v.string(),
+    status: v.union(v.literal("accepted"), v.literal("conflict")),
+    revision: v.number(),
+    atomicGroupId: v.optional(v.string()),
+    atomicGroupSize: v.optional(v.number()),
+  }).index("by_operationId", ["operationId"]),
+
+  folderReplicaCursors: defineTable({
+    scope: v.literal("folder-replica"),
+    revision: v.number(),
+  }).index("by_scope", ["scope"]),
 });

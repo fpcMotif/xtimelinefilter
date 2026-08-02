@@ -102,6 +102,8 @@ const VALID: Record<CollectionsOperation, CollectionsRequest> = {
     limit: 25,
     cursor: null,
   },
+  "sync-now": { type: TYPE, operation: "sync-now" },
+  "replica-status": { type: TYPE, operation: "replica-status" },
 };
 
 const rest = (n: number, fill = "x"): string => fill.repeat(n);
@@ -371,6 +373,12 @@ describe("account freedom on the wire", () => {
         },
       },
       "read-folder-page": { page: { posts: [], nextCursor: null } },
+      "sync-now": {
+        replicaStatus: { state: "current", updatedAt: 1, error: null, conflicts: 0 },
+      },
+      "replica-status": {
+        replicaStatus: { state: "current", updatedAt: 1, error: null, conflicts: 0 },
+      },
     };
     const expectedKeys: Record<CollectionsOperation, string[]> = {
       begin: ["token"],
@@ -393,6 +401,8 @@ describe("account freedom on the wire", () => {
       counts: ["counts"],
       "save-to-default-folder": ["defaultSave"],
       "read-folder-page": ["page"],
+      "sync-now": ["replicaStatus"],
+      "replica-status": ["replicaStatus"],
     };
 
     for (const operation of COLLECTIONS_OPERATIONS) {
@@ -445,6 +455,8 @@ describe("account freedom on the wire", () => {
       counts: ["type", "operation"],
       "save-to-default-folder": ["type", "operation", "capture", "token"],
       "read-folder-page": ["type", "operation", "folderId", "limit", "cursor"],
+      "sync-now": ["type", "operation"],
+      "replica-status": ["type", "operation"],
     };
     for (const operation of COLLECTIONS_OPERATIONS) {
       expect(Object.keys(VALID[operation]).toSorted(), operation).toEqual(

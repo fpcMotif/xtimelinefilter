@@ -2,6 +2,7 @@ import {
   createCollections,
   defaultCollectionStore,
   defaultDatabaseDestroyer,
+  type CollectionReplicaRemoteFactory,
   type CollectionStoreFactory,
   type DatabaseDestroyer,
 } from "@/background/data-lifecycle/collections";
@@ -54,6 +55,7 @@ const cacheUuid = (): string => {
 export interface CollectionsDatabaseDeps {
   open?: CollectionStoreFactory;
   destroy?: DatabaseDestroyer;
+  replica?: CollectionReplicaRemoteFactory;
 }
 
 export interface DataLifecycle {
@@ -89,6 +91,22 @@ export function createDataLifecycle(
   const serialize = <T>(operation: () => Promise<T>): Promise<T> =>
     serializeWorkerStorage(local, operation);
   const settings = createSettingsAuthority(local, sync, createMirrorConfigId);
+  const replica =
+    collectionsDatabase.replica === undefined
+      ? undefined
+      : {
+          connection: async () => {
+            const current = await settings.read();
+            if (!current.convexUrl || !current.convexDeviceKey || !current.mirrorConfigId)
+              return null;
+            return {
+              configurationId: current.mirrorConfigId,
+              url: current.convexUrl,
+              deviceKey: current.convexDeviceKey,
+            };
+          },
+          createRemote: collectionsDatabase.replica,
+        };
   const observedXCache = createObservedXCache(local, cacheUuid);
   const collections = createCollections(
     local,
@@ -103,6 +121,7 @@ export function createDataLifecycle(
         await settings.patch({ defaultFolderId: undefined });
       },
     },
+    replica,
   );
 
   const readFilter = async (defaultLanguages: readonly string[]): Promise<FilterState> => {
@@ -192,10 +211,35 @@ export function createDataLifecycle(
     return {};
   };
 
+  let replicaGeneration = 0;
+  let replicaSyncScheduled = false;
+  const scheduleReplicaSync = (): void => {
+    if (replica === undefined || replicaSyncScheduled) return;
+    replicaSyncScheduled = true;
+    const generation = replicaGeneration;
+    queueMicrotask(() => {
+      void serialize(async () => {
+        replicaSyncScheduled = false;
+        if (generation !== replicaGeneration) return;
+        await collections.run({ type: "lasso:collections", operation: "sync-now" });
+      }).catch(() => undefined);
+    });
+  };
+  const runCollections = async (request: CollectionsRequest): Promise<CollectionsSuccess> => {
+    const response = await collections.run(request);
+    if (request.operation !== "begin" && "token" in request) scheduleReplicaSync();
+    return response;
+  };
+
   return {
     migrate: () => serialize(settings.migrate),
     readSettings: () => serialize(settings.read),
-    patchSettings: (patch) => serialize(() => settings.patch(patch)),
+    patchSettings: (patch) =>
+      serialize(async () => {
+        const result = await settings.patch(patch);
+        if ("convexUrl" in patch || "convexDeviceKey" in patch) scheduleReplicaSync();
+        return result;
+      }),
     readFilter: (defaultLanguages) => serialize(() => readFilter(defaultLanguages)),
     commandFilter: (command, defaultLanguages) =>
       serialize(() => commandFilter(command, defaultLanguages)),
@@ -204,7 +248,11 @@ export function createDataLifecycle(
     listUsage: (request) => serialize(() => listUsage(request)),
     mirrorStatus: (request) => serialize(() => mirrorStatus(request)),
     graphqlCatalog: (request) => serialize(() => observedXCache.graphqlCatalog(request)),
-    collections: (request) => serialize(() => collections.run(request)),
-    clear: () => serialize(() => erasePrivateData(local, sync, cacheUuid, collections.destroy)),
+    collections: (request) => serialize(() => runCollections(request)),
+    clear: () =>
+      serialize(() => {
+        replicaGeneration += 1;
+        return erasePrivateData(local, sync, cacheUuid, collections.destroy);
+      }),
   };
 }

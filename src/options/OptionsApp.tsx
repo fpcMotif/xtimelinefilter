@@ -520,10 +520,10 @@ export function OptionsApp({
         </Section>
 
         <Section
-          title="Sync across your accounts"
+          title="Sync across Chrome installations"
           id="sync"
-          badge="Optional sync"
-          helper="Optional. With a deployment URL and device key, Mirror sends the Owner/List catalog, membership snapshots, and assignment audit events to your Convex deployment. Leave either blank: no Mirror connection."
+          badge="Optional Convex sync"
+          helper="Use the same deployment URL and device key in another Chrome installation to replicate your account-free Folders and Saved Posts. The same personal connection also enables the optional Owner/List Mirror. Anyone with that pair can access the same personal collection; leave either blank for local-only Folders."
         >
           <div class="flex flex-col gap-3 sm:flex-row">
             <div class="flex flex-1 flex-col gap-1.5">

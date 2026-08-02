@@ -7,8 +7,10 @@ import {
   DEFAULT_FOLDER_ASK,
   FOLDER_CAP_REACHED,
   FOLDER_NAME_TOO_LONG,
+  FOLDERS_SYNC_NOW,
   FoldersOptions,
 } from "@/options/FoldersOptions";
+import type { CollectionReplicaStatus } from "@/packages/folders/replica";
 import type { Folder, FolderDisposition, SavedPost } from "@/packages/folders/types";
 
 function deferred<T>() {
@@ -21,6 +23,20 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+
+const LOCAL_ONLY_STATUS: CollectionReplicaStatus = {
+  state: "local-only",
+  updatedAt: null,
+  error: null,
+  conflicts: 0,
+};
+
+const CURRENT_STATUS: CollectionReplicaStatus = {
+  state: "current",
+  updatedAt: 1_700_000_000_000,
+  error: null,
+  conflicts: 0,
+};
 /**
  * A real in-memory model of Folder + membership, driving `FoldersClient`'s
  * exact contract — not a stub that returns canned values, so create/rename/
@@ -43,10 +59,11 @@ function fakeFoldersClient(seed: string[] = []) {
   const savedPosts = new Map<string, SavedPost>();
   const calls: string[] = [];
   let listFoldersImpl = async () => folders.filter((f) => !f.deletedAt).map((f) => ({ ...f }));
+  let syncNowImpl = async () => LOCAL_ONLY_STATUS;
+  let replicaStatusImpl = async () => LOCAL_ONLY_STATUS;
   let writeShouldFail = false;
   let deletePreviewShouldFail = false;
   let readFolderPageShouldFail = false;
-
   const held = (folderId: string) => membership.get(folderId) ?? new Set<string>();
 
   const client: FoldersClient = {
@@ -132,6 +149,14 @@ function fakeFoldersClient(seed: string[] = []) {
       const nextCursor = start + limit < ids.length ? String(start + limit) : null;
       return { posts, nextCursor };
     },
+    async syncNow() {
+      calls.push("syncNow");
+      return syncNowImpl();
+    },
+    async replicaStatus() {
+      calls.push("replicaStatus");
+      return replicaStatusImpl();
+    },
   };
 
   return {
@@ -145,6 +170,9 @@ function fakeFoldersClient(seed: string[] = []) {
     seedSavedPost(post: SavedPost) {
       savedPosts.set(post.statusId, post);
     },
+    replaceFolders(next: Folder[]) {
+      folders = next;
+    },
     failReadFolderPage(on: boolean) {
       readFolderPageShouldFail = on;
     },
@@ -156,6 +184,12 @@ function fakeFoldersClient(seed: string[] = []) {
     },
     setListFoldersImpl(impl: () => Promise<Folder[]>) {
       listFoldersImpl = impl;
+    },
+    setSyncNowImpl(impl: () => Promise<CollectionReplicaStatus>) {
+      syncNowImpl = impl;
+    },
+    setReplicaStatusImpl(impl: () => Promise<CollectionReplicaStatus>) {
+      replicaStatusImpl = impl;
     },
   };
 }
@@ -654,6 +688,132 @@ const post = (over: Partial<SavedPost> = {}): SavedPost => ({
   note: "",
   tags: [],
   ...over,
+});
+
+describe("FoldersOptions — account-free replica sync (#86)", () => {
+  it("renders cached Folder contents first, then automatic sync refreshes the open Folder page", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    const sync = deferred<void>();
+    fake.setSyncNowImpl(async () => {
+      await sync.promise;
+      fake.seedSavedPost(post());
+      fake.seedMembership(folder!.folderId, "2082");
+      return CURRENT_STATUS;
+    });
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("This Folder has no saved posts yet.")).toBeTruthy());
+    expect(r.queryByText("hello folders")).toBeNull();
+
+    await act(async () => {
+      sync.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+    expect(fake.calls.filter((call) => call === "syncNow")).toHaveLength(1);
+  });
+
+  it("syncs again after a Folder opens post-initial sync, while keeping its cached page first", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    const r = renderFolders(fake.client);
+    await waitFor(() => {
+      expect(fake.calls.filter((call) => call === "syncNow")).toHaveLength(1);
+      expect(r.getByText(FOLDERS_SYNC_NOW).closest("button")!.disabled).toBe(false);
+    });
+
+    const sync = deferred<void>();
+    fake.setSyncNowImpl(async () => {
+      await sync.promise;
+      fake.seedSavedPost(post());
+      fake.seedMembership(folder!.folderId, "2082");
+      return CURRENT_STATUS;
+    });
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("This Folder has no saved posts yet.")).toBeTruthy());
+    expect(r.queryByText("hello folders")).toBeNull();
+    await waitFor(() => expect(fake.calls.filter((call) => call === "syncNow")).toHaveLength(2));
+
+    await act(async () => {
+      sync.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
+  });
+
+  it("runs an explicit Sync now and refreshes normal Folder reads", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    const r = renderFolders(fake.client);
+    await waitFor(() => {
+      expect(fake.calls.filter((call) => call === "syncNow")).toHaveLength(1);
+      expect(r.getByText(FOLDERS_SYNC_NOW).closest("button")!.disabled).toBe(false);
+    });
+
+    fake.setSyncNowImpl(async () => {
+      fake.seedSavedPost(post());
+      fake.seedMembership(folder!.folderId, "2082");
+      return CURRENT_STATUS;
+    });
+    fireEvent.click(r.getByText(FOLDERS_SYNC_NOW).closest("button")!);
+
+    await waitFor(() => expect(r.getByText(/1 saved post total, across 1 Folder/)).toBeTruthy());
+    expect(fake.calls.filter((call) => call === "syncNow")).toHaveLength(2);
+  });
+
+  it("keeps cached Folder data visible if post-sync refresh fails", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const sync = deferred<void>();
+    fake.setSyncNowImpl(async () => {
+      await sync.promise;
+      return CURRENT_STATUS;
+    });
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+    fake.setListFoldersImpl(() => Promise.reject(new Error("offline")));
+
+    await act(async () => {
+      sync.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(fake.calls.filter((call) => call === "listFolders").length).toBeGreaterThan(1),
+    );
+    expect(r.getByText("Research")).toBeTruthy();
+    expect(r.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not patch the Default Folder when a sync refresh changes the Folder list", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [research] = fake.folders();
+    const sync = deferred<void>();
+    fake.setSyncNowImpl(async () => {
+      await sync.promise;
+      fake.replaceFolders([]);
+      return CURRENT_STATUS;
+    });
+
+    const r = renderFolders(fake.client, { defaultFolderId: research!.folderId });
+    await waitFor(() =>
+      expect((r.getByLabelText("Default Folder") as HTMLSelectElement).value).toBe(
+        research!.folderId,
+      ),
+    );
+
+    await act(async () => {
+      sync.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect((r.getByLabelText("Default Folder") as HTMLSelectElement).value).toBe(""),
+    );
+    expect(r.onPatchDefault).not.toHaveBeenCalled();
+  });
 });
 
 describe("FoldersOptions — Folder contents browser (#82)", () => {
