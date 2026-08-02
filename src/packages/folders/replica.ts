@@ -94,6 +94,7 @@ export interface ReplicatedCollectionStore extends CollectionStore {
   synchronizeReplica(
     config: CollectionReplicaConfig,
     remote: CollectionReplicaRemote,
+    signal?: AbortSignal,
   ): Promise<CollectionReplicaStatus>;
   replicaStatus(config: CollectionReplicaConfig): Promise<CollectionReplicaStatus>;
 }

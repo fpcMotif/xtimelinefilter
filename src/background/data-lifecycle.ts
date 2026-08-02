@@ -212,17 +212,45 @@ export function createDataLifecycle(
   };
 
   let replicaGeneration = 0;
+  let replicaSyncController = new AbortController();
   let replicaSyncScheduled = false;
+  let replicaSyncInFlight: Promise<CollectionsSuccess> | null = null;
+  let replicaSyncRequested = false;
+  const invalidateReplicaSync = (): void => {
+    replicaGeneration += 1;
+    replicaSyncController.abort();
+    replicaSyncController = new AbortController();
+  };
+  const runReplicaSync = (): Promise<CollectionsSuccess> => {
+    replicaSyncRequested = true;
+    if (replicaSyncInFlight) return replicaSyncInFlight;
+    const running = (async () => {
+      try {
+        let response: CollectionsSuccess;
+        do {
+          replicaSyncRequested = false;
+          const signal = replicaSyncController.signal;
+          response = await collections.run(
+            { type: "lasso:collections", operation: "sync-now" },
+            signal,
+          );
+        } while (replicaSyncRequested);
+        return response;
+      } finally {
+        replicaSyncInFlight = null;
+      }
+    })();
+    replicaSyncInFlight = running;
+    return running;
+  };
   const scheduleReplicaSync = (): void => {
     if (replica === undefined || replicaSyncScheduled) return;
     replicaSyncScheduled = true;
     const generation = replicaGeneration;
     queueMicrotask(() => {
-      void serialize(async () => {
-        replicaSyncScheduled = false;
-        if (generation !== replicaGeneration) return;
-        await collections.run({ type: "lasso:collections", operation: "sync-now" });
-      }).catch(() => undefined);
+      replicaSyncScheduled = false;
+      if (generation !== replicaGeneration) return;
+      void runReplicaSync().catch(() => undefined);
     });
   };
   const runCollections = async (request: CollectionsRequest): Promise<CollectionsSuccess> => {
@@ -230,15 +258,26 @@ export function createDataLifecycle(
     if (request.operation !== "begin" && "token" in request) scheduleReplicaSync();
     return response;
   };
+  const runExplicitReplicaSync = async (): Promise<CollectionsSuccess> => {
+    const started = await serialize(async () => ({ running: runReplicaSync() }));
+    return started.running;
+  };
 
   return {
     migrate: () => serialize(settings.migrate),
     readSettings: () => serialize(settings.read),
     patchSettings: (patch) =>
       serialize(async () => {
-        const result = await settings.patch(patch);
-        if ("convexUrl" in patch || "convexDeviceKey" in patch) scheduleReplicaSync();
-        return result;
+        const replacesReplica = "convexUrl" in patch || "convexDeviceKey" in patch;
+        if (replacesReplica) {
+          invalidateReplicaSync();
+          replicaSyncRequested = false;
+        }
+        try {
+          return await settings.patch(patch);
+        } finally {
+          if (replacesReplica) scheduleReplicaSync();
+        }
       }),
     readFilter: (defaultLanguages) => serialize(() => readFilter(defaultLanguages)),
     commandFilter: (command, defaultLanguages) =>
@@ -248,10 +287,14 @@ export function createDataLifecycle(
     listUsage: (request) => serialize(() => listUsage(request)),
     mirrorStatus: (request) => serialize(() => mirrorStatus(request)),
     graphqlCatalog: (request) => serialize(() => observedXCache.graphqlCatalog(request)),
-    collections: (request) => serialize(() => runCollections(request)),
+    collections: (request) =>
+      request.operation === "sync-now"
+        ? runExplicitReplicaSync()
+        : serialize(() => runCollections(request)),
     clear: () =>
       serialize(() => {
-        replicaGeneration += 1;
+        invalidateReplicaSync();
+        replicaSyncRequested = false;
         return erasePrivateData(local, sync, cacheUuid, collections.destroy);
       }),
   };

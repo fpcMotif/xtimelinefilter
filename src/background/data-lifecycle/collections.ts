@@ -111,11 +111,14 @@ export function createCollections(
     return pending;
   };
 
-  const synchronizeReplica = async (db: CollectionStore): Promise<CollectionReplicaStatus> => {
+  const synchronizeReplica = async (
+    db: CollectionStore,
+    signal?: AbortSignal,
+  ): Promise<CollectionReplicaStatus> => {
     if (!replica || !isReplicatedCollectionStore(db)) return localOnlyReplicaStatus();
     const connection = await replica.connection();
     if (!connection) return localOnlyReplicaStatus();
-    return db.synchronizeReplica(connection, replica.createRemote(connection));
+    return db.synchronizeReplica(connection, replica.createRemote(connection), signal);
   };
 
   const replicaStatus = async (db: CollectionStore): Promise<CollectionReplicaStatus> => {
@@ -215,7 +218,10 @@ export function createCollections(
     return destroyDatabase();
   };
 
-  const run = async function collections(request: CollectionsRequest): Promise<CollectionsSuccess> {
+  const run = async function collections(
+    request: CollectionsRequest,
+    signal?: AbortSignal,
+  ): Promise<CollectionsSuccess> {
     if (request.operation === "begin") return { token: await issueToken() };
     if ("token" in request && (await fenced(request.token))) {
       throw new Error("This change was started before your data was cleared, so it was discarded.");
@@ -309,7 +315,7 @@ export function createCollections(
           }),
         };
       case "sync-now":
-        return { replicaStatus: await synchronizeReplica(db) };
+        return { replicaStatus: await synchronizeReplica(db, signal) };
       case "replica-status":
         return { replicaStatus: await replicaStatus(db) };
     }

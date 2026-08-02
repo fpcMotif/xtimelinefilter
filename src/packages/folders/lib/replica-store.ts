@@ -14,6 +14,8 @@ const PUSH_BATCH_SIZE = 256;
 const PULL_PAGE_SIZE = 100;
 const MAX_ERROR_LENGTH = 512;
 
+class ReplicaSyncCancelled extends Error {}
+
 type EntityStateRow = {
   configurationId: string;
   key: string;
@@ -446,11 +448,48 @@ export class LocalCollectionReplica {
     }
   }
 
+  private async currentEntity(
+    transaction: IDBTransaction,
+    entity: ReplicaEntity,
+  ): Promise<ReplicaEntity> {
+    switch (entity.kind) {
+      case "folder": {
+        const value = (await requestValue(
+          transaction.objectStore(Stores.FOLDERS).get(entity.folderId),
+        )) as Folder | undefined;
+        return folderEntity(value ?? null, entity.folderId);
+      }
+      case "saved-post": {
+        const value = (await requestValue(
+          transaction.objectStore(Stores.SAVED_POSTS).get(entity.statusId),
+        )) as SavedPost | undefined;
+        return savedPostEntity(value ?? null, entity.statusId);
+      }
+      case "folder-membership": {
+        const value = (await requestValue(
+          transaction
+            .objectStore(Stores.FOLDER_MEMBERSHIPS)
+            .get([entity.folderId, entity.statusId]),
+        )) as FolderMembership | undefined;
+        return membershipEntity(value ?? null, entity.folderId, entity.statusId);
+      }
+      case "bookmark-evidence": {
+        const value = (await requestValue(
+          transaction
+            .objectStore(Stores.BOOKMARK_EVIDENCE)
+            .get([entity.statusId, entity.xAccountId]),
+        )) as BookmarkEvidence | undefined;
+        return evidenceEntity(value ?? null, entity.statusId, entity.xAccountId);
+      }
+    }
+  }
+
   private async applyRemoteChanges(
     config: CollectionReplicaConfig,
     changes: readonly ReplicaChange[],
     cursor: number,
     nextCursor: number,
+    signal?: AbortSignal,
   ): Promise<void> {
     let previous = cursor;
     for (const change of changes) {
@@ -475,27 +514,59 @@ export class LocalCollectionReplica {
       ],
       "readwrite",
     );
+    const completed = transactionDone(transaction);
+    const cancel = () => {
+      try {
+        transaction.abort();
+      } catch {
+        // The transaction already settled; the cancellation checks still fence later commits.
+      }
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
     const states = transaction.objectStore(Stores.REPLICA_ENTITY_STATE);
     const outbox = transaction.objectStore(Stores.REPLICA_OUTBOX);
-    transaction.objectStore(Stores.REPLICA_STATUS).put({
-      ...(status ?? { configurationId: config.configurationId, ...LOCAL_ONLY }),
-      cursor: nextCursor,
-    } satisfies StatusRow);
-    for (const change of changes) {
-      this.applyEntity(transaction, change.entity);
-      states.put({
-        configurationId: config.configurationId,
-        key: change.entity.key,
-        entity: change.entity,
-        fingerprint: fingerprint(change.entity),
-        revision: change.revision,
-      } satisfies EntityStateRow);
-      const pending = before.get(change.entity.key);
-      if (pending?.operationId === change.operationId && pending.state === "accepted") {
-        outbox.delete([config.configurationId, change.entity.key]);
+    try {
+      if (signal?.aborted) cancel();
+      const localChanges = new Set<string>();
+      for (const change of changes) {
+        const [current, state] = await Promise.all([
+          this.currentEntity(transaction, change.entity),
+          requestValue(states.get([config.configurationId, change.entity.key])) as Promise<
+            EntityStateRow | undefined
+          >,
+        ]);
+        if (
+          state === undefined ? current.value !== null : fingerprint(current) !== state.fingerprint
+        ) {
+          localChanges.add(change.entity.key);
+        }
       }
+      if (signal?.aborted) cancel();
+      transaction.objectStore(Stores.REPLICA_STATUS).put({
+        ...(status ?? { configurationId: config.configurationId, ...LOCAL_ONLY }),
+        cursor: nextCursor,
+      } satisfies StatusRow);
+      for (const change of changes) {
+        if (!localChanges.has(change.entity.key)) this.applyEntity(transaction, change.entity);
+        states.put({
+          configurationId: config.configurationId,
+          key: change.entity.key,
+          entity: change.entity,
+          fingerprint: fingerprint(change.entity),
+          revision: change.revision,
+        } satisfies EntityStateRow);
+        const pending = before.get(change.entity.key);
+        if (pending?.operationId === change.operationId && pending.state === "accepted") {
+          outbox.delete([config.configurationId, change.entity.key]);
+        }
+      }
+      await completed;
+    } catch (error) {
+      if (signal?.aborted) throw new ReplicaSyncCancelled();
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", cancel);
     }
-    await transactionDone(transaction);
   }
 
   private async conflictCount(config: CollectionReplicaConfig): Promise<number> {
@@ -536,7 +607,9 @@ export class LocalCollectionReplica {
   async synchronize(
     config: CollectionReplicaConfig,
     remote: CollectionReplicaRemote,
+    signal?: AbortSignal,
   ): Promise<CollectionReplicaStatus> {
+    if (signal?.aborted) return cloneStatus(LOCAL_ONLY);
     await this.setStatus(config, {
       state: "syncing",
       updatedAt: now(),
@@ -548,13 +621,17 @@ export class LocalCollectionReplica {
       for (;;) {
         const mutations = await this.pendingMutations(config);
         if (mutations.length === 0) break;
+        if (signal?.aborted) throw new ReplicaSyncCancelled();
         const acknowledgement = await remote.push(mutations);
+        if (signal?.aborted) throw new ReplicaSyncCancelled();
         await this.recordPushResults(config, mutations, acknowledgement.results);
       }
 
       let cursor = (await this.statusRow(config))?.cursor ?? 0;
       for (;;) {
+        if (signal?.aborted) throw new ReplicaSyncCancelled();
         const page = await remote.pull({ cursor, limit: PULL_PAGE_SIZE });
+        if (signal?.aborted) throw new ReplicaSyncCancelled();
         if (!Number.isSafeInteger(page.cursor) || page.cursor < cursor) {
           throw new Error("Convex returned an invalid replica cursor.");
         }
@@ -568,11 +645,12 @@ export class LocalCollectionReplica {
         if (!page.done && page.cursor === cursor && page.changes.length === 0) {
           throw new Error("Convex returned a stalled replica change stream.");
         }
-        await this.applyRemoteChanges(config, page.changes, cursor, page.cursor);
+        await this.applyRemoteChanges(config, page.changes, cursor, page.cursor, signal);
         cursor = page.cursor;
         if (page.done) break;
       }
 
+      if (signal?.aborted) throw new ReplicaSyncCancelled();
       const conflicts = await this.conflictCount(config);
       return this.setStatus(config, {
         state: conflicts === 0 ? "current" : "conflict",
@@ -581,6 +659,7 @@ export class LocalCollectionReplica {
         conflicts,
       });
     } catch (error) {
+      if (error instanceof ReplicaSyncCancelled) return cloneStatus(LOCAL_ONLY);
       const message = error instanceof Error ? error.message : "Could not synchronize Folders.";
       return this.setStatus(config, {
         state: error instanceof TypeError ? "offline" : "failed",

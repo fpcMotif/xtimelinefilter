@@ -405,8 +405,9 @@ export class LocalCollectionStore implements CollectionStore {
   async synchronizeReplica(
     config: CollectionReplicaConfig,
     remote: CollectionReplicaRemote,
+    signal?: AbortSignal,
   ): Promise<CollectionReplicaStatus> {
-    return this.replica.synchronize(config, remote);
+    return this.replica.synchronize(config, remote, signal);
   }
 
   async replicaStatus(config: CollectionReplicaConfig): Promise<CollectionReplicaStatus> {
