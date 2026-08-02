@@ -29,7 +29,11 @@ class InMemoryReplica implements CollectionReplicaRemote {
       results: mutations.map((mutation) => {
         const revision = ++this.revision;
         this.changes.push({ ...structuredClone(mutation), revision });
-        return { operationId: mutation.operationId, status: "accepted" as const, revision };
+        return {
+          operationId: mutation.operationId,
+          status: "accepted" as const,
+          revision,
+        };
       }),
     };
   }
@@ -85,7 +89,10 @@ describe("Collections replica", () => {
   it("hydrates complete Saved Post information in another Chrome installation", async () => {
     const remote = new InMemoryReplica();
     const first = worker(remote);
-    await first.lifecycle.patchSettings({ convexUrl: CONVEX_URL, convexDeviceKey: DEVICE_KEY });
+    await first.lifecycle.patchSettings({
+      convexUrl: CONVEX_URL,
+      convexDeviceKey: DEVICE_KEY,
+    });
 
     const createToken = await first.token();
     const created = await first.run({
@@ -141,14 +148,25 @@ describe("Collections replica", () => {
     await first.run({ type: TYPE, operation: "sync-now" });
 
     const second = worker(remote);
-    await second.lifecycle.patchSettings({ convexUrl: CONVEX_URL, convexDeviceKey: DEVICE_KEY });
+    await second.lifecycle.patchSettings({
+      convexUrl: CONVEX_URL,
+      convexDeviceKey: DEVICE_KEY,
+    });
     await second.run({ type: TYPE, operation: "sync-now" });
 
     await expect(
-      second.run({ type: TYPE, operation: "list-folders", includeDeleted: false }),
+      second.run({
+        type: TYPE,
+        operation: "list-folders",
+        includeDeleted: false,
+      }),
     ).resolves.toEqual({
       folders: [
-        expect.objectContaining({ folderId: folder.folderId, name: "Research", deletedAt: null }),
+        expect.objectContaining({
+          folderId: folder.folderId,
+          name: "Research",
+          deletedAt: null,
+        }),
       ],
     });
     await expect(
@@ -178,7 +196,11 @@ describe("Collections replica", () => {
       },
     });
     await expect(
-      second.run({ type: TYPE, operation: "list-bookmark-evidence", statusId: "1234567890" }),
+      second.run({
+        type: TYPE,
+        operation: "list-bookmark-evidence",
+        statusId: "1234567890",
+      }),
     ).resolves.toEqual({
       evidence: [
         {
@@ -270,7 +292,43 @@ describe("Collections replica", () => {
       }),
     });
     await expect(installation.run({ type: TYPE, operation: "replica-status" })).resolves.toEqual({
-      replicaStatus: expect.objectContaining({ state: "conflict", conflicts: 1 }),
+      replicaStatus: expect.objectContaining({
+        state: "conflict",
+        conflicts: 1,
+      }),
+    });
+  });
+
+  it("reports a conflict at revision zero instead of retrying a new Folder forever", async () => {
+    const remote: CollectionReplicaRemote = {
+      push: async (mutations) => ({
+        results: mutations.map((mutation) => ({
+          operationId: mutation.operationId,
+          status: "conflict" as const,
+          revision: 0,
+        })),
+      }),
+      pull: async ({ cursor }) => ({ changes: [], cursor, done: true }),
+    };
+    const installation = worker(remote);
+    await installation.lifecycle.patchSettings({
+      convexUrl: CONVEX_URL,
+      convexDeviceKey: DEVICE_KEY,
+    });
+    const token = await installation.token();
+    await installation.run({
+      type: TYPE,
+      operation: "create-folder",
+      name: "Conflicted creation",
+      token,
+    });
+
+    await expect(installation.run({ type: TYPE, operation: "sync-now" })).resolves.toEqual({
+      replicaStatus: expect.objectContaining({
+        state: "conflict",
+        conflicts: 1,
+        error: null,
+      }),
     });
   });
 
@@ -294,7 +352,12 @@ describe("Collections replica", () => {
     });
 
     await expect(installation.run({ type: TYPE, operation: "sync-now" })).resolves.toEqual({
-      replicaStatus: { state: "local-only", updatedAt: null, error: null, conflicts: 0 },
+      replicaStatus: {
+        state: "local-only",
+        updatedAt: null,
+        error: null,
+        conflicts: 0,
+      },
     });
     expect(push).not.toHaveBeenCalled();
   });
@@ -334,7 +397,11 @@ describe("Collections replica", () => {
     await pullStarted.promise;
 
     await expect(
-      installation.run({ type: TYPE, operation: "list-folders", includeDeleted: false }),
+      installation.run({
+        type: TYPE,
+        operation: "list-folders",
+        includeDeleted: false,
+      }),
     ).resolves.toEqual({ folders: [expect.objectContaining({ folderId })] });
     const saveToken = await installation.token();
     await expect(
@@ -417,8 +484,14 @@ describe("Collections replica", () => {
     await sync;
 
     await expect(
-      installation.run({ type: TYPE, operation: "list-folders", includeDeleted: false }),
-    ).resolves.toEqual({ folders: [expect.objectContaining({ folderId, name: "During sync" })] });
+      installation.run({
+        type: TYPE,
+        operation: "list-folders",
+        includeDeleted: false,
+      }),
+    ).resolves.toEqual({
+      folders: [expect.objectContaining({ folderId, name: "During sync" })],
+    });
     expect(
       pushed
         .flat()
@@ -501,7 +574,11 @@ describe("Collections replica", () => {
     await sync;
 
     await expect(
-      installation.run({ type: TYPE, operation: "list-folders", includeDeleted: false }),
+      installation.run({
+        type: TYPE,
+        operation: "list-folders",
+        includeDeleted: false,
+      }),
     ).resolves.toEqual({ folders: [] });
   });
 
@@ -555,7 +632,11 @@ describe("Collections replica", () => {
     await sync;
 
     await expect(
-      installation.run({ type: TYPE, operation: "list-folders", includeDeleted: false }),
+      installation.run({
+        type: TYPE,
+        operation: "list-folders",
+        includeDeleted: false,
+      }),
     ).resolves.toEqual({ folders: [] });
   });
 });

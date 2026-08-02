@@ -38,7 +38,12 @@ function folderValue(
 }
 
 function folderEntity(folderId: string, value = folderValue(folderId)) {
-  return { kind: "folder" as const, key: JSON.stringify(["folder", folderId]), folderId, value };
+  return {
+    kind: "folder" as const,
+    key: JSON.stringify(["folder", folderId]),
+    folderId,
+    value,
+  };
 }
 
 function savedPostEntity(statusId: string) {
@@ -74,12 +79,22 @@ describe("Folder replica", () => {
     await expect(
       t.mutation(api.folderReplica.push, {
         deviceKey: "wrong-key",
-        mutations: [{ operationId: "op-1", baseRevision: 0, entity: folderEntity("folder-1") }],
+        mutations: [
+          {
+            operationId: "op-1",
+            baseRevision: 0,
+            entity: folderEntity("folder-1"),
+          },
+        ],
       }),
     ).rejects.toThrow("Unauthorized: invalid device key");
 
     await expect(
-      t.query(api.folderReplica.pull, { deviceKey: "wrong-key", cursor: 0, limit: 1 }),
+      t.query(api.folderReplica.pull, {
+        deviceKey: "wrong-key",
+        cursor: 0,
+        limit: 1,
+      }),
     ).rejects.toThrow("Unauthorized: invalid device key");
 
     await expect(
@@ -100,18 +115,28 @@ describe("Folder replica", () => {
     };
 
     await expect(
-      t.mutation(api.folderReplica.push, { deviceKey: DEVICE_KEY, mutations: [replicaMutation] }),
+      t.mutation(api.folderReplica.push, {
+        deviceKey: DEVICE_KEY,
+        mutations: [replicaMutation],
+      }),
     ).resolves.toEqual({
       results: [{ operationId: "folder-create", status: "accepted", revision: 1 }],
     });
     await expect(
-      t.mutation(api.folderReplica.push, { deviceKey: DEVICE_KEY, mutations: [replicaMutation] }),
+      t.mutation(api.folderReplica.push, {
+        deviceKey: DEVICE_KEY,
+        mutations: [replicaMutation],
+      }),
     ).resolves.toEqual({
       results: [{ operationId: "folder-create", status: "accepted", revision: 1 }],
     });
 
     await expect(
-      t.query(api.folderReplica.pull, { deviceKey: DEVICE_KEY, cursor: 0, limit: 10 }),
+      t.query(api.folderReplica.pull, {
+        deviceKey: DEVICE_KEY,
+        cursor: 0,
+        limit: 10,
+      }),
     ).resolves.toMatchObject({
       cursor: 1,
       done: true,
@@ -127,8 +152,16 @@ describe("Folder replica", () => {
     const folderId = "folder-1";
     const statusId = "status-1";
     const changes = [
-      { operationId: "folder", baseRevision: 0, entity: folderEntity(folderId) },
-      { operationId: "post", baseRevision: 0, entity: savedPostEntity(statusId) },
+      {
+        operationId: "folder",
+        baseRevision: 0,
+        entity: folderEntity(folderId),
+      },
+      {
+        operationId: "post",
+        baseRevision: 0,
+        entity: savedPostEntity(statusId),
+      },
       {
         operationId: "membership",
         baseRevision: 0,
@@ -158,7 +191,10 @@ describe("Folder replica", () => {
       },
     ];
 
-    await t.mutation(api.folderReplica.push, { deviceKey: DEVICE_KEY, mutations: changes });
+    await t.mutation(api.folderReplica.push, {
+      deviceKey: DEVICE_KEY,
+      mutations: changes,
+    });
 
     const first = await t.query(api.folderReplica.pull, {
       deviceKey: DEVICE_KEY,
@@ -179,8 +215,160 @@ describe("Folder replica", () => {
       changes.map((change) => change.entity.key),
     );
     await expect(
-      t.query(api.folderReplica.pull, { deviceKey: DEVICE_KEY, cursor: second.cursor, limit: 2 }),
+      t.query(api.folderReplica.pull, {
+        deviceKey: DEVICE_KEY,
+        cursor: second.cursor,
+        limit: 2,
+      }),
     ).resolves.toEqual({ changes: [], cursor: 4, done: true });
+  });
+
+  test("never splits an atomic Folder reorder at a pull page boundary", async () => {
+    const t = convexTest(schema, modules);
+    const folderIds = Array.from({ length: 101 }, (_, index) => `folder-${index}`);
+    await t.mutation(api.folderReplica.push, {
+      deviceKey: DEVICE_KEY,
+      mutations: folderIds.map((folderId, index) => ({
+        operationId: `create-${index}`,
+        baseRevision: 0,
+        entity: folderEntity(folderId, folderValue(folderId, `Folder ${index}`)),
+      })),
+    });
+    await t.mutation(api.folderReplica.push, {
+      deviceKey: DEVICE_KEY,
+      mutations: folderIds.map((folderId, index) => ({
+        operationId: `reorder-${index}`,
+        baseRevision: index + 1,
+        atomicGroupId: "reorder-101",
+        atomicGroupSize: folderIds.length,
+        entity: folderEntity(
+          folderId,
+          index === folderIds.length - 1
+            ? folderValue(folderId, `Folder ${index}`)
+            : {
+                ...folderValue(folderId, `Folder ${index}`),
+                sortIndex: folderIds.length - index - 1,
+                updatedAt: 11,
+              },
+        ),
+      })),
+    });
+    await t.mutation(api.folderReplica.push, {
+      deviceKey: DEVICE_KEY,
+      mutations: [
+        {
+          operationId: "after-reorder",
+          baseRevision: 0,
+          entity: savedPostEntity("status-after-reorder"),
+        },
+      ],
+    });
+
+    const creations = await t.query(api.folderReplica.pull, {
+      deviceKey: DEVICE_KEY,
+      cursor: 0,
+      limit: 101,
+    });
+    const reorder = await t.query(api.folderReplica.pull, {
+      deviceKey: DEVICE_KEY,
+      cursor: creations.cursor,
+      limit: 100,
+    });
+
+    expect(reorder.changes).toHaveLength(101);
+    expect(new Set(reorder.changes.map((change) => change.atomicGroupId))).toEqual(
+      new Set(["reorder-101"]),
+    );
+    expect(reorder).toMatchObject({ cursor: 202, done: false });
+    await expect(
+      t.query(api.folderReplica.pull, {
+        deviceKey: DEVICE_KEY,
+        cursor: reorder.cursor,
+        limit: 100,
+      }),
+    ).resolves.toMatchObject({
+      cursor: 203,
+      done: true,
+      changes: [{ operationId: "after-reorder" }],
+    });
+  });
+
+  test("treats duplicate live Folder membership additions as an idempotent union", async () => {
+    const t = convexTest(schema, modules);
+    const folderId = "folder-1";
+    const statusId = "status-1";
+    await t.mutation(api.folderReplica.push, {
+      deviceKey: DEVICE_KEY,
+      mutations: [
+        {
+          operationId: "folder",
+          baseRevision: 0,
+          entity: folderEntity(folderId),
+        },
+        {
+          operationId: "post",
+          baseRevision: 0,
+          entity: savedPostEntity(statusId),
+        },
+      ],
+    });
+    const membership = (operationId: string, addedAt: number) => ({
+      operationId,
+      baseRevision: 0,
+      entity: {
+        kind: "folder-membership" as const,
+        key: JSON.stringify(["folder-membership", folderId, statusId]),
+        folderId,
+        statusId,
+        value: { folderId, statusId, addedAt },
+      },
+    });
+
+    await expect(
+      t.mutation(api.folderReplica.push, {
+        deviceKey: DEVICE_KEY,
+        mutations: [membership("membership-a", 12)],
+      }),
+    ).resolves.toEqual({
+      results: [{ operationId: "membership-a", status: "accepted", revision: 3 }],
+    });
+    await expect(
+      t.mutation(api.folderReplica.push, {
+        deviceKey: DEVICE_KEY,
+        mutations: [membership("membership-b", 20)],
+      }),
+    ).resolves.toEqual({
+      results: [{ operationId: "membership-b", status: "accepted", revision: 3 }],
+    });
+    const page = await t.query(api.folderReplica.pull, {
+      deviceKey: DEVICE_KEY,
+      cursor: 0,
+      limit: 10,
+    });
+    expect(page.changes.filter((change) => change.entity.kind === "folder-membership")).toEqual([
+      expect.objectContaining({ operationId: "membership-a", revision: 3 }),
+    ]);
+  });
+
+  test("rejects a Folder name beyond the local 100-code-point protocol limit", async () => {
+    const t = convexTest(schema, modules);
+    const folderId = "folder-too-long";
+
+    await expect(
+      t.mutation(api.folderReplica.push, {
+        deviceKey: DEVICE_KEY,
+        mutations: [
+          {
+            operationId: "overlong-folder",
+            baseRevision: 0,
+            entity: folderEntity(folderId, folderValue(folderId, "a".repeat(101))),
+          },
+        ],
+      }),
+    ).rejects.toThrow("folder.name exceeds 100-code-point limit");
+    await expect(t.run((ctx) => ctx.db.query("folderReplicaEntities").collect())).resolves.toEqual(
+      [],
+    );
   });
 
   test("keeps a tombstone and rejects stale resurrection", async () => {
@@ -189,7 +377,13 @@ describe("Folder replica", () => {
 
     await t.mutation(api.folderReplica.push, {
       deviceKey: DEVICE_KEY,
-      mutations: [{ operationId: "create", baseRevision: 0, entity: folderEntity(folderId) }],
+      mutations: [
+        {
+          operationId: "create",
+          baseRevision: 0,
+          entity: folderEntity(folderId),
+        },
+      ],
     });
     await t.mutation(api.folderReplica.push, {
       deviceKey: DEVICE_KEY,
@@ -211,7 +405,11 @@ describe("Folder replica", () => {
       t.mutation(api.folderReplica.push, {
         deviceKey: DEVICE_KEY,
         mutations: [
-          { operationId: "stale-recreate", baseRevision: 0, entity: folderEntity(folderId) },
+          {
+            operationId: "stale-recreate",
+            baseRevision: 0,
+            entity: folderEntity(folderId),
+          },
         ],
       }),
     ).resolves.toEqual({
@@ -219,13 +417,21 @@ describe("Folder replica", () => {
     });
 
     await expect(
-      t.query(api.folderReplica.pull, { deviceKey: DEVICE_KEY, cursor: 0, limit: 10 }),
+      t.query(api.folderReplica.pull, {
+        deviceKey: DEVICE_KEY,
+        cursor: 0,
+        limit: 10,
+      }),
     ).resolves.toMatchObject({
       cursor: 2,
       done: true,
       changes: [
         { operationId: "create", revision: 1 },
-        { operationId: "delete", revision: 2, entity: { kind: "folder", value: null } },
+        {
+          operationId: "delete",
+          revision: 2,
+          entity: { kind: "folder", value: null },
+        },
       ],
     });
   });
@@ -239,7 +445,11 @@ describe("Folder replica", () => {
       t.mutation(api.folderReplica.push, {
         deviceKey: DEVICE_KEY,
         mutations: [
-          { operationId: "valid", baseRevision: 0, entity: folderEntity(folderId) },
+          {
+            operationId: "valid",
+            baseRevision: 0,
+            entity: folderEntity(folderId),
+          },
           {
             operationId: "invalid-membership",
             baseRevision: 0,
@@ -307,17 +517,30 @@ describe("Folder replica", () => {
 
     await t.mutation(api.folderReplica.push, {
       deviceKey: DEVICE_KEY,
-      mutations: [{ operationId: "create", baseRevision: 0, entity: folderEntity(folderId) }],
+      mutations: [
+        {
+          operationId: "create",
+          baseRevision: 0,
+          entity: folderEntity(folderId),
+        },
+      ],
     });
     await expect(
       t.mutation(api.folderReplica.push, {
         deviceKey: DEVICE_KEY,
         mutations: [
-          { operationId: "independent", baseRevision: 0, entity: folderEntity("folder-2") },
+          {
+            operationId: "independent",
+            baseRevision: 0,
+            entity: folderEntity("folder-2"),
+          },
           {
             operationId: "future",
             baseRevision: 2,
-            entity: folderEntity(folderId, { ...folderValue(folderId), updatedAt: 11 }),
+            entity: folderEntity(folderId, {
+              ...folderValue(folderId),
+              updatedAt: 11,
+            }),
           },
         ],
       }),
@@ -373,7 +596,10 @@ describe("Folder replica", () => {
           {
             operationId: "evidence-newer",
             baseRevision: 0,
-            entity: { ...evidence, value: { ...evidence.value, observedAt: 14 } },
+            entity: {
+              ...evidence,
+              value: { ...evidence.value, observedAt: 14 },
+            },
           },
         ],
       }),
@@ -391,12 +617,18 @@ describe("Folder replica", () => {
           {
             operationId: "post-stale-note",
             baseRevision: 1,
-            entity: { ...initialPost, value: { ...initialPost.value, note: "stale edit" } },
+            entity: {
+              ...initialPost,
+              value: { ...initialPost.value, note: "stale edit" },
+            },
           },
           {
             operationId: "evidence-older",
             baseRevision: 0,
-            entity: { ...evidence, value: { ...evidence.value, observedAt: 12 } },
+            entity: {
+              ...evidence,
+              value: { ...evidence.value, observedAt: 12 },
+            },
           },
         ],
       }),
@@ -435,8 +667,16 @@ describe("Folder replica", () => {
     await t.mutation(api.folderReplica.push, {
       deviceKey: DEVICE_KEY,
       mutations: [
-        { operationId: "folder", baseRevision: 0, entity: folderEntity(folderId) },
-        { operationId: "post", baseRevision: 0, entity: savedPostEntity(statusId) },
+        {
+          operationId: "folder",
+          baseRevision: 0,
+          entity: folderEntity(folderId),
+        },
+        {
+          operationId: "post",
+          baseRevision: 0,
+          entity: savedPostEntity(statusId),
+        },
         {
           operationId: "membership",
           baseRevision: 0,
@@ -494,8 +734,16 @@ describe("Folder replica", () => {
     await t.mutation(api.folderReplica.push, {
       deviceKey: DEVICE_KEY,
       mutations: [
-        { operationId: "folder-create", baseRevision: 0, entity: folderEntity(folderId) },
-        { operationId: "post-create", baseRevision: 0, entity: savedPostEntity(statusId) },
+        {
+          operationId: "folder-create",
+          baseRevision: 0,
+          entity: folderEntity(folderId),
+        },
+        {
+          operationId: "post-create",
+          baseRevision: 0,
+          entity: savedPostEntity(statusId),
+        },
       ],
     });
     await t.mutation(api.folderReplica.push, {
@@ -504,7 +752,10 @@ describe("Folder replica", () => {
         {
           operationId: "folder-soft-delete",
           baseRevision: 1,
-          entity: folderEntity(folderId, { ...folderValue(folderId), deletedAt: 12 }),
+          entity: folderEntity(folderId, {
+            ...folderValue(folderId),
+            deletedAt: 12,
+          }),
         },
       ],
     });
@@ -599,6 +850,101 @@ describe("Folder replica", () => {
     await expect(
       t.run((ctx) => ctx.db.query("folderReplicaChanges").collect()),
     ).resolves.toHaveLength(2);
+  });
+
+  test("returns revision zero as a conflict receipt for a new Folder in a rejected reorder", async () => {
+    const t = convexTest(schema, modules);
+    const existingId = "folder-existing";
+    const newId = "folder-new";
+    await t.mutation(api.folderReplica.push, {
+      deviceKey: DEVICE_KEY,
+      mutations: [
+        {
+          operationId: "create-existing",
+          baseRevision: 0,
+          entity: folderEntity(existingId, folderValue(existingId, "Existing")),
+        },
+      ],
+    });
+
+    await expect(
+      t.mutation(api.folderReplica.push, {
+        deviceKey: DEVICE_KEY,
+        mutations: [
+          {
+            operationId: "stale-existing",
+            baseRevision: 0,
+            atomicGroupId: "rejected-reorder",
+            atomicGroupSize: 2,
+            entity: folderEntity(existingId, {
+              ...folderValue(existingId, "Existing"),
+              sortIndex: 1,
+              updatedAt: 11,
+            }),
+          },
+          {
+            operationId: "new-in-reorder",
+            baseRevision: 0,
+            atomicGroupId: "rejected-reorder",
+            atomicGroupSize: 2,
+            entity: folderEntity(newId, {
+              ...folderValue(newId, "New"),
+              sortIndex: 0,
+              updatedAt: 11,
+            }),
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      results: [
+        { operationId: "stale-existing", status: "conflict", revision: 1 },
+        { operationId: "new-in-reorder", status: "conflict", revision: 0 },
+      ],
+    });
+    await expect(
+      t.run((ctx) =>
+        ctx.db
+          .query("folderReplicaEntities")
+          .withIndex("by_key", (q) => q.eq("key", JSON.stringify(["folder", newId])))
+          .unique(),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  test("rejects interleaved atomic group members before writing any mutation", async () => {
+    const t = convexTest(schema, modules);
+    const firstId = "folder-first";
+    const secondId = "folder-second";
+
+    await expect(
+      t.mutation(api.folderReplica.push, {
+        deviceKey: DEVICE_KEY,
+        mutations: [
+          {
+            operationId: "group-first",
+            baseRevision: 0,
+            atomicGroupId: "interleaved-group",
+            atomicGroupSize: 2,
+            entity: folderEntity(firstId, folderValue(firstId, "First")),
+          },
+          {
+            operationId: "interleaved-post",
+            baseRevision: 0,
+            entity: savedPostEntity("status-between-folders"),
+          },
+          {
+            operationId: "group-second",
+            baseRevision: 0,
+            atomicGroupId: "interleaved-group",
+            atomicGroupSize: 2,
+            entity: folderEntity(secondId, folderValue(secondId, "Second")),
+          },
+        ],
+      }),
+    ).rejects.toThrow("atomic group members must be contiguous");
+    await expect(t.run((ctx) => ctx.db.query("folderReplicaEntities").collect())).resolves.toEqual(
+      [],
+    );
   });
 
   test("rejects an over-capacity batch before writing any mutation", async () => {

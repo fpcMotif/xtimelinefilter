@@ -13,6 +13,7 @@ const MAX_OPERATION_ID_BYTES = 128;
 const MAX_KEY_BYTES = 512;
 const MAX_IDENTIFIER_BYTES = 256;
 const MAX_FOLDER_NAME_BYTES = 400;
+const MAX_FOLDER_NAME_CODE_POINTS = 100;
 const MAX_POST_TEXT_BYTES = 100_000;
 const MAX_NOTE_BYTES = 8_000;
 const MAX_TAG_BYTES = 192;
@@ -53,7 +54,12 @@ type ReplicaEntity =
         deletedAt: number | null;
       } | null;
     }
-  | { kind: "saved-post"; key: string; statusId: string; value: SavedPostValue | null }
+  | {
+      kind: "saved-post";
+      key: string;
+      statusId: string;
+      value: SavedPostValue | null;
+    }
   | {
       kind: "folder-membership";
       key: string;
@@ -94,6 +100,16 @@ function assertString(field: string, value: string, maximum: number, allowEmpty 
     throw new Error(`Replica data rejected: ${field} is empty`);
   if (getConvexSize(value) > maximum) {
     throw new Error(`Replica data rejected: ${field} exceeds ${maximum}-byte limit`);
+  }
+}
+
+function assertCodePoints(field: string, value: string, maximum: number): void {
+  let count = 0;
+  for (const _point of value) {
+    count += 1;
+    if (count > maximum) {
+      throw new Error(`Replica data rejected: ${field} exceeds ${maximum}-code-point limit`);
+    }
   }
 }
 
@@ -156,6 +172,7 @@ function assertEntity(entity: ReplicaEntity): void {
         );
       }
       assertString("folder.name", entity.value.name, MAX_FOLDER_NAME_BYTES);
+      assertCodePoints("folder.name", entity.value.name, MAX_FOLDER_NAME_CODE_POINTS);
       assertRevision("folder.sortIndex", entity.value.sortIndex);
       assertTime("folder.createdAt", entity.value.createdAt);
       assertTime("folder.updatedAt", entity.value.updatedAt);
@@ -220,6 +237,8 @@ function assertBatch(mutations: readonly ReplicaMutation[]): void {
   const operationIds = new Set<string>();
   const entityKeys = new Set<string>();
   const groups = new Map<string, { size: number; count: number }>();
+  const closedGroups = new Set<string>();
+  let activeGroupId: string | undefined;
   for (const replicaMutation of mutations) {
     assertString("operationId", replicaMutation.operationId, MAX_OPERATION_ID_BYTES);
     assertRevision("baseRevision", replicaMutation.baseRevision);
@@ -239,6 +258,14 @@ function assertBatch(mutations: readonly ReplicaMutation[]): void {
     }
     operationIds.add(replicaMutation.operationId);
     entityKeys.add(replicaMutation.entity.key);
+
+    if (replicaMutation.atomicGroupId !== activeGroupId) {
+      if (activeGroupId !== undefined) closedGroups.add(activeGroupId);
+      activeGroupId = replicaMutation.atomicGroupId;
+      if (activeGroupId !== undefined && closedGroups.has(activeGroupId)) {
+        throw new Error("Replica data rejected: atomic group members must be contiguous");
+      }
+    }
 
     if (
       replicaMutation.atomicGroupId === undefined &&
@@ -513,7 +540,11 @@ export const push = convexMutation({
           atomicGroupId: replicaMutation.atomicGroupId,
           atomicGroupSize: replicaMutation.atomicGroupSize,
         });
-        results.push({ operationId: replicaMutation.operationId, status: "conflict", revision });
+        results.push({
+          operationId: replicaMutation.operationId,
+          status: "conflict",
+          revision,
+        });
         continue;
       }
 
@@ -533,7 +564,14 @@ export const push = convexMutation({
           acceptedEntity = existing.entity;
         }
       } else if (existing) {
-        if (replicaMutation.baseRevision === existing.revision) {
+        if (
+          existing.entity.kind === "folder-membership" &&
+          replicaMutation.entity.kind === "folder-membership" &&
+          existing.entity.value !== null &&
+          replicaMutation.entity.value !== null
+        ) {
+          acceptedEntity = existing.entity;
+        } else if (replicaMutation.baseRevision === existing.revision) {
           if (isTombstoned(existing.entity) && replicaMutation.entity.value !== null) {
             status = "conflict";
           }
@@ -558,14 +596,16 @@ export const push = convexMutation({
         throw new Error("Replica data rejected: baseRevision is ahead of the entity revision");
       }
 
-      if (
-        status === "accepted" &&
-        (!existing || JSON.stringify(existing.entity) !== JSON.stringify(acceptedEntity))
-      ) {
+      const entityChanged =
+        !existing || JSON.stringify(existing.entity) !== JSON.stringify(acceptedEntity);
+      if (status === "accepted" && (entityChanged || replicaMutation.atomicGroupId !== undefined)) {
         nextRevision += 1;
         revision = nextRevision;
         if (existing) {
-          await ctx.db.patch(existing._id, { entity: acceptedEntity, revision });
+          await ctx.db.patch(existing._id, {
+            entity: acceptedEntity,
+            revision,
+          });
         } else {
           await ctx.db.insert("folderReplicaEntities", {
             key: acceptedEntity.key,
@@ -600,7 +640,11 @@ export const push = convexMutation({
             }
           : {}),
       });
-      results.push({ operationId: replicaMutation.operationId, status, revision });
+      results.push({
+        operationId: replicaMutation.operationId,
+        status,
+        revision,
+      });
     }
 
     if (nextRevision !== (cursor?.revision ?? 0)) {
@@ -647,19 +691,63 @@ export const pull = query({
       .query("folderReplicaChanges")
       .withIndex("by_revision", (q) => q.gt("revision", args.cursor))
       .take(args.limit + 1);
-    const page = rows.slice(0, args.limit);
+    let page = rows.slice(0, args.limit);
+    let done = rows.length <= args.limit;
+    const boundaryGroupId = page.at(-1)?.atomicGroupId;
+    if (boundaryGroupId !== undefined && rows[args.limit]?.atomicGroupId === boundaryGroupId) {
+      const groupSize = page.at(-1)?.atomicGroupSize;
+      if (
+        groupSize === undefined ||
+        !Number.isSafeInteger(groupSize) ||
+        groupSize < 2 ||
+        groupSize > MAX_ATOMIC_GROUP_SIZE
+      ) {
+        throw new Error("Replica change stream contains an invalid atomic group");
+      }
+      let delivered = 0;
+      for (let index = page.length - 1; index >= 0; index -= 1) {
+        if (page[index]?.atomicGroupId !== boundaryGroupId) break;
+        delivered += 1;
+      }
+      const lookahead = rows[args.limit];
+      if (!lookahead) throw new Error("Replica change stream atomic group is incomplete");
+      if (lookahead.atomicGroupSize !== groupSize) {
+        throw new Error("Replica change stream atomic group size is inconsistent");
+      }
+      page.push(lookahead);
+      delivered += 1;
+      if (delivered > groupSize) {
+        throw new Error("Replica change stream atomic group exceeds its declared size");
+      }
+      while (delivered < groupSize) {
+        const after = page.at(-1)?.revision ?? args.cursor;
+        const next = await ctx.db
+          .query("folderReplicaChanges")
+          .withIndex("by_revision", (q) => q.gt("revision", after))
+          .first();
+        if (!next || next.atomicGroupId !== boundaryGroupId || next.atomicGroupSize !== groupSize) {
+          throw new Error("Replica change stream atomic group is incomplete or noncontiguous");
+        }
+        page.push(next);
+        delivered += 1;
+      }
+      done = (page.at(-1)?.revision ?? args.cursor) === (current?.revision ?? 0);
+    }
     return {
       changes: page.map((row) => ({
         operationId: row.operationId,
         baseRevision: row.baseRevision,
         ...(row.atomicGroupId !== undefined
-          ? { atomicGroupId: row.atomicGroupId, atomicGroupSize: row.atomicGroupSize }
+          ? {
+              atomicGroupId: row.atomicGroupId,
+              atomicGroupSize: row.atomicGroupSize,
+            }
           : {}),
         entity: row.entity,
         revision: row.revision,
       })),
       cursor: page.at(-1)?.revision ?? args.cursor,
-      done: rows.length <= args.limit,
+      done,
     };
   },
 });

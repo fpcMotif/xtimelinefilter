@@ -77,7 +77,12 @@ function folderEntity(value: Folder | null, folderId: string): ReplicaEntity {
 }
 
 function savedPostEntity(value: SavedPost | null, statusId: string): ReplicaEntity {
-  return { kind: "saved-post", key: key(["saved-post", statusId]), statusId, value };
+  return {
+    kind: "saved-post",
+    key: key(["saved-post", statusId]),
+    statusId,
+    value,
+  };
 }
 
 function membershipEntity(
@@ -395,7 +400,7 @@ export class LocalCollectionReplica {
       results.some(
         (result) =>
           !Number.isSafeInteger(result.revision) ||
-          result.revision < 1 ||
+          result.revision < (result.status === "accepted" ? 1 : 0) ||
           (result.status !== "accepted" && result.status !== "conflict"),
       )
     ) {
@@ -543,7 +548,10 @@ export class LocalCollectionReplica {
       }
       if (signal?.aborted) cancel();
       transaction.objectStore(Stores.REPLICA_STATUS).put({
-        ...(status ?? { configurationId: config.configurationId, ...LOCAL_ONLY }),
+        ...(status ?? {
+          configurationId: config.configurationId,
+          ...LOCAL_ONLY,
+        }),
         cursor: nextCursor,
       } satisfies StatusRow);
       for (const change of changes) {
