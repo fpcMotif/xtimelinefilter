@@ -309,15 +309,17 @@ export function OptionsApp({
             </div>
             <span class="text-faint text-xs font-medium">Settings</span>
           </div>
-          {RAIL.map((item) => (
-            <RailItem
-              key={item.target}
-              label={item.label}
-              target={item.target}
-              active={item.target === activeRail}
-              onActivate={() => setActiveRail(item.target)}
-            />
-          ))}
+          <nav aria-label="Settings sections" class="flex flex-col gap-1">
+            {RAIL.map((item) => (
+              <RailItem
+                key={item.target}
+                label={item.label}
+                target={item.target}
+                active={item.target === activeRail}
+                onActivate={() => setActiveRail(item.target)}
+              />
+            ))}
+          </nav>
           <div class="mt-4 px-3">
             <Badge variant="success">Local-first</Badge>
           </div>
@@ -336,7 +338,7 @@ export function OptionsApp({
         )}
 
         <Section title="Activation" id="activation">
-          <div class="flex flex-col gap-2">
+          <div role="radiogroup" aria-labelledby="activation-title" class="flex flex-col gap-2">
             {(Object.keys(ACTIVATION_COPY) as Array<keyof typeof ACTIVATION_COPY>).map((value) => (
               <RadioCard
                 key={value}
@@ -355,7 +357,7 @@ export function OptionsApp({
           id="connection"
           helper="Pick the engine. Faster engines reach deeper into X's private surface."
         >
-          <div class="flex flex-col gap-2">
+          <div role="radiogroup" aria-labelledby="connection-title" class="flex flex-col gap-2">
             {(Object.keys(BACKEND_COPY) as BackendStrategy[]).map((value) => (
               <RadioCard
                 key={value}
@@ -424,10 +426,13 @@ export function OptionsApp({
 
         <Section title="Keyboard shortcuts" id="shortcuts">
           <table class="w-full">
+            <caption class="sr-only">Keyboard shortcuts available on x.com</caption>
             <tbody>
               {keymap.map((binding) => (
                 <tr key={binding.combo} class="border-border/60 border-b last:border-0">
-                  <td class="py-2 text-sm">{COMMAND_LABELS[binding.command]}</td>
+                  <th scope="row" class="py-2 text-left text-sm font-normal">
+                    {COMMAND_LABELS[binding.command]}
+                  </th>
                   <td class="py-2 text-right">
                     {keycaps(binding.combo, platform).map((cap) => (
                       <Kbd key={cap} class="ml-1">
@@ -759,7 +764,7 @@ function Section({
     <Card id={id} class="scroll-mt-10">
       <CardHeader>
         <div class="flex items-center justify-between gap-3">
-          <CardTitle>{title}</CardTitle>
+          <CardTitle id={id ? `${id}-title` : undefined}>{title}</CardTitle>
           {badge && <Badge variant="success">{badge}</Badge>}
         </div>
         {helper && <CardDescription>{helper}</CardDescription>}

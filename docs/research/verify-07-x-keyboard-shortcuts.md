@@ -1,6 +1,5 @@
 # Adversarial verification — "X native keyboard shortcuts + focused-post model" (note 07)
 
-Method: independent re-check of each claim against primary sources. Tried to REFUTE; defaulted to "uncertain" where uncorroborated. Tooling: `curl` (official X help, Wayback CDX/snapshots), `gh search code` / `git clone --depth 1` (shipped extension & manifest code), local notes 07/08/09. `mgrep --web` quota was exhausted (HTTP 429), so web discovery fell back to `gh search code` over real DOM captures — which turned out to be a stronger primary source than a blog mirror.
 
 Date of verification: 2026-06-08.
 

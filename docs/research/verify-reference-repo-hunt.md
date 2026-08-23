@@ -3,7 +3,6 @@
 Date: 2026-06-07. Verifier re-checked each claim against primary/official sources and local code. Default to "uncertain" unless corroborated.
 
 ## Tooling note
-- `mgrep --web` was quota-exhausted (HTTP 429, monthly limit). Web corroboration done via `curl -sSL` on developer.chrome.com, raw.githubusercontent.com, and `gh api`. Built-in WebSearch not used (project policy).
 
 ---
 

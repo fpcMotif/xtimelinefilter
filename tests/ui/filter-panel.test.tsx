@@ -15,11 +15,11 @@ function setup(hidden?: number, prepare?: (store: ReturnType<typeof createFilter
 describe("FilterPanel", () => {
   it("renders tri-state chips grouped by family plus a legend", () => {
     const { r } = setup(0);
-    expect(r.getByRole("button", { name: /^Video\./ })).toBeTruthy();
-    expect(r.getByRole("button", { name: /^Photo\./ })).toBeTruthy();
-    expect(r.getByRole("button", { name: /^arXiv\./ })).toBeTruthy();
-    expect(r.getByRole("button", { name: /^Reddit\./ })).toBeTruthy();
-    expect(r.getByRole("button", { name: /^Repost\./ })).toBeTruthy();
+    expect(r.getByRole("slider", { name: "Video" })).toBeTruthy();
+    expect(r.getByRole("slider", { name: "Photo" })).toBeTruthy();
+    expect(r.getByRole("slider", { name: "arXiv" })).toBeTruthy();
+    expect(r.getByRole("slider", { name: "Reddit" })).toBeTruthy();
+    expect(r.getByRole("slider", { name: "Repost" })).toBeTruthy();
     // family headings
     expect(r.getByText(/^Type$/i)).toBeTruthy();
     expect(r.getByText(/^Links$/i)).toBeTruthy();
@@ -31,7 +31,7 @@ describe("FilterPanel", () => {
   it("cycles a chip through the store on click (off → only)", () => {
     const { store, r } = setup(0);
     const spy = vi.spyOn(store, "cycle");
-    const chip = r.getByRole("button", { name: /^Video\./ });
+    const chip = r.getByRole("slider", { name: "Video" });
     fireEvent.click(chip);
     expect(spy).toHaveBeenCalledWith("kind:video");
     expect(store.state.value.criteria["kind:video"]).toBe("only");
@@ -132,7 +132,7 @@ describe("FilterPanel", () => {
       const store = createFilterStore({ navLanguages: ["ja"] });
       const conduct = vi.fn(); // no-op wall: receives the command but does not run it
       const r = render(<FilterPanel store={store} conduct={conduct} />);
-      fireEvent.click(r.getByRole("button", { name: /^Video\./ }));
+      fireEvent.click(r.getByRole("slider", { name: "Video" }));
       expect(conduct).toHaveBeenCalledTimes(1);
       expect(store.state.value.criteria["kind:video"]).toBeUndefined();
     });

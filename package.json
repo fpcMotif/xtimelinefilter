@@ -5,8 +5,11 @@
   "description": "Add people to your X Lists from the timeline — select posts and file their authors without leaving the feed.",
   "type": "module",
   "scripts": {
+    "prepare": "varlock codegen",
+    "env:check": "varlock load",
+    "env:scan": "varlock scan",
     "dev": "vite",
-    "build": "vite build",
+    "build": "if [ -n \"$NO_COLOR\" ]; then unset FORCE_COLOR; fi; vite build",
     "icons": "node scripts/build-icons.mjs",
     "typecheck": "tsc --noEmit && tsc -p convex/tsconfig.json --noEmit && tsc -p e2e/tsconfig.json --noEmit",
     "test": "vitest run",
@@ -23,13 +26,13 @@
   "dependencies": {
     "@preact/signals": "^2.9.1",
     "@preact/signals-core": "^1.14.2",
-    "@tailwindcss/vite": "^4.3.0",
+    "@tailwindcss/vite": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.41.0",
     "preact": "^10.29.2",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.0"
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.6.1",
@@ -40,7 +43,9 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",
     "@types/chrome": "^0.1.43",
+    "@varlock/vite-integration": "^1.4.0",
     "@vitest/coverage-v8": "^4.1.8",
+    "axe-core": "^4.12.1",
     "convex-test": "^0.0.53",
     "dependency-cruiser": "^18.1.0",
     "fake-indexeddb": "^6.2.5",
@@ -48,6 +53,7 @@
     "oxfmt": "^0.54.0",
     "oxlint": "^1.69.0",
     "typescript": "^6.0.3",
+    "varlock": "^1.16.0",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
   }

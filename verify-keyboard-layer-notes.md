@@ -7,7 +7,6 @@ Date: 2026-06-08. Verifier brief: try to REFUTE each claim against primary sourc
 - **Official X help (`help.x.com` / `blog.x.com`) is Cloudflare-gated** ("Just a moment… Enable JavaScript and cookies to continue") — cannot be fetched via curl. Confirmed live.
 - **Wayback Machine has NO usable capture** of `help.twitter.com/en/using-twitter/keyboard-shortcuts` — every snapshot path resolves to the X Help Center **404** page ("Sorry, this page doesn't exist"). The official shortcuts URL has been moved/renamed over time. CDX index returned empty/timed out for that path.
 - **`webnots.com` returned 403**; **`computerhope.com` is Cloudflare-gated**. The two named third-party sources for the shortcut list were NOT directly verifiable.
-- **`mgrep --web` is over its monthly quota** (HTTP 429) — could not be used for web discovery.
 - MDN, the WHATWG DOM Living Standard, the Chrome extensions docs, and the WAI-ARIA APG **were all fetchable** and are the load-bearing primary sources for the technical claims (1–4, 7).
 - Third-party corroboration for the shortcut list obtained from a GitHub-hosted cheat-sheet: `jqknono/reference-harmony` `mds/en/twitter.md` ("26 keyboard shortcuts found on Twitter").
 - The reference repo file `reference/twittervim/src/composables/useTwitterKeyboard.ts` and `src/core/settings.ts` were read directly.

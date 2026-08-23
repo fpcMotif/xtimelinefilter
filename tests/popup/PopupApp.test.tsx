@@ -260,7 +260,7 @@ describe("PopupApp — the toolbar remote", () => {
       />,
     );
     const box = (await waitFor(() =>
-      r.getByRole("checkbox", { name: /^Timeline filter:/ }),
+      r.getByRole("checkbox", { name: "Timeline filter" }),
     )) as HTMLInputElement;
     expect(box.checked).toBe(true);
     fireEvent.click(box);
@@ -271,7 +271,7 @@ describe("PopupApp — the toolbar remote", () => {
     });
   });
 
-  it("keeps the visible filter count and state in the master control name", async () => {
+  it("keeps the master control name stable and carries the count as its description", async () => {
     const filter = createFilterStore({ storage: fakeStorage() });
     filter.setOnlyMyLanguages(true);
     const r = render(
@@ -283,11 +283,15 @@ describe("PopupApp — the toolbar remote", () => {
       />,
     );
 
-    const control = await waitFor(() =>
-      r.getByRole("checkbox", { name: "Timeline filter: 1 filter armed" }),
-    );
+    const control = await waitFor(() => r.getByRole("checkbox", { name: "Timeline filter" }));
+    const describedBy = control.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toMatch(/1\s*filter armed/);
+
+    // The name must not change when the state/count does.
     fireEvent.click(control);
-    expect(r.getByRole("checkbox", { name: "Timeline filter: 1 filter off" })).toBe(control);
+    expect(r.getByRole("checkbox", { name: "Timeline filter" })).toBe(control);
+    expect(document.getElementById(describedBy!)?.textContent).toMatch(/1\s*filter off/);
   });
 
   it("toggles the language gate", async () => {

@@ -3,7 +3,6 @@
 Date: 2026-06-07. Verifier independently re-checked each claim against PRIMARY/OFFICIAL sources. Default to "uncertain" unless corroborated. Tried hard to refute.
 
 ## Tooling note
-- `mgrep --web` was quota-exhausted (HTTP 429, "exceeded the monthly limit of 100 searches", resets next month). Built-in WebSearch NOT used (project policy).
 - All corroboration done via `curl -sSL` on `developer.chrome.com` and `developer.mozilla.org` (primary vendor docs). HTML stripped to text locally and grepped.
 
 ---

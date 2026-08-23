@@ -31,15 +31,15 @@ export function CardTitle({
   className,
   children,
   ...props
-}: JSX.IntrinsicElements["h3"]) {
+}: JSX.IntrinsicElements["h2"]) {
   return (
-    <h3
+    <h2
       data-slot="card-title"
       class={cn("text-[16px] font-bold tracking-tight", cls, className)}
       {...props}
     >
       {children}
-    </h3>
+    </h2>
   );
 }
 

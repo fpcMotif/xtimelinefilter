@@ -171,7 +171,11 @@ function membership(value: unknown): FolderMembership | null | undefined {
   ) {
     return undefined;
   }
-  return { folderId: value.folderId, statusId: value.statusId, addedAt: value.addedAt };
+  return {
+    folderId: value.folderId,
+    statusId: value.statusId,
+    addedAt: value.addedAt,
+  };
 }
 
 function evidence(value: unknown): BookmarkEvidence | null | undefined {
@@ -208,7 +212,12 @@ function replicaEntity(value: unknown): ReplicaEntity | undefined {
       const parsed = folder(value.value);
       if (parsed === undefined || (parsed !== null && parsed.folderId !== value.folderId))
         return undefined;
-      return { kind: "folder", key: value.key, folderId: value.folderId, value: parsed };
+      return {
+        kind: "folder",
+        key: value.key,
+        folderId: value.folderId,
+        value: parsed,
+      };
     }
     case "saved-post": {
       if (
@@ -221,7 +230,12 @@ function replicaEntity(value: unknown): ReplicaEntity | undefined {
       const parsed = savedPost(value.value);
       if (parsed === undefined || (parsed !== null && parsed.statusId !== value.statusId))
         return undefined;
-      return { kind: "saved-post", key: value.key, statusId: value.statusId, value: parsed };
+      return {
+        kind: "saved-post",
+        key: value.key,
+        statusId: value.statusId,
+        value: parsed,
+      };
     }
     case "folder-membership": {
       if (
@@ -294,7 +308,10 @@ function atomicGroup(
   ) {
     return undefined;
   }
-  return { atomicGroupId: value.atomicGroupId, atomicGroupSize: value.atomicGroupSize };
+  return {
+    atomicGroupId: value.atomicGroupId,
+    atomicGroupSize: value.atomicGroupSize,
+  };
 }
 
 function replicaChange(value: unknown): ReplicaChange | undefined {
@@ -367,6 +384,36 @@ function pullResult(value: unknown): ReplicaPullResponse {
     changes.push(parsed);
   }
   return { changes, cursor: value.cursor, done: value.done };
+}
+
+/**
+ * Bounds one Convex call. A hung endpoint must fail the SYNC, not the worker:
+ * Chrome kills an MV3 service worker that waits on a blackholed fetch, and
+ * every message awaiting that worker then resolves empty — which surfaces
+ * report as "Invalid collections response". The rejection is a TypeError so
+ * the replica store records "offline", the state that promises a retry,
+ * rather than "failed", which asks the user to act.
+ */
+export function boundedReplicaCalls(
+  calls: ConvexReplicaCalls,
+  timeoutMs: number,
+): ConvexReplicaCalls {
+  const bound = <T>(call: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new TypeError("Convex Folder replica did not answer in time.")),
+        timeoutMs,
+      );
+    });
+    // The loser of the race keeps running — a late answer is simply ignored —
+    // but its timer is cleared so the worker can idle out on schedule.
+    return Promise.race([call, expired]).finally(() => clearTimeout(timer));
+  };
+  return {
+    mutation: (ref, args) => bound(calls.mutation(ref, args)),
+    query: (ref, args) => bound(calls.query(ref, args)),
+  };
 }
 
 /**

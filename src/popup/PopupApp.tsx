@@ -213,7 +213,7 @@ export function PopupApp({
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <LassoMark size={20} class="text-primary" />
-            <span class="text-[16px] font-bold tracking-tight">Lasso</span>
+            <h1 class="text-[16px] font-bold tracking-tight">Lasso</h1>
           </div>
           <Badge variant="secondary" class="text-muted-foreground px-2.5 py-1">
             <span class={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
@@ -225,8 +225,7 @@ export function PopupApp({
           htmlFor="popup-master-filter"
           class="flex cursor-pointer items-center justify-between gap-3"
         >
-          <span class="sr-only">Timeline filter: </span>
-          <span class="flex items-baseline gap-1.5">
+          <span id="popup-filter-count" class="flex items-baseline gap-1.5">
             <span
               class={`text-[26px] leading-none font-bold tabular-nums transition-colors ${
                 enabled ? "" : "text-faint"
@@ -240,6 +239,8 @@ export function PopupApp({
           </span>
           <Switch
             id="popup-master-filter"
+            label="Timeline filter"
+            describedBy="popup-filter-count"
             checked={enabled}
             onChange={(on) => filter.setEnabled(on)}
           />
@@ -279,7 +280,11 @@ export function PopupApp({
             {POPUP_ASLEEP}
           </Button>
         )}
-        {state === "off-x" && <p class="text-faint text-xs">Open x.com to use Lasso</p>}
+        {state === "off-x" && (
+          <p role="status" class="text-faint text-xs">
+            Open x.com to use Lasso
+          </p>
+        )}
       </Card>
 
       <Card class="divide-border gap-0 divide-y p-0">

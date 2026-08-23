@@ -5,8 +5,8 @@ import {
   type FolderCounts,
 } from "@/core/protocol/collections";
 import { hasWorkerTransport } from "@/core/worker-transport";
-import type { Folder, FolderDisposition, FolderPage } from "@/packages/folders/types";
 import type { CollectionReplicaStatus } from "@/packages/folders/replica";
+import type { Folder, FolderDisposition, FolderPage } from "@/packages/folders/types";
 
 /**
  * The Options page's door to Folders — the workshop's narrow surface over the

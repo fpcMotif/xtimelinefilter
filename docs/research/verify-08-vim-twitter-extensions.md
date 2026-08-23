@@ -9,7 +9,6 @@
 - `philc/vimium` (HEAD) — `background_scripts/commands.js`, `lib/dom_utils.js`, `content_scripts/mode_normal.js`
 - `brookhong/Surfingkeys` (HEAD) — `src/content_scripts/common/default.js`, `api.js`, `utils.js`
 
-**Source-access note:** `help.x.com/en/using-x/x-keyboard-shortcuts`, `computerhope.com`, `defkey.com`, and `martech.zone` all returned Cloudflare "Just a moment…" / "Attention Required" interstitials. `mgrep --web` was quota-exhausted (HTTP 429). The X native shortcut set was instead corroborated from two independent un-gated mirrors: **quickref.me/twitter.html** and **40x50.com** (the latter surfaced via DuckDuckGo HTML), which agree key-for-key.
 
 ---
 

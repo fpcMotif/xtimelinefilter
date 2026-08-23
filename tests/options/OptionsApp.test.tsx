@@ -799,10 +799,11 @@ describe("OptionsApp — story beat 9", () => {
 
   it("arms a content chip straight from the Timeline filter section", async () => {
     const s = await setup();
-    fireEvent.click(
-      s.getByRole("button", { name: /^Video\. Current mode: off\. Click to show only\.$/ }),
-    );
+    const chip = s.getByRole("slider", { name: "Video" });
+    expect(chip.getAttribute("aria-valuetext")).toBe("off");
+    fireEvent.click(chip);
     expect(s.filter.state.value.criteria["kind:video"]).toBe("only");
+    expect(chip.getAttribute("aria-valuetext")).toBe("show only");
   });
 
   it("toggles the master Timeline filter from Settings", async () => {

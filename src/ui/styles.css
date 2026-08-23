@@ -35,9 +35,14 @@
   --secondary: oklch(0.953 0.011 84.6);
   --secondary-foreground: oklch(0.23 0.008 264.4);
   --muted-foreground: oklch(0.508 0.021 261.3);
-  --faint: oklch(0.666 0.019 292.9);
+  /* AA floor: --faint must clear 4.5:1 on the darkest light surface it can land
+     on (--secondary 0.953). 0.53 ≈ 4.6:1 there, ~4.9:1 on --card. Guarded by
+     tests/ui/theme-contrast.test.ts — don't lower the lightness. */
+  --faint: oklch(0.53 0.019 292.9);
   --destructive: oklch(0.584 0.176 24.4);
-  --success: oklch(0.622 0.133 155.5);
+  /* AA floor: --success text lands on --secondary (Badge "success") and white
+     cards. 0.5 ≈ 5:1 on --secondary, ~5.7:1 on --card — don't lighten. */
+  --success: oklch(0.5 0.118 155.2);
   --border: oklch(0.911 0.014 84.6);
   --input: oklch(0.911 0.014 84.6);
   --ring: oklch(0.587 0.13 56.8);
@@ -61,7 +66,10 @@
     --secondary: oklch(0.243 0.015 261.7);
     --secondary-foreground: oklch(0.967 0.003 264.5);
     --muted-foreground: oklch(0.692 0.019 264.4);
-    --faint: oklch(0.552 0.023 267.1);
+    /* AA floor: --faint must clear 4.5:1 on the lightest dark surface it can
+       land on (--popover/--secondary 0.243). 0.63 ≈ 4.7:1 there, ~5:1 on
+       --card. Guarded by tests/ui/theme-contrast.test.ts. */
+    --faint: oklch(0.63 0.023 267.1);
     --destructive: oklch(0.703 0.17 22.5);
     --success: oklch(0.774 0.145 154);
     --border: oklch(0.297 0.02 264.2);

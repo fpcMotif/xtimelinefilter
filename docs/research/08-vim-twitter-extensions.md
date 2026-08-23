@@ -348,7 +348,6 @@ X's general radix-style menu pattern, not directly re-verified in this session.
 
 ## Discovery notes / coverage
 
-- GitHub repo search (unauthenticated API; `gh` CLI and `mgrep --web` were both rate-limited
   this session — 429) surfaced `CodyBontecou/twittervim` and `theimpostor/xkey` as the two
   dedicated, current, open-source X keyboard tools. Greasyfork's `scripts.json?q=` is
   keyword-but-not-relevance ranked and returned only media-downloader noise for

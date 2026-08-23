@@ -23,7 +23,6 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-
 const LOCAL_ONLY_STATUS: CollectionReplicaStatus = {
   state: "local-only",
   updatedAt: null,
@@ -143,9 +142,7 @@ function fakeFoldersClient(seed: string[] = []) {
       const ids = [...(membership.get(folderId) ?? [])];
       const start = cursor ? Number(cursor) : 0;
       const slice = ids.slice(start, start + limit);
-      const posts = slice
-        .map((id) => savedPosts.get(id))
-        .filter((p): p is SavedPost => !!p);
+      const posts = slice.map((id) => savedPosts.get(id)).filter((p): p is SavedPost => !!p);
       const nextCursor = start + limit < ids.length ? String(start + limit) : null;
       return { posts, nextCursor };
     },
@@ -821,7 +818,9 @@ describe("FoldersOptions — Folder contents browser (#82)", () => {
     const fake = fakeFoldersClient(["Research"]);
     const [folder] = fake.folders();
     fake.seedSavedPost(post());
-    fake.seedSavedPost(post({ statusId: "2083", text: "second post", author: { screenName: "bob" } }));
+    fake.seedSavedPost(
+      post({ statusId: "2083", text: "second post", author: { screenName: "bob" } }),
+    );
     fake.seedMembership(folder!.folderId, "2082");
     fake.seedMembership(folder!.folderId, "2083");
 
@@ -879,6 +878,51 @@ describe("FoldersOptions — Folder contents browser (#82)", () => {
     const link = r.getByText("Open on X").closest("a");
     expect(link?.getAttribute("href")).toBe("https://x.com/ada/status/2082");
     expect(link?.getAttribute("target")).toBe("_blank");
+  });
+
+  it("labels Threads, Instagram, and unrecognized original links from each post permalink", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    const threadsPermalink = "https://www.threads.net/@ada/post/Cthreads";
+    const instagramPermalink = "https://www.instagram.com/p/Cinstagram/";
+    const unrecognizedPermalink = "https://notinstagram.com/p/not-ours";
+    fake.seedSavedPost(
+      post({
+        statusId: "threads-2084",
+        permalink: threadsPermalink,
+        text: "threads saved post",
+      }),
+    );
+    fake.seedSavedPost(
+      post({
+        statusId: "instagram-2085",
+        permalink: instagramPermalink,
+        text: "instagram saved post",
+      }),
+    );
+    fake.seedSavedPost(
+      post({
+        statusId: "unknown-2086",
+        permalink: unrecognizedPermalink,
+        text: "unknown saved post",
+      }),
+    );
+    fake.seedMembership(folder!.folderId, "threads-2084");
+    fake.seedMembership(folder!.folderId, "instagram-2085");
+    fake.seedMembership(folder!.folderId, "unknown-2086");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("threads saved post")).toBeTruthy());
+
+    const threadsLink = r.getByText("Open on Threads").closest("a");
+    const instagramLink = r.getByText("Open on Instagram").closest("a");
+    const fallbackLink = r.getByText("Open original post").closest("a");
+    expect(threadsLink?.getAttribute("href")).toBe(threadsPermalink);
+    expect(instagramLink?.getAttribute("href")).toBe(instagramPermalink);
+    expect(fallbackLink?.getAttribute("href")).toBe(unrecognizedPermalink);
   });
 
   it("goes back to the Folder list without losing workshop context", async () => {
@@ -1070,10 +1114,42 @@ describe("FoldersOptions — Saved Post rows look like X posts with media", () =
     await waitFor(() => expect(r.getByText("hello folders")).toBeTruthy());
 
     const img = r.container.querySelector("img");
-    expect(img!.getAttribute("src")).toBe(
-      "https://pbs.twimg.com/ext_tw_video_thumb/poster.jpg",
-    );
+    expect(img!.getAttribute("src")).toBe("https://pbs.twimg.com/ext_tw_video_thumb/poster.jpg");
     expect(r.getByLabelText("Video")).toBeTruthy();
+  });
+
+  it("suppresses malformed legacy Threads previews without dropping the original link", async () => {
+    const fake = fakeFoldersClient(["Research"]);
+    const [folder] = fake.folders();
+    const threadsPermalink = "https://www.threads.net/@ada/post/Clegacy";
+    const realPhoto = "https://cdn.example/photos/thread-photo.jpg";
+    fake.seedSavedPost(
+      post({
+        statusId: "threads:Clegacy",
+        permalink: threadsPermalink,
+        text: "legacy Threads saved post",
+        media: [
+          { kind: "video", url: "blob:https://www.threads.net/legacy-preview" },
+          { kind: "video", url: "https://cdn.example/stream.mp4" },
+          { kind: "photo", url: "https://scontent.cdninstagram.com/v/t51.82787-19/profile.jpg" },
+          { kind: "photo", url: "https://media.giphy.com/media/legacy/200.webp" },
+          { kind: "photo", url: realPhoto },
+        ],
+      }),
+    );
+    fake.seedMembership(folder!.folderId, "threads:Clegacy");
+
+    const r = renderFolders(fake.client);
+    await waitFor(() => expect(r.getByText("Research")).toBeTruthy());
+
+    fireEvent.click(r.getByLabelText("Browse Research"));
+    await waitFor(() => expect(r.getByText("legacy Threads saved post")).toBeTruthy());
+
+    const srcs = [...r.container.querySelectorAll("img")].map((img) => img.getAttribute("src"));
+    expect(srcs).toEqual([realPhoto]);
+    expect(r.getByText("Open on Threads").closest("a")?.getAttribute("href")).toBe(
+      threadsPermalink,
+    );
   });
 
   it("renders no image for a media entry that has no URL, and no broken img", async () => {

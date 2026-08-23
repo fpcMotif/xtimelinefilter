@@ -80,7 +80,7 @@ export function TweetOverlay({
           onBlur={() => onFocusChange?.(false)}
           class={controlClass(shown, false)}
         >
-          <span aria-hidden="true" class="text-[11px] font-semibold leading-none">
+          <span aria-hidden="true" class="text-[11px] leading-none font-semibold">
             ⤵
           </span>
         </button>

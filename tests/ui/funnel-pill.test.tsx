@@ -86,15 +86,15 @@ describe("FunnelPill", () => {
     const { r } = setup({ prepare: prepareScenario });
     expect(r.queryByRole("dialog")).toBeNull();
     // a FilterPanel chip would only exist once open
-    expect(r.queryByRole("button", { name: /^Video$/ })).toBeNull();
+    expect(r.queryByRole("slider", { name: "Video" })).toBeNull();
   });
 
   it("opens a popover rendering the FilterPanel chips on click", () => {
     const { r, pill } = setup({ prepare: prepareScenario });
     fireEvent.click(pill);
     expect(r.getByRole("dialog")).toBeTruthy();
-    expect(r.getByRole("button", { name: /^Video\./ })).toBeTruthy();
-    expect(r.getByRole("button", { name: /^arXiv\./ })).toBeTruthy();
+    expect(r.getByRole("slider", { name: "Video" })).toBeTruthy();
+    expect(r.getByRole("slider", { name: "arXiv" })).toBeTruthy();
     expect(r.getByLabelText(/only my languages/i)).toBeTruthy();
   });
 

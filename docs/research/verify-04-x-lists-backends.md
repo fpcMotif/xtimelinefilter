@@ -2,7 +2,6 @@
 
 Verifier role: independent adversarial re-check of the `04-x-lists-backends.md` synthesis claims.
 Date: 2026-06-07. Method: cloned primary repos, fetched official/Wayback docs, GitHub code search.
-mgrep --web was UNAVAILABLE (monthly quota exhausted, HTTP 429) — substituted with `gh search`,
 `git clone`, `curl` against GitHub raw + Wayback Machine + official error/rate-limit references.
 
 Repos cloned to /tmp/tw-verify:

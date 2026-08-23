@@ -89,7 +89,10 @@ describe("canonical strings", () => {
     expect(S.FOLDER_CONTENTS_BACK).toBe("Back to Folders");
     expect(S.FOLDER_CONTENTS_EMPTY).toBe("This Folder has no saved posts yet.");
     expect(S.FOLDER_CONTENTS_ERROR).toBe("Couldn't load this Folder's posts.");
-    expect(S.FOLDER_CONTENTS_OPEN_ORIGINAL).toBe("Open on X");
+    expect(S.folderContentsOpenOriginal("x")).toBe("Open on X");
+    expect(S.folderContentsOpenOriginal("threads")).toBe("Open on Threads");
+    expect(S.folderContentsOpenOriginal("instagram")).toBe("Open on Instagram");
+    expect(S.folderContentsOpenOriginal(null)).toBe("Open original post");
     expect(S.FOLDER_CONTENTS_LOAD_MORE).toBe("Load more");
   });
 

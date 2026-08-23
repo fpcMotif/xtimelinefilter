@@ -274,14 +274,11 @@ function funnelButton(page: Page): Locator {
   return pillRoot(page).getByRole("button", { name: "Timeline filter" });
 }
 
-const VIDEO_A11Y_NAME = {
-  off: "Video. Current mode: off. Click to show only.",
-  only: "Video. Current mode: show only. Click to hide.",
-  hide: "Video. Current mode: hide. Click to turn off.",
-} as const;
-
-function videoChip(panel: Locator, mode: keyof typeof VIDEO_A11Y_NAME): Locator {
-  return panel.getByRole("button", { name: VIDEO_A11Y_NAME[mode], exact: true });
+/** The Video chip is an ARIA slider: one stable name, the mode lives in the value. */
+function videoChip(panel: Locator, mode: "off" | "only" | "hide"): Locator {
+  return panel
+    .getByRole("slider", { name: "Video", exact: true })
+    .and(panel.locator(`[data-mode="${mode}"]`));
 }
 
 /**

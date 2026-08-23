@@ -12,12 +12,12 @@ import {
   FOLDER_CONTENTS_EMPTY,
   FOLDER_CONTENTS_ERROR,
   FOLDER_CONTENTS_LOAD_MORE,
-  FOLDER_CONTENTS_OPEN_ORIGINAL,
+  folderContentsOpenOriginal,
   SEEDED_FOLDER_NAME,
 } from "@/core/strings";
 import type { FoldersClient } from "@/options/folders-client";
-import type { Folder, FolderDisposition, SavedPost } from "@/packages/folders/types";
 import type { CollectionReplicaStatus } from "@/packages/folders/replica";
+import type { Folder, FolderDisposition, SavedPost } from "@/packages/folders/types";
 import { Button, Input } from "@/ui/components";
 
 export const FOLDERS_EMPTY = "No Folders yet — create one above to start filing posts.";
@@ -29,6 +29,60 @@ export const DEFAULT_FOLDER_ASK = "None — always ask";
 /** The value the tri-state select carries for the never-set (or dangling-id) state. */
 const DEFAULT_FOLDER_UNSET = "";
 const FOLDER_PAGE_SIZE = 25;
+
+type OriginalPostPlatform = "x" | "threads" | "instagram";
+
+const ORIGINAL_POST_PLATFORM_BY_HOST: Readonly<Record<string, OriginalPostPlatform>> = {
+  "x.com": "x",
+  "www.x.com": "x",
+  "twitter.com": "x",
+  "www.twitter.com": "x",
+  "mobile.x.com": "x",
+  "mobile.twitter.com": "x",
+  "threads.com": "threads",
+  "www.threads.com": "threads",
+  "threads.net": "threads",
+  "www.threads.net": "threads",
+  "instagram.com": "instagram",
+  "www.instagram.com": "instagram",
+};
+
+function originalPlatformForPermalink(permalink: string): OriginalPostPlatform | null {
+  try {
+    const hostname = new URL(permalink).hostname.toLowerCase();
+    const normalized = hostname.endsWith(".") ? hostname.slice(0, -1) : hostname;
+    return ORIGINAL_POST_PLATFORM_BY_HOST[normalized] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function hasRenderableMedia(
+  post: SavedPost,
+  media: SavedPost["media"][number],
+): media is { kind: "photo" | "video"; url: string } {
+  if (!media.url) return false;
+  try {
+    const url = new URL(media.url);
+    if (url.protocol !== "https:") return false;
+    if (media.kind === "video" && /\.(?:m3u8|mp4|mov|webm)$/i.test(url.pathname)) return false;
+    const isSocialPost =
+      post.statusId.startsWith("threads:") || post.statusId.startsWith("instagram:");
+    if (isSocialPost && url.pathname.includes("/t51.82787-19/")) return false;
+    if (
+      post.statusId.startsWith("threads:") &&
+      media.kind === "photo" &&
+      post.media.some((entry) => entry.kind === "video") &&
+      (url.hostname === "giphy.com" || url.hostname.endsWith(".giphy.com")) &&
+      url.pathname.toLowerCase().endsWith("/200.webp")
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const codePointsAtMost = (value: string, max: number): boolean => {
   let count = 0;
@@ -176,7 +230,19 @@ function useFoldersDraft(client: FoldersClient): FoldersDraft {
     [client, guardedWrite],
   );
 
-  return { folders, loadError, counts, writeError, dataVersion, retry, refresh, create, rename, move, remove };
+  return {
+    folders,
+    loadError,
+    counts,
+    writeError,
+    dataVersion,
+    retry,
+    refresh,
+    create,
+    rename,
+    move,
+    remove,
+  };
 }
 
 export const FOLDERS_SYNC_NOW = "Sync now";
@@ -186,7 +252,6 @@ const LOCAL_ONLY_REPLICA_STATUS: CollectionReplicaStatus = {
   error: null,
   conflicts: 0,
 };
-
 
 function syncFailureStatus(
   error: unknown,
@@ -213,7 +278,8 @@ function replicaStatusCopy(
   if (!status) {
     return {
       title: "Checking Folder sync…",
-      detail: "Folders stay account-free; sync never uses X credentials or Chrome profile identity.",
+      detail:
+        "Folders stay account-free; sync never uses X credentials or Chrome profile identity.",
     };
   }
 
@@ -277,9 +343,7 @@ function ReplicaStatusPanel({
         </Button>
       </div>
       {updatedAt !== null && (
-        <p class="text-faint text-compact">
-          Last sync {new Date(updatedAt).toLocaleString()}
-        </p>
+        <p class="text-faint text-compact">Last sync {new Date(updatedAt).toLocaleString()}</p>
       )}
       {status?.error && <p class="text-muted-foreground text-compact">{status.error}</p>}
     </div>
@@ -593,12 +657,7 @@ function FolderContents({
           </ul>
           {nextCursor !== null && (
             <div class="flex justify-center">
-              <Button
-                variant="outline"
-                size="pill"
-                disabled={loadingMore}
-                onClick={loadMore}
-              >
+              <Button variant="outline" size="pill" disabled={loadingMore} onClick={loadMore}>
                 {FOLDER_CONTENTS_LOAD_MORE}
               </Button>
             </div>
@@ -616,9 +675,9 @@ function SavedPostRow({ post }: { post: SavedPost }) {
     year: "numeric",
   });
   const screenName = post.author?.screenName ?? "unknown";
-  // Only URL-carrying media can render — a bare kind means the article exposed
-  // no src/poster, and an <img> without one is a broken frame.
-  const media = post.media.filter((m): m is { kind: "photo" | "video"; url: string } => !!m.url);
+  // Folder cards can only embed durable media previews, never a captured page's
+  // transient player stream or social UI asset.
+  const media = post.media.filter((entry) => hasRenderableMedia(post, entry));
   return (
     <li class="border-border flex gap-3 rounded-xl border px-3.5 py-3 text-sm">
       <span
@@ -675,7 +734,7 @@ function SavedPostRow({ post }: { post: SavedPost }) {
             rel="noopener noreferrer"
             class="text-primary text-compact hover:underline"
           >
-            {FOLDER_CONTENTS_OPEN_ORIGINAL}
+            {folderContentsOpenOriginal(originalPlatformForPermalink(post.permalink))}
           </a>
         )}
       </div>

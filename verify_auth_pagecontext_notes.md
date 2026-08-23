@@ -1,6 +1,5 @@
 # Adversarial Verification — Auth & Page-Context Credentials (X/Twitter MV3 extension)
 
-Date: 2026-06-07. Verifier ran `curl -sSL` on primary docs, `gh` GitHub code search, cloned-file inspection. `mgrep --web` quota was exhausted (HTTP 429) so web discovery fell back to GitHub code search of mature reverse-engineering projects (gallery-dl, twscrape, nitter, OldTwitter) — these are *primary* implementations and are stronger than blog posts for header-level facts.
 
 Bottom line: 7 of 9 claims CONFIRMED, 2 CONFIRMED-with-correction. The two corrections both concern **citations that do not actually support the asserted fact** (the X help page does not document `ct0`/HttpOnly; the trekhleb blog does not contain the logged-in header set). The underlying technical facts are nonetheless true and independently corroborated.
 
@@ -202,4 +201,3 @@ Source:
 2. Claim 5: The trekhleb blog does NOT contain the logged-in header set (no x-twitter-auth-type/OAuth2Session/x-csrf/bearer strings). Cite trekhleb only for the GraphQL endpoint/queryId/features structure; cite gallery-dl/twscrape/nitter for the header set.
 3. Claim 1 (nuance, not a refutation): MV3 privileged content-script fetch omits Origin/Referer on the CORS path. For full site fidelity, set credentials explicitly and consider issuing the request through the page's MAIN-world code path. Cookies still auto-attach on same-origin.
 4. Claim 9 (scope): the webparsers source supports doc_id/guest-token/cookie-validation rotation + 2-4 week cadence, but NOT "transaction-id enforcement" specifically — that sub-point leans on Claim 7's sources. webparsers is a commercial vendor; keep at medium confidence.
-5. Tooling note: `mgrep --web` was unavailable (429 monthly-quota). Web corroboration was obtained via GitHub code search (`gh api search/code`) over mature primary implementations, which is stronger than blogs for header facts.

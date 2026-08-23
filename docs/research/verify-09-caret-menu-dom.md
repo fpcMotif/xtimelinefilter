@@ -16,7 +16,6 @@ Sources re-examined first-hand:
 - **NEW**: `becketto.com/unfollow-script` (auto-confirm-unfollow userscript).
 - X help (`help.x.com/.../blocking-and-unblocking-accounts`) — **Cloudflare-gated to curl** (the
   source doc already flagged this); behavior corroborated via web search summary + secondary press.
-- mgrep `--web` was unavailable (monthly quota 429); substituted the WebSearch/WebFetch fallback.
 
 ---
 

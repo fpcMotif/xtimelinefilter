@@ -91,7 +91,20 @@ export const SAVE_POST_LABEL = "Save post to a Folder";
 export const FOLDER_CONTENTS_BACK = "Back to Folders";
 export const FOLDER_CONTENTS_EMPTY = "This Folder has no saved posts yet.";
 export const FOLDER_CONTENTS_ERROR = "Couldn't load this Folder's posts.";
-export const FOLDER_CONTENTS_OPEN_ORIGINAL = "Open on X";
+export const folderContentsOpenOriginal = (
+  platform: "x" | "threads" | "instagram" | null,
+): string => {
+  switch (platform) {
+    case "x":
+      return "Open on X";
+    case "threads":
+      return "Open on Threads";
+    case "instagram":
+      return "Open on Instagram";
+    default:
+      return "Open original post";
+  }
+};
 export const FOLDER_CONTENTS_LOAD_MORE = "Load more";
 
 // 10c — the popup's Saved row (ticket #74). Counts POSTS, not people — see the

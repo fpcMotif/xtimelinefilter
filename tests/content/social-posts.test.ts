@@ -28,8 +28,10 @@ describe("social post adapters", () => {
         <div class="post">
           <a href="/@alice/post/AbC-123"><time datetime="2026-08-01T10:00:00Z">1h</time></a>
           <p>Hello from Threads</p>
-          <img src="https://cdn.example/photo.jpg">
-        </div>
+          <div role="region" aria-label="Photo">
+            <img src="https://cdn.example/photo.jpg">
+          </div>
+</div>
       </main>
     `);
     const adapter = createSocialPostAdapter("threads");
@@ -61,6 +63,75 @@ describe("social post adapters", () => {
       statusId: "instagram:REEL_2",
       media: [{ kind: "video", url: "https://cdn.example/poster.jpg" }],
     });
+  });
+
+  it("captures only post media from Threads posts with avatars, emoji, and video posters", () => {
+    mount(`
+      <main>
+        <article class="post">
+          <a href="/@alice/post/Media_123"><time datetime="2026-08-01T10:00:00Z">1h</time></a>
+          <img alt="Alice profile picture" src="https://cdn.example/threads-avatar.jpg">
+          <p>Threads post with enough readable text to make the post root deterministic.</p>
+          <img alt="sparkles emoji" src="https://cdn.example/threads-emoji.png">
+          <div role="region" aria-label="Video">
+            <video poster="https://cdn.example/threads-video-poster.jpg"></video>
+            <img alt="Video poster image" src="https://cdn.example/threads-video-poster.jpg">
+          </div>
+          <div role="region" aria-label="Photo">
+            <img alt="Sunset over the bay" src="https://cdn.example/threads-photo.jpg">
+          </div>
+        </article>
+      </main>
+    `);
+    const adapter = createSocialPostAdapter("threads");
+    const post = adapter.posts(document)[0];
+    expect(post?.key).toBe("threads:Media_123");
+    expect(adapter.capture(post!.root).media).toEqual([
+      { kind: "video", url: "https://cdn.example/threads-video-poster.jpg" },
+      { kind: "photo", url: "https://cdn.example/threads-photo.jpg" },
+    ]);
+  });
+
+  it("saves Threads video cover images instead of HTTPS streams as previews", () => {
+    mount(`
+      <main>
+        <article class="post">
+          <a href="/@alice/post/Video_456"><time datetime="2026-08-01T12:00:00Z">now</time></a>
+          <p>Threads video post with enough readable text to make the post root deterministic.</p>
+          <div role="region" aria-label="Video">
+            <video src="https://cdn.example/stream.mp4"></video>
+            <img alt="Video cover image" src="https://cdn.example/cover.jpg">
+          </div>
+        </article>
+      </main>
+    `);
+    const adapter = createSocialPostAdapter("threads");
+    const post = adapter.posts(document)[0];
+    expect(post?.key).toBe("threads:Video_456");
+    const capture = adapter.capture(post!.root);
+    expect(capture.media).toEqual([{ kind: "video", url: "https://cdn.example/cover.jpg" }]);
+  });
+
+  it("captures only Instagram photo media when decorative assets and blob videos are present", () => {
+    mount(`
+      <main>
+        <article class="post">
+          <img alt="Bob profile picture" src="https://cdn.example/instagram-avatar.jpg">
+          <p>Instagram post with enough readable text to make the post root deterministic.</p>
+          <img alt="heart emoji" src="https://cdn.example/instagram-emoji.png">
+          <a href="/p/PHOTO_789/">
+            <img alt="Actual carousel photo" src="https://cdn.example/instagram-photo.jpg">
+          </a>
+          <video src="blob:https://www.instagram.com/transient-video"></video>
+        </article>
+      </main>
+    `);
+    const adapter = createSocialPostAdapter("instagram");
+    const post = adapter.posts(document)[0];
+    expect(post?.key).toBe("instagram:PHOTO_789");
+    expect(adapter.capture(post!.root).media).toEqual([
+      { kind: "photo", url: "https://cdn.example/instagram-photo.jpg" },
+    ]);
   });
 });
 

@@ -97,6 +97,7 @@ export function LinkRulesEditor({ store }: { store: FilterStore }) {
             </button>
           </li>
         ))}
+        {linkRules.length === 0 && <li class="text-faint text-compact">No link rules yet.</li>}
       </ul>
       <div class="flex flex-wrap gap-2">
         <Input

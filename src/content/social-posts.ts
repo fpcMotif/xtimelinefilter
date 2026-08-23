@@ -174,22 +174,71 @@ function captureAuthor(
     : undefined;
 }
 
-function captureMedia(root: Element): PostCapture["media"] {
+function httpsMediaUrl(raw: string | null | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function captureMedia(
+  root: Element,
+  platform: SocialPlatform,
+  canonicalPermalink: string | null,
+): PostCapture["media"] {
   const media: PostCapture["media"] = [];
+  const seenUrls = new Set<string>();
+
+  const addMedia = (kind: "video" | "photo", url: string | null): void => {
+    if (!url || seenUrls.has(url) || media.length >= 8) return;
+    seenUrls.add(url);
+    media.push({ kind, url });
+  };
+
   for (const video of root.querySelectorAll<HTMLVideoElement>("video")) {
-    const url =
-      video.getAttribute("poster") ||
-      video.poster ||
-      video.currentSrc ||
-      video.getAttribute("src") ||
-      undefined;
-    media.push(url ? { kind: "video", url } : { kind: "video" });
+    let url = httpsMediaUrl(video.poster) ?? httpsMediaUrl(video.getAttribute("poster"));
+    if (!url && platform === "threads") {
+      const region = video.closest('[role="region"]');
+      for (const image of region?.querySelectorAll<HTMLImageElement>("img") ?? []) {
+        url = httpsMediaUrl(image.currentSrc || image.getAttribute("src"));
+        if (url) break;
+      }
+    }
+    addMedia("video", url);
   }
-  for (const image of root.querySelectorAll<HTMLImageElement>("img[src]")) {
-    if (image.closest("video")) continue;
-    media.push({ kind: "photo", url: image.src });
+
+  if (media.length >= 8) return media;
+
+  if (platform === "threads") {
+    for (const region of root.querySelectorAll<Element>('[role="region"]')) {
+      if (region.querySelector("video")) continue;
+      for (const image of region.querySelectorAll<HTMLImageElement>("img")) {
+        const url = httpsMediaUrl(image.currentSrc || image.getAttribute("src"));
+        addMedia("photo", url);
+      }
+      if (media.length >= 8) return media;
+    }
+    return media;
   }
-  return media.slice(0, 8);
+
+  if (!canonicalPermalink) return media;
+
+  for (const anchor of root.querySelectorAll<HTMLAnchorElement>(LINK_SELECTORS.instagram)) {
+    const anchorPost = postId("instagram", anchor.getAttribute("href") ?? anchor.href);
+    if (anchorPost?.permalink !== canonicalPermalink) continue;
+    for (const image of anchor.querySelectorAll<HTMLImageElement>("img")) {
+      if (image.closest("a[href]") !== anchor) continue;
+      const url = httpsMediaUrl(image.currentSrc || image.getAttribute("src"));
+      addMedia("photo", url);
+    }
+    if (media.length >= 8) return media;
+  }
+
+  return media;
 }
 
 function capturePostedAt(root: Element): string | undefined {
@@ -228,7 +277,7 @@ export function createSocialPostAdapter(platform: SocialPlatform): SocialPostAda
         permalink: parsed?.permalink ?? null,
         ...(author ? { author } : {}),
         ...(text ? { text } : {}),
-        media: captureMedia(root),
+        media: captureMedia(root, platform, parsed?.permalink ?? null),
         ...(postedAt ? { postedAt } : {}),
       };
     },
