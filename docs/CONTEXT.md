@@ -100,3 +100,9 @@ These terms define the product. Architecture lives in
 - **Folder Picker controller** — cache-first Folder list for one pending capture, with holding marks and choose/close effects the Controller executes.
 - **Folders workshop** — the Options section for full Folder management, replica status, and Sync now: create, rename, reorder, delete (with a disposition confirmation) and default-Folder nomination. It renders its local cache first, then refreshes a configured Convex Folder Replica and repeats its normal Folder/page reads. It remains usable with no x.com tab, no X session, no List catalog read, or no Convex connection — Folders belong to the installation's local replica, never an X account. A failed Folder or replica read leaves cached data visible with an honest error and Retry rather than an empty list.
 - **Canonical strings** — shared user-facing copy in `core/strings.ts`, pinned by tests.
+
+## Presentation & Styling
+
+- **StyleX** — the primary styling engine (`@stylexjs/stylex`). Compiles atomic CSS rules at build time, eliminating runtime class resolution, specificity races, and class-clobbering bugs inside open Shadow DOM overlays. See ADR-0014.
+- **Design tokens** — typed token definitions in `src/ui/tokens.stylex.ts` (`tokens.*`) referencing semantic CSS variables declared on `:root` and mirrored to `:host` in `src/ui/mount.tsx`.
+- **Styling rollback contract** — the standing rollback design described in ADR-0014. Should future product requirements demand returning to Tailwind CSS v4, the architecture preserves backwards compatibility across component APIs (`class`/`className` via zero-dependency `cn`), shared CSS variables in `src/ui/styles.css`, and an isolated commit history tracked by bookmark `baseline/tailwindcss`.

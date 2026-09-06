@@ -1,6 +1,8 @@
+import * as stylex from "@stylexjs/stylex";
 import { useId } from "preact/hooks";
 
 import { SAVE_POST_LABEL } from "@/core/strings";
+import { tokens } from "@/ui/tokens.stylex";
 
 export interface TweetOverlayProps {
   /** Author handle without the leading @. */
@@ -20,12 +22,96 @@ export interface TweetOverlayProps {
   tooltip?: string | null;
 }
 
-const controlClass = (shown: boolean, filled: boolean): string =>
-  `group focus-visible:ring-ring/55 relative grid h-[22px] w-[22px] place-items-center rounded-full border-2 text-xs leading-none transition-[opacity,border-color] duration-150 ease-out outline-none before:absolute before:-inset-2 before:content-[''] focus-visible:ring-2 active:scale-[0.96] ${
-    filled
-      ? "border-primary bg-primary text-primary-foreground"
-      : "border-border bg-card text-foreground hover:border-primary"
-  } ${shown ? "opacity-100" : "pointer-events-none opacity-0"}`;
+const styles = stylex.create({
+  root: {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "0.25rem",
+  },
+  control: {
+    position: "relative",
+    display: "grid",
+    height: "22px",
+    width: "22px",
+    placeItems: "center",
+    borderRadius: tokens.radiusFull,
+    borderWidth: "2px",
+    borderStyle: "solid",
+    fontSize: tokens.textXs,
+    lineHeight: 1,
+    transitionProperty: "opacity, border-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    outline: "none",
+    cursor: "pointer",
+    boxSizing: "border-box",
+    "::before": {
+      content: '""',
+      position: "absolute",
+      top: "-0.5rem",
+      bottom: "-0.5rem",
+      left: "-0.5rem",
+      right: "-0.5rem",
+    },
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+    ":active": {
+      transform: "scale(0.96)",
+    },
+  },
+  filled: {
+    borderColor: tokens.primary,
+    backgroundColor: tokens.primary,
+    color: tokens.primaryForeground,
+  },
+  unfilled: {
+    borderColor: {
+      default: tokens.border,
+      ":hover": tokens.primary,
+    },
+    backgroundColor: tokens.card,
+    color: tokens.foreground,
+  },
+  shown: {
+    opacity: 1,
+  },
+  hidden: {
+    opacity: 0,
+    pointerEvents: "none",
+  },
+  checkUnselected: {
+    opacity: 0,
+    transitionProperty: "opacity",
+    transitionDuration: "150ms",
+  },
+  arrowText: {
+    fontSize: tokens.text2xs,
+    lineHeight: 1,
+    fontWeight: "600",
+  },
+  tooltip: {
+    backgroundColor: tokens.foreground,
+    color: tokens.background,
+    boxShadow: tokens.shadowElevated,
+    position: "absolute",
+    top: "100%",
+    left: "50%",
+    zIndex: 10,
+    marginTop: "0.375rem",
+    width: "max-content",
+    maxWidth: "240px",
+    transform: "translateX(-50%)",
+    borderRadius: tokens.radiusMd,
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+    fontSize: tokens.textXs,
+    boxSizing: "border-box",
+  },
+});
 
 /**
  * Per-post chrome at the avatar corner: selection check + optional save.
@@ -44,7 +130,7 @@ export function TweetOverlay({
   const shown = visible || selected;
   const tooltipId = useId();
   return (
-    <span class="relative inline-flex items-center gap-1">
+    <span {...stylex.props(styles.root)}>
       <button
         type="button"
         aria-pressed={selected}
@@ -58,13 +144,13 @@ export function TweetOverlay({
         }}
         onFocus={() => onFocusChange?.(true)}
         onBlur={() => onFocusChange?.(false)}
-        class={controlClass(shown, selected)}
+        {...stylex.props(
+          styles.control,
+          selected ? styles.filled : styles.unfilled,
+          shown ? styles.shown : styles.hidden,
+        )}
       >
-        <span
-          class={selected ? "" : "opacity-0 transition-opacity duration-150 group-hover:opacity-40"}
-        >
-          ✓
-        </span>
+        <span {...stylex.props(!selected && styles.checkUnselected)}>✓</span>
       </button>
       {onSave && (
         <button
@@ -78,19 +164,15 @@ export function TweetOverlay({
           }}
           onFocus={() => onFocusChange?.(true)}
           onBlur={() => onFocusChange?.(false)}
-          class={controlClass(shown, false)}
+          {...stylex.props(styles.control, styles.unfilled, shown ? styles.shown : styles.hidden)}
         >
-          <span aria-hidden="true" class="text-[11px] leading-none font-semibold">
+          <span aria-hidden="true" {...stylex.props(styles.arrowText)}>
             ⤵
           </span>
         </button>
       )}
       {tooltip && (
-        <span
-          id={tooltipId}
-          role="tooltip"
-          class="bg-foreground text-background shadow-elevated absolute top-full left-1/2 z-10 mt-1.5 w-max max-w-[240px] -translate-x-1/2 rounded-md px-2 py-1 text-xs"
-        >
+        <span id={tooltipId} role="tooltip" {...stylex.props(styles.tooltip)}>
           {tooltip}
         </span>
       )}
