@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex";
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -5,6 +6,7 @@ import type { RunningAssign } from "@/content/app-state";
 import type { TweetAuthor } from "@/core/selection-store";
 import { formatCount, peopleSelected, progressLine, SELECT_MODE_BAR, STOP } from "@/core/strings";
 import { UI_LAYER } from "@/ui/layers";
+import { tokens } from "@/ui/tokens.stylex";
 import { focusWithoutScroll } from "@/ui/use-focus-trap";
 
 export interface ActionBarProps {
@@ -24,9 +26,325 @@ export interface ActionBarProps {
   onCountHover?(): Promise<string | null>;
 }
 
-const BAR_CLASS =
-  "bg-card shadow-elevated fixed bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2";
 const COUNT_TOOLTIP_ID = "lasso-selection-count-tooltip";
+
+const spin = stylex.keyframes({
+  "0%": { transform: "rotate(0deg)" },
+  "100%": { transform: "rotate(360deg)" },
+});
+
+const styles = stylex.create({
+  bar: {
+    backgroundColor: tokens.card,
+    boxShadow: tokens.shadowElevated,
+    position: "fixed",
+    bottom: "1.5rem",
+    left: "50%",
+    transform: "translateX(-50%)",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.75rem",
+    borderRadius: tokens.radiusFull,
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.5rem",
+    paddingBottom: "0.5rem",
+    boxSizing: "border-box",
+  },
+  spinner: {
+    borderColor: tokens.border,
+    borderTopColor: tokens.primary,
+    height: "1rem",
+    width: "1rem",
+    animationName: spin,
+    animationDuration: "1s",
+    animationTimingFunction: "linear",
+    animationIterationCount: "infinite",
+    borderRadius: tokens.radiusFull,
+    borderWidth: "2px",
+    borderStyle: "solid",
+    boxSizing: "border-box",
+  },
+  progressText: {
+    color: tokens.foreground,
+    fontSize: tokens.textSm,
+    fontVariantNumeric: "tabular-nums",
+  },
+  stopButton: {
+    borderColor: tokens.border,
+    color: tokens.foreground,
+    borderRadius: tokens.radiusFull,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "0.75rem",
+    paddingRight: "0.75rem",
+    paddingTop: "0.375rem",
+    paddingBottom: "0.375rem",
+    fontSize: tokens.textSm,
+    fontWeight: "600",
+    transitionProperty: "transform, background-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    outline: "none",
+    cursor: "pointer",
+    backgroundColor: {
+      default: "transparent",
+      ":hover": tokens.secondary,
+    },
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+    ":active": {
+      transform: "scale(0.96)",
+    },
+  },
+  selectModeText: {
+    color: tokens.mutedForeground,
+    fontSize: tokens.textSm,
+  },
+  doneButton: {
+    backgroundColor: {
+      default: tokens.primary,
+      ":hover": `oklch(from ${tokens.primary} l c h / 0.9)`,
+    },
+    color: tokens.primaryForeground,
+    borderRadius: tokens.radiusFull,
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.375rem",
+    paddingBottom: "0.375rem",
+    fontSize: tokens.textSm,
+    fontWeight: "600",
+    transitionProperty: "transform, background-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    outline: "none",
+    borderWidth: 0,
+    cursor: "pointer",
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+    ":active": {
+      transform: "scale(0.96)",
+    },
+  },
+  facepileButton: {
+    display: "flex",
+    alignItems: "center",
+    borderRadius: tokens.radiusFull,
+    outline: "none",
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    cursor: "pointer",
+    padding: 0,
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+  },
+  facepileAvatarOverlap: {
+    marginLeft: "-0.5rem",
+  },
+  facepileOverflow: {
+    backgroundColor: tokens.secondary,
+    color: tokens.mutedForeground,
+    borderColor: tokens.card,
+    fontSize: tokens.text2xs,
+    zIndex: 10,
+    display: "grid",
+    placeItems: "center",
+    height: "1.5rem",
+    width: "1.5rem",
+    borderRadius: tokens.radiusFull,
+    borderWidth: "2px",
+    borderStyle: "solid",
+    fontWeight: "600",
+    fontVariantNumeric: "tabular-nums",
+    marginLeft: "-0.5rem",
+    boxSizing: "border-box",
+  },
+  countButton: {
+    color: tokens.mutedForeground,
+    position: "relative",
+    fontSize: tokens.textSm,
+    fontVariantNumeric: "tabular-nums",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+  },
+  tooltip: {
+    backgroundColor: tokens.foreground,
+    color: tokens.background,
+    boxShadow: tokens.shadowElevated,
+    position: "absolute",
+    bottom: "100%",
+    left: "50%",
+    zIndex: 10,
+    marginBottom: "0.375rem",
+    width: "max-content",
+    transform: "translateX(-50%)",
+    borderRadius: tokens.radiusMd,
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+    fontSize: tokens.textXs,
+    boxSizing: "border-box",
+  },
+  assignButton: {
+    backgroundColor: {
+      default: tokens.primary,
+      ":hover": `oklch(from ${tokens.primary} l c h / 0.9)`,
+    },
+    color: tokens.primaryForeground,
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    borderRadius: tokens.radiusFull,
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.375rem",
+    paddingBottom: "0.375rem",
+    fontSize: tokens.textSm,
+    fontWeight: "600",
+    transitionProperty: "transform, background-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    outline: "none",
+    borderWidth: 0,
+    cursor: "pointer",
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+    ":active": {
+      transform: "scale(0.96)",
+    },
+  },
+  keycapsWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.125rem",
+  },
+  keycap: {
+    fontSize: tokens.text2xs,
+    borderRadius: tokens.radiusSm,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: "rgba(255, 255, 255, 0.4)",
+    paddingLeft: "0.25rem",
+    paddingRight: "0.25rem",
+    lineHeight: "1rem",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
+  },
+  clearButton: {
+    color: tokens.mutedForeground,
+    borderRadius: tokens.radiusFull,
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+    fontSize: tokens.textSm,
+    transitionProperty: "transform, color, background-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    outline: "none",
+    borderWidth: 0,
+    backgroundColor: {
+      default: "transparent",
+      ":hover": tokens.secondary,
+    },
+    cursor: "pointer",
+    ":hover": {
+      color: tokens.foreground,
+    },
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+    ":active": {
+      transform: "scale(0.96)",
+    },
+  },
+  reviewPopover: {
+    backgroundColor: tokens.card,
+    boxShadow: tokens.shadowElevated,
+    position: "absolute",
+    bottom: "100%",
+    left: 0,
+    marginBottom: "0.5rem",
+    maxHeight: "280px",
+    width: "16rem",
+    overflowY: "auto",
+    borderRadius: tokens.radiusXl,
+    padding: "0.25rem",
+    boxSizing: "border-box",
+  },
+  reviewRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    borderRadius: tokens.radiusLg,
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    paddingTop: "0.375rem",
+    paddingBottom: "0.375rem",
+    backgroundColor: {
+      default: "transparent",
+      ":hover": tokens.secondary,
+    },
+  },
+  reviewName: {
+    color: tokens.foreground,
+    minWidth: 0,
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: tokens.textSm,
+  },
+  reviewRemoveButton: {
+    color: tokens.mutedForeground,
+    borderRadius: tokens.radiusFull,
+    paddingLeft: "0.375rem",
+    paddingRight: "0.375rem",
+    outline: "none",
+    border: "none",
+    background: "none",
+    cursor: "pointer",
+    ":hover": {
+      color: tokens.foreground,
+    },
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+  },
+  avatarImg: {
+    borderColor: tokens.card,
+    zIndex: 10,
+    borderRadius: tokens.radiusFull,
+    borderWidth: "2px",
+    borderStyle: "solid",
+    boxSizing: "border-box",
+  },
+  avatarFallback: {
+    backgroundColor: tokens.secondary,
+    color: tokens.mutedForeground,
+    borderColor: tokens.card,
+    fontSize: tokens.text2xs,
+    zIndex: 10,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: tokens.radiusFull,
+    borderWidth: "2px",
+    borderStyle: "solid",
+    fontWeight: "600",
+    textTransform: "uppercase",
+    boxSizing: "border-box",
+  },
+  crosshair: {
+    color: tokens.mutedForeground,
+  },
+});
 
 /**
  * The floating bar (story beats 4 & 7): facepile · "N people selected" ·
@@ -55,25 +373,21 @@ function ProgressBar({ running, onStop }: { running: RunningAssign; onStop(): vo
   useEffect(() => focusWithoutScroll(stopRef.current), []);
 
   return (
-    <section aria-label="Lasso progress" class={BAR_CLASS} style={{ zIndex: UI_LAYER.app }}>
-      <span
-        aria-hidden="true"
-        class="border-border border-t-primary h-4 w-4 animate-spin rounded-full border-2"
-      />
+    <section
+      aria-label="Lasso progress"
+      {...stylex.props(styles.bar)}
+      style={{ zIndex: UI_LAYER.app }}
+    >
+      <span aria-hidden="true" {...stylex.props(styles.spinner)} />
       <span
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        class="text-foreground text-sm tabular-nums"
+        {...stylex.props(styles.progressText)}
       >
         {progressLine(running.current, running.total, running.listName)}
       </span>
-      <button
-        ref={stopRef}
-        type="button"
-        onClick={onStop}
-        class="border-border text-foreground hover:bg-secondary focus-visible:ring-ring/55 rounded-full border px-3 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
-      >
+      <button ref={stopRef} type="button" onClick={onStop} {...stylex.props(styles.stopButton)}>
         {STOP}
       </button>
     </section>
@@ -87,15 +401,14 @@ function SelectModeBar({ onDone, focusOnMount }: { onDone(): void; focusOnMount:
   }, [focusOnMount]);
 
   return (
-    <section aria-label="Lasso select mode" class={BAR_CLASS} style={{ zIndex: UI_LAYER.app }}>
+    <section
+      aria-label="Lasso select mode"
+      {...stylex.props(styles.bar)}
+      style={{ zIndex: UI_LAYER.app }}
+    >
       <CrosshairGlyph />
-      <span class="text-muted-foreground text-sm">{SELECT_MODE_BAR}</span>
-      <button
-        ref={doneRef}
-        type="button"
-        onClick={onDone}
-        class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/55 rounded-full px-4 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
-      >
+      <span {...stylex.props(styles.selectModeText)}>{SELECT_MODE_BAR}</span>
+      <button ref={doneRef} type="button" onClick={onDone} {...stylex.props(styles.doneButton)}>
         Done
       </button>
     </section>
@@ -170,7 +483,11 @@ function SelectionBar(props: ActionBarProps) {
   }
 
   return (
-    <section aria-label="Lasso selection" class={BAR_CLASS} style={{ zIndex: UI_LAYER.app }}>
+    <section
+      aria-label="Lasso selection"
+      {...stylex.props(styles.bar)}
+      style={{ zIndex: UI_LAYER.app }}
+    >
       {props.reviewOpen && (
         <ReviewPopover
           dialogRef={reviewDialogRef}
@@ -184,20 +501,22 @@ function SelectionBar(props: ActionBarProps) {
         aria-label="Review selected people"
         aria-expanded={props.reviewOpen}
         onClick={() => props.onToggleReview(!props.reviewOpen)}
-        class="focus-visible:ring-ring/55 flex items-center -space-x-2 rounded-full outline-none focus-visible:ring-2"
+        {...stylex.props(styles.facepileButton)}
       >
-        {props.authors.slice(0, 3).map((a) => (
-          <Avatar key={a.screenName} author={a} size={24} />
+        {props.authors.slice(0, 3).map((a, i) => (
+          <span key={a.screenName} {...stylex.props(i > 0 && styles.facepileAvatarOverlap)}>
+            <Avatar author={a} size={24} />
+          </span>
         ))}
         {props.authors.length > 3 && (
-          <span class="bg-secondary text-muted-foreground border-card text-2xs z-10 grid h-6 w-6 place-items-center rounded-full border-2 font-semibold tabular-nums">
+          <span {...stylex.props(styles.facepileOverflow)}>
             +{formatCount(props.authors.length - 3)}
           </span>
         )}
       </button>
       <button
         type="button"
-        class="text-muted-foreground relative text-sm tabular-nums"
+        {...stylex.props(styles.countButton)}
         aria-describedby={tooltip ? COUNT_TOOLTIP_ID : undefined}
         onMouseEnter={onCountEnter}
         onMouseLeave={onCountLeave}
@@ -206,25 +525,17 @@ function SelectionBar(props: ActionBarProps) {
       >
         {peopleSelected(props.authors.length)}
         {tooltip && (
-          <span
-            id={COUNT_TOOLTIP_ID}
-            role="tooltip"
-            class="bg-foreground text-background shadow-elevated absolute bottom-full left-1/2 z-10 mb-1.5 w-max -translate-x-1/2 rounded-md px-2 py-1 text-xs"
-          >
+          <span id={COUNT_TOOLTIP_ID} role="tooltip" {...stylex.props(styles.tooltip)}>
             {tooltip}
           </span>
         )}
       </button>
-      <button
-        type="button"
-        onClick={props.onAssign}
-        class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/55 flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
-      >
+      <button type="button" onClick={props.onAssign} {...stylex.props(styles.assignButton)}>
         Add to List
         {props.hintKeycaps && (
-          <span class="flex items-center gap-0.5">
+          <span {...stylex.props(styles.keycapsWrap)}>
             {props.hintKeycaps.map((k) => (
-              <kbd key={k} class="text-2xs rounded border border-white/40 px-1 leading-4">
+              <kbd key={k} {...stylex.props(styles.keycap)}>
                 {k}
               </kbd>
             ))}
@@ -235,7 +546,7 @@ function SelectionBar(props: ActionBarProps) {
         type="button"
         aria-label="Clear selection"
         onClick={props.onClear}
-        class="text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:ring-ring/55 rounded-full px-2 py-1 text-sm transition-transform duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
+        {...stylex.props(styles.clearButton)}
       >
         ✕
       </button>
@@ -258,20 +569,17 @@ function ReviewPopover({
       ref={dialogRef}
       role="dialog"
       aria-label="Selected people"
-      class="bg-card shadow-elevated absolute bottom-full left-0 mb-2 max-h-[280px] w-64 overflow-y-auto rounded-2xl p-1"
+      {...stylex.props(styles.reviewPopover)}
     >
       {authors.map((a, index) => (
-        <div
-          key={a.screenName}
-          class="hover:bg-secondary flex items-center gap-2 rounded-lg px-2 py-1.5"
-        >
+        <div key={a.screenName} {...stylex.props(styles.reviewRow)}>
           <Avatar author={a} size={28} />
-          <span class="text-foreground min-w-0 flex-1 truncate text-sm">@{a.screenName}</span>
+          <span {...stylex.props(styles.reviewName)}>@{a.screenName}</span>
           <button
             type="button"
             aria-label={`Remove @${a.screenName}`}
             onClick={() => onRemove(a.screenName, index)}
-            class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/55 rounded-full px-1.5 outline-none focus-visible:ring-2"
+            {...stylex.props(styles.reviewRemoveButton)}
           >
             ✕
           </button>
@@ -290,7 +598,7 @@ function Avatar({ author, size }: { author: TweetAuthor; size: number }) {
         alt={`@${author.screenName}`}
         width={size}
         height={size}
-        class="border-card z-10 rounded-full border-2"
+        {...stylex.props(styles.avatarImg)}
         style={{ width: dim, height: dim }}
       />
     );
@@ -298,7 +606,7 @@ function Avatar({ author, size }: { author: TweetAuthor; size: number }) {
   return (
     <span
       aria-label={`@${author.screenName}`}
-      class="bg-secondary text-muted-foreground border-card text-2xs z-10 grid place-items-center rounded-full border-2 font-semibold uppercase"
+      {...stylex.props(styles.avatarFallback)}
       style={{ width: dim, height: dim }}
     >
       {author.screenName.slice(0, 1)}
@@ -313,7 +621,7 @@ function CrosshairGlyph() {
       width="16"
       height="16"
       viewBox="0 0 20 20"
-      class="text-muted-foreground"
+      {...stylex.props(styles.crosshair)}
     >
       <circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.5" />
       <path

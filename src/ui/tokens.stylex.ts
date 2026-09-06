@@ -1,0 +1,46 @@
+import * as stylex from "@stylexjs/stylex";
+
+export const tokens = stylex.defineVars({
+  background: "var(--background)",
+  foreground: "var(--foreground)",
+  card: "var(--card)",
+  cardForeground: "var(--card-foreground)",
+  popover: "var(--popover)",
+  popoverForeground: "var(--popover-foreground)",
+  primary: "var(--primary)",
+  primaryForeground: "var(--primary-foreground)",
+  secondary: "var(--secondary)",
+  secondaryForeground: "var(--secondary-foreground)",
+  mutedForeground: "var(--muted-foreground)",
+  faint: "var(--faint)",
+  destructive: "var(--destructive)",
+  success: "var(--success)",
+  border: "var(--border)",
+  input: "var(--input)",
+  ring: "var(--ring)",
+  shadowElevated: "var(--shadow-elevated)",
+  shadowPop: "var(--shadow-pop)",
+  scrim: "var(--scrim)",
+
+  radiusSm: "calc(var(--radius) - 4px)",
+  radiusMd: "calc(var(--radius) - 2px)",
+  radiusLg: "var(--radius)",
+  radiusXl: "calc(var(--radius) + 4px)",
+  radiusFull: "9999px",
+
+  fontSans: "var(--font-sans)",
+  fontMono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+
+  easeOut: "cubic-bezier(0.23, 1, 0.32, 1)",
+
+  text2xs: "11px",
+  textXs: "12px",
+  textCompact: "13px",
+  textSm: "14px",
+  textMd: "15px",
+  textBase: "16px",
+  textLg: "18px",
+  textXl: "20px",
+  text2xl: "24px",
+  text3xl: "26px",
+});

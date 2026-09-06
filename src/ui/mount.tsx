@@ -1,10 +1,14 @@
 import { type ComponentChild, render } from "preact";
 
-import tailwindCss from "./styles.css?inline";
+import baseCss from "./styles.css?inline";
 
-// Tailwind emits theme vars and preflight to :root; rewrite to :host so they
-// apply inside the Shadow DOM (utilities resolve their var() references there).
-const shadowCss = tailwindCss.replaceAll(":root", ":host");
+// StyleX rules compiled across all components are injected into content scripts at build time.
+// In tests or mock environments, this placeholder is absent or safely ignored.
+const stylexCss = "__STYLEX_SHADOW_CSS_INJECT__";
+const combinedCss = stylexCss.startsWith("__STYLEX") ? baseCss : `${baseCss}\n${stylexCss}`;
+
+// Theme vars and preflight emit to :root; rewrite to :host so they apply inside the Shadow DOM.
+const shadowCss = combinedCss.replaceAll(":root", ":host");
 
 // Tailwind v4 declares its utility state vars (--tw-shadow, --tw-border-style,
 // --tw-scale-*, …) with @property. @property only registers at the DOCUMENT
