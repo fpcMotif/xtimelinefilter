@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 import {
@@ -19,6 +20,347 @@ import type { FoldersClient } from "@/options/folders-client";
 import type { CollectionReplicaStatus } from "@/packages/folders/replica";
 import type { Folder, FolderDisposition, SavedPost } from "@/packages/folders/types";
 import { Button, Input } from "@/ui/components";
+import { tokens } from "@/ui/tokens.stylex";
+
+const pulse = stylex.keyframes({
+  "0%, 100%": { opacity: 1 },
+  "50%": { opacity: 0.5 },
+});
+
+const styles = stylex.create({
+  colGap4: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "1rem",
+  },
+  colGap3: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.75rem",
+  },
+  colGap2: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.5rem",
+  },
+  colGap1_5: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.375rem",
+  },
+  rowGap3: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.75rem",
+  },
+  rowGap2: {
+    display: "flex",
+    gap: "0.5rem",
+  },
+  rowWrapGap2: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "0.5rem",
+  },
+  rowWrapBetween: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "0.75rem",
+  },
+  syncCard: {
+    borderColor: tokens.border,
+    backgroundColor: "oklch(from " + tokens.secondary + " l c h / 0.35)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.5rem",
+    borderRadius: tokens.radiusXl,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.75rem",
+    paddingBottom: "0.75rem",
+  },
+  minCol: {
+    display: "flex",
+    minWidth: 0,
+    flexDirection: "column",
+    gap: "0.125rem",
+  },
+  titleCompact: {
+    fontSize: tokens.textCompact,
+    fontWeight: "500",
+  },
+  mutedCompact: {
+    color: tokens.mutedForeground,
+    fontSize: tokens.textCompact,
+    margin: 0,
+  },
+  faintCompact: {
+    color: tokens.faint,
+    fontSize: tokens.textCompact,
+    margin: 0,
+  },
+  folderItem: {
+    borderColor: tokens.border,
+    display: "flex",
+    alignItems: "center",
+    gap: "0.75rem",
+    borderRadius: tokens.radiusXl,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "0.875rem",
+    paddingRight: "0.875rem",
+    paddingTop: "0.625rem",
+    paddingBottom: "0.625rem",
+    fontSize: tokens.textSm,
+  },
+  moveCol: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.125rem",
+  },
+  moveButton: {
+    height: "1.25rem",
+    paddingLeft: "0.375rem",
+    paddingRight: "0.375rem",
+    fontSize: tokens.textXs,
+    lineHeight: 1,
+  },
+  renameInput: {
+    maxWidth: "220px",
+  },
+  folderCount: {
+    color: tokens.faint,
+    fontSize: tokens.textCompact,
+    marginLeft: "auto",
+    fontVariantNumeric: "tabular-nums",
+  },
+  folderTitle: {
+    fontSize: tokens.textMd,
+    fontWeight: "600",
+    margin: 0,
+  },
+  errorText: {
+    color: tokens.destructive,
+    fontSize: tokens.textSm,
+    margin: 0,
+  },
+  skeletonH12: {
+    backgroundColor: tokens.secondary,
+    height: "3rem",
+    width: "100%",
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite",
+    borderRadius: tokens.radiusLg,
+  },
+  skeletonH9: {
+    backgroundColor: tokens.secondary,
+    height: "2.25rem",
+    width: "100%",
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite",
+    borderRadius: tokens.radiusLg,
+  },
+  skeletonH16: {
+    backgroundColor: tokens.secondary,
+    height: "4rem",
+    width: "100%",
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite",
+    borderRadius: tokens.radiusXl,
+  },
+  emptyNotice: {
+    color: tokens.mutedForeground,
+    fontSize: tokens.textCompact,
+    borderColor: tokens.border,
+    borderRadius: tokens.radiusXl,
+    borderWidth: "1px",
+    borderStyle: "dashed",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "1.5rem",
+    paddingBottom: "1.5rem",
+    textAlign: "center",
+    margin: 0,
+  },
+  postList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.5rem",
+    listStyleType: "none",
+    padding: 0,
+    margin: 0,
+  },
+  folderList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.375rem",
+    listStyleType: "none",
+    padding: 0,
+    margin: 0,
+  },
+  centerRow: {
+    display: "flex",
+    justifyContent: "center",
+  },
+  postCard: {
+    borderColor: tokens.border,
+    display: "flex",
+    gap: "0.75rem",
+    borderRadius: tokens.radiusXl,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "0.875rem",
+    paddingRight: "0.875rem",
+    paddingTop: "0.75rem",
+    paddingBottom: "0.75rem",
+    fontSize: tokens.textSm,
+  },
+  postAvatar: {
+    backgroundColor: tokens.secondary,
+    color: tokens.mutedForeground,
+    display: "flex",
+    height: "2.25rem",
+    width: "2.25rem",
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: tokens.radiusFull,
+    fontSize: tokens.textSm,
+    fontWeight: "600",
+  },
+  postBody: {
+    display: "flex",
+    minWidth: 0,
+    flex: 1,
+    flexDirection: "column",
+    gap: "0.375rem",
+  },
+  postHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: "0.5rem",
+  },
+  authorName: {
+    color: tokens.foreground,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontWeight: "600",
+  },
+  postText: {
+    color: tokens.foreground,
+    whiteSpace: "pre-wrap",
+    margin: 0,
+  },
+  mediaGrid: {
+    marginTop: "0.25rem",
+    display: "grid",
+    gap: "0.25rem",
+    overflow: "hidden",
+    borderRadius: tokens.radiusXl,
+  },
+  mediaGrid1: {
+    gridTemplateColumns: "1fr",
+  },
+  mediaGrid2: {
+    gridTemplateColumns: "1fr 1fr",
+  },
+  mediaImgSingle: {
+    width: "100%",
+    objectFit: "cover",
+    maxHeight: "20rem",
+  },
+  mediaImgMultiple: {
+    width: "100%",
+    objectFit: "cover",
+    aspectRatio: "16 / 9",
+  },
+  videoWrapper: {
+    position: "relative",
+  },
+  videoBadge: {
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    color: tokens.background,
+    position: "absolute",
+    inset: 0,
+    margin: "auto",
+    display: "flex",
+    height: "2.25rem",
+    width: "2.25rem",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: tokens.radiusFull,
+    fontSize: tokens.textXs,
+  },
+  permalink: {
+    color: tokens.primary,
+    fontSize: tokens.textCompact,
+    textDecorationLine: {
+      default: "none",
+      ":hover": "underline",
+    },
+  },
+  deleteConfirm: {
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    backgroundColor: "rgba(239, 68, 68, 0.05)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.75rem",
+    borderRadius: tokens.radiusXl,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    padding: "1rem",
+  },
+  countSummary: {
+    color: tokens.mutedForeground,
+    fontSize: tokens.textCompact,
+    borderTopWidth: "1px",
+    borderStyle: "solid",
+    borderColor: tokens.border,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    paddingTop: "0.75rem",
+  },
+  sectionLabel: {
+    color: tokens.faint,
+    fontSize: tokens.text2xs,
+    fontWeight: "600",
+    letterSpacing: "0.025em",
+    textTransform: "uppercase",
+  },
+  select: {
+    borderColor: tokens.input,
+    backgroundColor: tokens.secondary,
+    color: tokens.foreground,
+    height: "2.25rem",
+    width: "100%",
+    borderRadius: tokens.radiusMd,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "0.75rem",
+    paddingRight: "0.75rem",
+    fontSize: tokens.textSm,
+    outline: "none",
+    transitionProperty: "color, box-shadow, border-color",
+    transitionDuration: "150ms",
+    ":focus-visible": {
+      borderColor: tokens.primary,
+      boxShadow: "0 0 0 2px oklch(from " + tokens.ring + " l c h / 0.4)",
+    },
+  },
+});
 
 export const FOLDERS_EMPTY = "No Folders yet — create one above to start filing posts.";
 export const FOLDERS_LOAD_ERROR = "Could not load Folders.";
@@ -329,23 +671,22 @@ function ReplicaStatusPanel({
   const copy = replicaStatusCopy(status, syncing);
   const updatedAt = status?.updatedAt ?? null;
   return (
-    <div
-      aria-live="polite"
-      class="border-border bg-secondary/35 flex flex-col gap-2 rounded-xl border px-4 py-3"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <span class="flex min-w-0 flex-col gap-0.5">
-          <span class="text-compact font-medium">{copy.title}</span>
-          <span class="text-muted-foreground text-compact">{copy.detail}</span>
+    <div aria-live="polite" {...stylex.props(styles.syncCard)}>
+      <div {...stylex.props(styles.rowWrapBetween)}>
+        <span {...stylex.props(styles.minCol)}>
+          <span {...stylex.props(styles.titleCompact)}>{copy.title}</span>
+          <span {...stylex.props(styles.mutedCompact)}>{copy.detail}</span>
         </span>
         <Button variant="outline" size="pill" disabled={syncing} onClick={onSyncNow}>
           {syncing ? "Syncing…" : FOLDERS_SYNC_NOW}
         </Button>
       </div>
       {updatedAt !== null && (
-        <p class="text-faint text-compact">Last sync {new Date(updatedAt).toLocaleString()}</p>
+        <p {...stylex.props(styles.faintCompact)}>
+          Last sync {new Date(updatedAt).toLocaleString()}
+        </p>
       )}
-      {status?.error && <p class="text-muted-foreground text-compact">{status.error}</p>}
+      {status?.error && <p {...stylex.props(styles.mutedCompact)}>{status.error}</p>}
     </div>
   );
 }
@@ -369,8 +710,8 @@ function CreateFolderField({
   };
 
   return (
-    <div class="flex flex-col gap-1.5">
-      <div class="flex gap-2">
+    <div {...stylex.props(styles.colGap1_5)}>
+      <div {...stylex.props(styles.rowGap2)}>
         <Input
           aria-label="New Folder name"
           placeholder="New Folder…"
@@ -385,10 +726,8 @@ function CreateFolderField({
           Create
         </Button>
       </div>
-      {atCap && <p class="text-muted-foreground text-compact">{FOLDER_CAP_REACHED}</p>}
-      {!atCap && tooLong && (
-        <p class="text-muted-foreground text-compact">{FOLDER_NAME_TOO_LONG}</p>
-      )}
+      {atCap && <p {...stylex.props(styles.mutedCompact)}>{FOLDER_CAP_REACHED}</p>}
+      {!atCap && tooLong && <p {...stylex.props(styles.mutedCompact)}>{FOLDER_NAME_TOO_LONG}</p>}
     </div>
   );
 }
@@ -464,12 +803,12 @@ function FolderRow({
   };
 
   return (
-    <li class="border-border flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm">
-      <span class="flex flex-col gap-0.5">
+    <li {...stylex.props(styles.folderItem)}>
+      <span {...stylex.props(styles.moveCol)}>
         <Button
           variant="ghost"
           size="sm"
-          class="h-5 px-1.5 text-xs leading-none"
+          sx={styles.moveButton}
           aria-label={`Move ${folder.name} up`}
           disabled={index === 0}
           onClick={() => onMove(folder.folderId, "up")}
@@ -479,7 +818,7 @@ function FolderRow({
         <Button
           variant="ghost"
           size="sm"
-          class="h-5 px-1.5 text-xs leading-none"
+          sx={styles.moveButton}
           aria-label={`Move ${folder.name} down`}
           disabled={index === total - 1}
           onClick={() => onMove(folder.folderId, "down")}
@@ -490,7 +829,7 @@ function FolderRow({
       <Input
         aria-label={`Rename ${folder.name}`}
         value={draft}
-        class="max-w-[220px]"
+        sx={styles.renameInput}
         onFocus={() => setEditing(true)}
         onChange={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
         onBlur={commit}
@@ -498,7 +837,7 @@ function FolderRow({
           if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
         }}
       />
-      <span class="text-faint text-compact ml-auto tabular-nums">
+      <span {...stylex.props(styles.folderCount)}>
         {rowCount !== null ? `${rowCount} posts` : "…"}
       </span>
       <Button
@@ -614,17 +953,17 @@ function FolderContents({
   }, [client, folder.folderId, nextCursor, loadingMore]);
 
   return (
-    <div class="flex flex-col gap-3">
-      <div class="flex items-center gap-3">
+    <div {...stylex.props(styles.colGap3)}>
+      <div {...stylex.props(styles.rowGap3)}>
         <Button variant="ghost" size="pill" onClick={onBack}>
           {FOLDER_CONTENTS_BACK}
         </Button>
-        <h3 class="text-md font-semibold">{folder.name}</h3>
+        <h3 {...stylex.props(styles.folderTitle)}>{folder.name}</h3>
       </div>
 
       {error && (
-        <div class="flex flex-col gap-2">
-          <p role="alert" class="text-destructive text-sm">
+        <div {...stylex.props(styles.colGap2)}>
+          <p role="alert" {...stylex.props(styles.errorText)}>
             {FOLDER_CONTENTS_ERROR}
           </p>
           <div>
@@ -636,27 +975,25 @@ function FolderContents({
       )}
 
       {!error && !loaded && (
-        <div class="flex flex-col gap-2">
-          <div class="bg-secondary h-12 w-full animate-pulse rounded-lg" />
-          <div class="bg-secondary h-12 w-full animate-pulse rounded-lg" />
+        <div {...stylex.props(styles.colGap2)}>
+          <div {...stylex.props(styles.skeletonH12)} />
+          <div {...stylex.props(styles.skeletonH12)} />
         </div>
       )}
 
       {!error && loaded && posts.length === 0 && (
-        <p class="text-muted-foreground text-compact border-border rounded-xl border border-dashed px-4 py-6 text-center">
-          {FOLDER_CONTENTS_EMPTY}
-        </p>
+        <p {...stylex.props(styles.emptyNotice)}>{FOLDER_CONTENTS_EMPTY}</p>
       )}
 
       {!error && loaded && posts.length > 0 && (
         <>
-          <ul class="flex flex-col gap-2">
+          <ul {...stylex.props(styles.colGap2)}>
             {posts.map((post) => (
               <SavedPostRow key={post.statusId} post={post} />
             ))}
           </ul>
           {nextCursor !== null && (
-            <div class="flex justify-center">
+            <div {...stylex.props(styles.centerRow)}>
               <Button variant="outline" size="pill" disabled={loadingMore} onClick={loadMore}>
                 {FOLDER_CONTENTS_LOAD_MORE}
               </Button>
@@ -679,39 +1016,35 @@ function SavedPostRow({ post }: { post: SavedPost }) {
   // transient player stream or social UI asset.
   const media = post.media.filter((entry) => hasRenderableMedia(post, entry));
   return (
-    <li class="border-border flex gap-3 rounded-xl border px-3.5 py-3 text-sm">
-      <span
-        aria-hidden="true"
-        class="bg-secondary text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
-      >
+    <li {...stylex.props(styles.postCard)}>
+      <span aria-hidden="true" {...stylex.props(styles.postAvatar)}>
         {screenName[0]?.toLowerCase() ?? "?"}
       </span>
-      <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div class="flex items-baseline justify-between gap-2">
-          <span class="text-foreground truncate font-semibold">@{screenName}</span>
-          <span class="text-faint text-compact shrink-0">{filedAt}</span>
+      <div {...stylex.props(styles.postBody)}>
+        <div {...stylex.props(styles.postHeader)}>
+          <span {...stylex.props(styles.authorName)}>@{screenName}</span>
+          <span {...stylex.props(styles.faintCompact)}>{filedAt}</span>
         </div>
-        {post.text && <p class="text-foreground whitespace-pre-wrap">{post.text}</p>}
+        {post.text && <p {...stylex.props(styles.postText)}>{post.text}</p>}
         {media.length > 0 && (
           <div
-            class={`mt-1 grid gap-1 overflow-hidden rounded-xl ${
-              media.length === 1 ? "grid-cols-1" : "grid-cols-2"
-            }`}
+            {...stylex.props(
+              styles.mediaGrid,
+              media.length === 1 ? styles.mediaGrid1 : styles.mediaGrid2,
+            )}
           >
             {media.map((m, i) =>
               m.kind === "video" ? (
-                <span key={i} class="relative">
+                <span key={i} {...stylex.props(styles.videoWrapper)}>
                   <img
                     src={m.url}
                     alt=""
                     loading="lazy"
-                    class={`w-full object-cover ${media.length === 1 ? "max-h-80" : "aspect-video"}`}
+                    {...stylex.props(
+                      media.length === 1 ? styles.mediaImgSingle : styles.mediaImgMultiple,
+                    )}
                   />
-                  <span
-                    role="img"
-                    aria-label="Video"
-                    class="bg-foreground/70 text-background absolute inset-0 m-auto flex h-9 w-9 items-center justify-center rounded-full text-xs"
-                  >
+                  <span role="img" aria-label="Video" {...stylex.props(styles.videoBadge)}>
                     ▶
                   </span>
                 </span>
@@ -721,7 +1054,9 @@ function SavedPostRow({ post }: { post: SavedPost }) {
                   src={m.url}
                   alt=""
                   loading="lazy"
-                  class={`w-full object-cover ${media.length === 1 ? "max-h-80" : "aspect-video"}`}
+                  {...stylex.props(
+                    media.length === 1 ? styles.mediaImgSingle : styles.mediaImgMultiple,
+                  )}
                 />
               ),
             )}
@@ -732,7 +1067,7 @@ function SavedPostRow({ post }: { post: SavedPost }) {
             href={post.permalink}
             target="_blank"
             rel="noopener noreferrer"
-            class="text-primary text-compact hover:underline"
+            {...stylex.props(styles.permalink)}
           >
             {folderContentsOpenOriginal(originalPlatformForPermalink(post.permalink))}
           </a>
@@ -754,12 +1089,12 @@ function DeleteConfirmation({
   const { folder, counts } = pending;
   const orphaned = counts.count - counts.shared;
   return (
-    <div class="border-destructive/30 bg-destructive/5 flex flex-col gap-3 rounded-xl border p-4">
-      <span class="text-compact font-medium">
+    <div {...stylex.props(styles.deleteConfirm)}>
+      <span {...stylex.props(styles.titleCompact)}>
         Delete "{folder.name}"? It holds {counts.count} post{counts.count === 1 ? "" : "s"},{" "}
         {counts.shared} of which another Folder also holds.
       </span>
-      <div class="flex flex-wrap gap-2">
+      <div {...stylex.props(styles.rowWrapGap2)}>
         <Button variant="destructive" size="pill" onClick={() => onConfirm("keep-posts")}>
           Keep the {counts.count} post{counts.count === 1 ? "" : "s"}
         </Button>
@@ -849,8 +1184,8 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
 
   if (draft.loadError) {
     return (
-      <div class="flex flex-col gap-3">
-        <p role="alert" class="text-destructive text-sm">
+      <div {...stylex.props(styles.colGap3)}>
+        <p role="alert" {...stylex.props(styles.errorText)}>
           {FOLDERS_LOAD_ERROR}
         </p>
         <div>
@@ -864,9 +1199,9 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
 
   if (draft.folders === null) {
     return (
-      <div class="flex flex-col gap-3">
-        <div class="bg-secondary h-9 w-full animate-pulse rounded-lg" />
-        <div class="bg-secondary h-16 w-full animate-pulse rounded-xl" />
+      <div {...stylex.props(styles.colGap3)}>
+        <div {...stylex.props(styles.skeletonH9)} />
+        <div {...stylex.props(styles.skeletonH16)} />
       </div>
     );
   }
@@ -880,7 +1215,7 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
 
   if (browsing) {
     return (
-      <div class="flex flex-col gap-4">
+      <div {...stylex.props(styles.colGap4)}>
         <ReplicaStatusPanel
           status={replicaStatus}
           syncing={syncingReplica}
@@ -898,7 +1233,7 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
   }
 
   return (
-    <div class="flex flex-col gap-4">
+    <div {...stylex.props(styles.colGap4)}>
       <ReplicaStatusPanel
         status={replicaStatus}
         syncing={syncingReplica}
@@ -908,7 +1243,7 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
       <CreateFolderField atCap={atCap} onCreate={(name) => void draft.create(name)} />
 
       {draft.writeError && (
-        <p role="alert" class="text-destructive text-sm">
+        <p role="alert" {...stylex.props(styles.errorText)}>
           {FOLDERS_WRITE_ERROR}
         </p>
       )}
@@ -926,11 +1261,9 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
       )}
 
       {draft.folders.length === 0 ? (
-        <p class="text-muted-foreground text-compact border-border rounded-xl border border-dashed px-4 py-6 text-center">
-          {FOLDERS_EMPTY}
-        </p>
+        <p {...stylex.props(styles.emptyNotice)}>{FOLDERS_EMPTY}</p>
       ) : (
-        <ul class="flex flex-col gap-1.5">
+        <ul {...stylex.props(styles.colGap1_5)}>
           {draft.folders.map((folder, index) => (
             <FolderRow
               key={folder.folderId}
@@ -949,16 +1282,14 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
       )}
 
       {draft.counts && (
-        <p class="text-muted-foreground text-compact border-t pt-3">
+        <p {...stylex.props(styles.countSummary)}>
           {draft.counts.savedPosts} saved post{draft.counts.savedPosts === 1 ? "" : "s"} total,
           across {draft.counts.folders} Folder{draft.counts.folders === 1 ? "" : "s"}
         </p>
       )}
 
-      <div class="flex flex-col gap-1.5">
-        <span class="text-faint text-2xs font-semibold tracking-wide uppercase">
-          Default Folder
-        </span>
+      <div {...stylex.props(styles.colGap1_5)}>
+        <span {...stylex.props(styles.sectionLabel)}>Default Folder</span>
         <select
           aria-label="Default Folder"
           value={selectValue}
@@ -966,7 +1297,7 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
             const value = (e.currentTarget as HTMLSelectElement).value;
             onPatchDefault(value === DEFAULT_FOLDER_UNSET ? undefined : value);
           }}
-          class="border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 w-full rounded-lg border px-3 text-sm transition-[color,box-shadow,border-color] outline-none focus-visible:ring-2"
+          {...stylex.props(styles.select)}
         >
           <option value={DEFAULT_FOLDER_UNSET}>
             Not set yet — currently files into "{previewDefaultFolderName(draft.folders)}"
@@ -978,9 +1309,7 @@ export function FoldersOptions({ client, defaultFolderId, onPatchDefault }: Fold
             </option>
           ))}
         </select>
-        <p class="text-muted-foreground text-compact">
-          Alt+Shift+B files straight into this Folder.
-        </p>
+        <p {...stylex.props(styles.mutedCompact)}>Alt+Shift+B files straight into this Folder.</p>
       </div>
     </div>
   );

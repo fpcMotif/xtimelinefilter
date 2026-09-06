@@ -34,9 +34,9 @@ These terms define the product. Architecture lives in
 ## Filter
 
 - **Filter** — a local, display-only timeline narrowing feature. It never calls or acts on X and never carries List-assignment correctness.
-- **Filter scope** — the set of timelines the Filter may run on: Home, List, Bookmark, and profile. `content/route.ts` rechecks scope after SPA navigation.
-- **Resolved scope** — which of those timelines the user is on right now, identified: Home, one List, Bookmarks, or one profile. `content/route.ts` reads it from the path; what it means is domain, so the type lives in `core/`.
-- **Bindable** — a Resolved scope that may carry its own Filter preference. Home, List, and profile are bindable; Bookmarks runs the Filter but is deliberately not bindable yet.
+- **Filter scope** — the set of timelines the Filter may run on: Home, List, Bookmarks, History, and profile. `content/route.ts` rechecks scope after SPA navigation.
+- **Resolved scope** — which of those timelines the user is on right now, identified: Home, one List, Bookmarks, History, or one profile. `content/route.ts` reads it from the path; what it means is domain, so the type lives in `core/`.
+- **Bindable** — a Resolved scope that may carry its own Filter preference. Home, List, and profile are bindable; Bookmarks and History run the Filter but are deliberately not bindable yet. History is X's post-May-2026 hub (`/i/history`) that replaced the Bookmarks nav entry, tabbing Bookmarks/Likes/Videos/Articles under one root — it folds to the same non-bindable scope regardless of tab, same as a Bookmarks folder.
 - **Preset** — a named snapshot of the active filter *selection*: tri-state criteria plus the language gate. Never link rules — applying a Preset leaves the user's host→destination mappings alone.
 - **Binding** — the link from one bindable scope to one Preset. Arriving at that scope applies the Preset; it is a pointer, never a second copy of the criteria.
 - **Binding key** — the stable string a Binding is stored under: `home`, `list:<listId>`, or `profile:<handle>` with the handle case-folded, so `@Jack` and `@jack` are one scope. A non-bindable scope has no key.

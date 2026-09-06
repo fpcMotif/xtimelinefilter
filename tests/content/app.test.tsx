@@ -212,7 +212,6 @@ describe("App wiring", () => {
     const backdrop = document.querySelector<HTMLElement>("[data-list-picker-backdrop]")!;
     const panel = document.querySelector<HTMLElement>("[data-list-picker-panel]")!;
     expect(backdrop).toBeTruthy();
-    expect(backdrop.className).toContain("fixed inset-0 bg-transparent");
     expect(Number(backdrop.style.zIndex)).toBe(UI_LAYER.modal);
     expect(Number(panel.style.zIndex)).toBe(UI_LAYER.modal);
 

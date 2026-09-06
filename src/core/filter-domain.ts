@@ -35,8 +35,9 @@ const NEXT_MODE: Record<FilterMode, FilterMode> = { off: "only", only: "hide", h
 
 /**
  * The key a scope's preset binding is stored under, or null when the scope
- * cannot be bound. Null is a policy answer, not a missing name: Bookmarks is a
- * real Filter scope that spec #31 deliberately leaves unbindable for now.
+ * cannot be bound. Null is a policy answer, not a missing name: Bookmarks and
+ * History are real Filter scopes that spec #31 deliberately leaves unbindable
+ * for now.
  */
 export function bindingKey(scope: FilterScope): FilterScopeKey | null {
   switch (scope.kind) {
@@ -47,6 +48,7 @@ export function bindingKey(scope: FilterScope): FilterScopeKey | null {
     case "profile":
       return `profile:${scope.handle}`;
     case "bookmarks":
+    case "history":
       return null;
   }
 }

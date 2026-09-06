@@ -93,6 +93,7 @@ describe("filter-store scope bindings", () => {
     const before = store.state.value;
 
     store.enterScope({ kind: "bookmarks" }); // in Filter scope, but not bindable
+    store.enterScope({ kind: "history" }); // ditto
     store.enterScope(null); // off a Filter timeline entirely
     expect(store.state.value).toBe(before);
   });

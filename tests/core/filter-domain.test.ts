@@ -28,8 +28,9 @@ describe("bindingKey", () => {
     expect(bindingKey({ kind: "profile", handle: "jack" })).toBe("profile:jack");
   });
 
-  it("refuses to key Bookmarks, so it cannot be bound", () => {
+  it("refuses to key Bookmarks or History, so neither can be bound", () => {
     expect(bindingKey({ kind: "bookmarks" })).toBeNull();
+    expect(bindingKey({ kind: "history" })).toBeNull();
   });
 
   it("keys each bindable scope distinctly, so bindings never collide", () => {
@@ -141,6 +142,7 @@ describe("scope bindings", () => {
       "",
       "garbage",
       "bookmarks", // a real Filter scope, but deliberately not bindable
+      "history", // ditto
       "profile:Jack", // un-folded; would shadow the real profile:jack binding
       "profile:has-a-dash",
       "profile:this_handle_is_too_long",

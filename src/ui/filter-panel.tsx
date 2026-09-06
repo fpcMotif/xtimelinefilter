@@ -1,8 +1,10 @@
+import * as stylex from "@stylexjs/stylex";
 import { useState } from "preact/hooks";
 
 import type { FilterStore } from "@/core/filter-store";
 import { Button, Input, PresetApplyPill, Switch } from "@/ui/components";
 import { CriteriaMatrix } from "@/ui/criteria-matrix";
+import { tokens } from "@/ui/tokens.stylex";
 import { useSignalValue } from "@/ui/use-signal-value";
 
 export interface FilterPanelProps {
@@ -16,6 +18,91 @@ export interface FilterPanelProps {
    */
   conduct?: (run: (s: FilterStore) => void) => void;
 }
+
+const styles = stylex.create({
+  card: {
+    backgroundColor: tokens.card,
+    color: tokens.cardForeground,
+    borderColor: tokens.border,
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.75rem",
+    borderRadius: tokens.radiusXl,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    padding: "0.875rem",
+    fontSize: tokens.textSm,
+    boxSizing: "border-box",
+  },
+  topRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "1rem",
+  },
+  switchLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    fontSize: tokens.textXs,
+    fontWeight: "500",
+  },
+  hiddenStatus: {
+    color: tokens.mutedForeground,
+    marginLeft: "auto",
+    fontSize: tokens.textXs,
+    fontVariantNumeric: "tabular-nums",
+  },
+  revealButton: {
+    color: tokens.primary,
+    marginLeft: "0.5rem",
+    fontWeight: "600",
+    textUnderlineOffset: "2px",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    ":hover": {
+      textDecorationLine: "underline",
+    },
+  },
+  presetsRow: {
+    borderColor: tokens.border,
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "0.375rem",
+    borderTopWidth: "1px",
+    borderStyle: "solid",
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    paddingTop: "0.75rem",
+  },
+  presetsLabel: {
+    color: tokens.faint,
+    width: "3rem",
+    flexShrink: 0,
+    fontSize: "10px",
+    fontWeight: "700",
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+  },
+  presetInput: {
+    marginLeft: "auto",
+    height: "1.75rem",
+    width: "6rem",
+    borderRadius: tokens.radiusMd,
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    fontSize: tokens.textXs,
+  },
+  saveButton: {
+    height: "1.75rem",
+    paddingLeft: "0.625rem",
+    paddingRight: "0.625rem",
+    fontSize: tokens.textXs,
+  },
+});
 
 /**
  * The Filter's shared, placement-agnostic body for the in-page funnel pill: the
@@ -42,9 +129,9 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
   }
 
   return (
-    <div class="bg-card text-card-foreground border-border flex flex-col gap-3 rounded-2xl border p-3.5 text-sm">
-      <div class="flex items-center gap-4">
-        <span class="flex items-center gap-2 text-xs font-medium">
+    <div {...stylex.props(styles.card)}>
+      <div {...stylex.props(styles.topRow)}>
+        <span {...stylex.props(styles.switchLabel)}>
           <Switch
             label="Timeline filter enabled"
             checked={state.enabled}
@@ -52,7 +139,7 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
           />
           Filter
         </span>
-        <span class="flex items-center gap-2 text-xs font-medium">
+        <span {...stylex.props(styles.switchLabel)}>
           <Switch
             label="Only my languages"
             checked={state.onlyMyLanguages}
@@ -61,14 +148,14 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
           Languages
         </span>
         {hidden !== undefined && (
-          <span class="text-muted-foreground ml-auto text-xs tabular-nums">
+          <span {...stylex.props(styles.hiddenStatus)}>
             {revealed ? (
               <>
                 showing all
                 <button
                   type="button"
                   onClick={() => cmd((s) => s.setRevealed(false))}
-                  class="text-primary ml-2 font-semibold underline-offset-2 hover:underline"
+                  {...stylex.props(styles.revealButton)}
                 >
                   hide all
                 </button>
@@ -80,7 +167,7 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
                   <button
                     type="button"
                     onClick={() => cmd((s) => s.setRevealed(true))}
-                    class="text-primary ml-2 font-semibold underline-offset-2 hover:underline"
+                    {...stylex.props(styles.revealButton)}
                   >
                     show all
                   </button>
@@ -93,10 +180,8 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
 
       <CriteriaMatrix store={store} conduct={conduct} show={state.enabled} />
 
-      <div class="border-border flex flex-wrap items-center gap-1.5 border-t pt-3">
-        <span class="text-faint w-12 shrink-0 text-[10px] font-bold tracking-wider uppercase">
-          Presets
-        </span>
+      <div {...stylex.props(styles.presetsRow)}>
+        <span {...stylex.props(styles.presetsLabel)}>Presets</span>
         {state.presets.map((preset) => (
           <PresetApplyPill
             key={preset.id}
@@ -110,9 +195,9 @@ export function FilterPanel({ store, hiddenCount, conduct }: FilterPanelProps) {
           placeholder="Name…"
           value={draftName}
           onInput={(e) => setDraftName((e.currentTarget as HTMLInputElement).value)}
-          class="ml-auto h-7 w-24 rounded-lg px-2 text-xs"
+          sx={styles.presetInput}
         />
-        <Button size="sm" class="h-7 px-2.5 text-xs" onClick={onSave}>
+        <Button size="sm" sx={styles.saveButton} onClick={onSave}>
           Save
         </Button>
       </div>

@@ -1,10 +1,82 @@
+import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { activeCriteriaCount } from "@/core/filter-projection";
 import type { FilterStore } from "@/core/filter-store";
 import { FilterPanel } from "@/ui/filter-panel";
 import { UI_LAYER } from "@/ui/layers";
+import { tokens } from "@/ui/tokens.stylex";
 import { useSignalValue } from "@/ui/use-signal-value";
+
+const styles = stylex.create({
+  root: {
+    position: "fixed",
+  },
+  pillButton: {
+    backgroundColor: tokens.card,
+    color: tokens.cardForeground,
+    boxShadow: tokens.shadowElevated,
+    position: "relative",
+    display: "grid",
+    height: "2.75rem",
+    width: "2.75rem",
+    placeItems: "center",
+    borderRadius: tokens.radiusFull,
+    transitionProperty: "opacity, transform",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    outline: "none",
+    borderWidth: 0,
+    boxSizing: "border-box",
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+    ":active": {
+      transform: "scale(0.96)",
+    },
+  },
+  badge: {
+    backgroundColor: tokens.primary,
+    color: tokens.primaryForeground,
+    fontSize: tokens.text2xs,
+    position: "absolute",
+    top: "-0.25rem",
+    right: "-0.25rem",
+    display: "grid",
+    height: "18px",
+    minWidth: "18px",
+    placeItems: "center",
+    borderRadius: tokens.radiusFull,
+    paddingLeft: "0.25rem",
+    paddingRight: "0.25rem",
+    fontWeight: "600",
+    fontVariantNumeric: "tabular-nums",
+    boxSizing: "border-box",
+  },
+  srOnly: {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    padding: 0,
+    margin: "-1px",
+    overflow: "hidden",
+    clip: "rect(0, 0, 0, 0)",
+    whiteSpace: "nowrap",
+    borderWidth: 0,
+  },
+  popover: {
+    backgroundColor: tokens.card,
+    boxShadow: tokens.shadowElevated,
+    position: "absolute",
+    width: "20rem",
+    overflow: "hidden",
+    borderRadius: tokens.radiusXl,
+    boxSizing: "border-box",
+  },
+  glyph: {
+    color: tokens.foreground,
+  },
+});
 
 const PILL_SIZE = 44;
 const POPOVER_W = 320;
@@ -252,7 +324,7 @@ export function FunnelPill({
     <div
       ref={rootRef}
       data-funnel-pill-root=""
-      class="fixed"
+      {...stylex.props(styles.root)}
       style={{ left: `${pos.x}px`, top: `${pos.y}px`, zIndex: UI_LAYER.pill }}
     >
       <button
@@ -266,7 +338,7 @@ export function FunnelPill({
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
         onBlur={commitKeyboardMove}
-        class="bg-card text-card-foreground shadow-elevated focus-visible:ring-ring/55 relative grid h-11 w-11 place-items-center rounded-full transition-[opacity,transform] duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]"
+        {...stylex.props(styles.pillButton)}
         style={{
           opacity: enabled ? 1 : 0.5,
           touchAction: "none",
@@ -275,15 +347,12 @@ export function FunnelPill({
       >
         <FunnelGlyph />
         {enabled && badge > 0 && (
-          <span
-            aria-hidden="true"
-            class="bg-primary text-primary-foreground text-2xs absolute -top-1 -right-1 grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 font-semibold tabular-nums"
-          >
+          <span aria-hidden="true" {...stylex.props(styles.badge)}>
             {badge}
           </span>
         )}
       </button>
-      <span id="lasso-funnel-pill-keyboard-help" class="sr-only">
+      <span id="lasso-funnel-pill-keyboard-help" {...stylex.props(styles.srOnly)}>
         Use Arrow keys to move the filter button. Hold Shift to move faster.
       </span>
 
@@ -291,7 +360,7 @@ export function FunnelPill({
         <div
           role="dialog"
           aria-label="Timeline filter"
-          class="bg-card shadow-elevated absolute w-80 overflow-hidden rounded-2xl transition-[opacity,transform] duration-150 ease-out starting:translate-y-1 starting:opacity-0"
+          {...stylex.props(styles.popover)}
           style={popover}
         >
           <FilterPanel store={store} hiddenCount={hiddenCount} conduct={conduct} />
@@ -321,7 +390,13 @@ function popoverStyle(pos: { x: number; y: number }): Record<string, string> {
 
 function FunnelGlyph() {
   return (
-    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" class="text-foreground">
+    <svg
+      aria-hidden="true"
+      width="18"
+      height="18"
+      viewBox="0 0 20 20"
+      {...stylex.props(styles.glyph)}
+    >
       <path
         d="M3 4h14l-5.2 6.2v4.3L8.2 17v-6.8L3 4z"
         fill="none"

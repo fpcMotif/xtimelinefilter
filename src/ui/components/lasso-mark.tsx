@@ -1,12 +1,25 @@
+import * as stylex from "@stylexjs/stylex";
+
+import { cn } from "@/lib/utils";
 /** The Lasso mark — a rope loop with a trailing lariat tail. Inherits currentColor. */
-export function LassoMark({ size = 24, class: cls }: { size?: number; class?: string }) {
+export function LassoMark({
+  size = 24,
+  class: cls,
+  sx,
+}: {
+  size?: number;
+  class?: string;
+  sx?: stylex.StyleXStyles;
+}) {
+  const styleProps = stylex.props(sx);
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
       fill="none"
-      class={cls}
+      {...styleProps}
+      class={cn(styleProps.className, cls)}
       aria-hidden="true"
       role="img"
     >

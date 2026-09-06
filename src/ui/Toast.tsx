@@ -1,7 +1,121 @@
+import * as stylex from "@stylexjs/stylex";
+
 import type { ActiveToast, ToastStore } from "@/core/toast-store";
 import { UI_LAYER } from "@/ui/layers";
+import { tokens } from "@/ui/tokens.stylex";
 
 import { useSignalValue } from "./use-signal-value";
+
+const styles = stylex.create({
+  host: {
+    position: "fixed",
+    bottom: "5rem",
+    left: "50%",
+    transform: "translateX(-50%)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "0.5rem",
+  },
+  toast: {
+    boxShadow: tokens.shadowElevated,
+    display: "flex",
+    maxWidth: "420px",
+    alignItems: "center",
+    gap: "0.75rem",
+    borderRadius: tokens.radiusXl,
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.625rem",
+    paddingBottom: "0.625rem",
+    fontSize: tokens.textSm,
+    fontVariantNumeric: "tabular-nums",
+    boxSizing: "border-box",
+  },
+  success: {
+    backgroundColor: tokens.primary,
+    color: tokens.primaryForeground,
+  },
+  info: {
+    backgroundColor: tokens.foreground,
+    color: tokens.background,
+  },
+  danger: {
+    backgroundColor: tokens.destructive,
+    color: tokens.primaryForeground,
+  },
+  content: {
+    display: "flex",
+    minWidth: 0,
+    flexDirection: "column",
+  },
+  title: {
+    fontWeight: "600",
+  },
+  line: {
+    opacity: 0.9,
+  },
+  actionButton: {
+    display: "flex",
+    flexShrink: 0,
+    alignItems: "center",
+    gap: "0.375rem",
+    borderRadius: tokens.radiusFull,
+    backgroundColor: {
+      default: "rgba(255, 255, 255, 0.2)",
+      ":hover": "rgba(255, 255, 255, 0.3)",
+    },
+    color: "inherit",
+    paddingLeft: "0.75rem",
+    paddingRight: "0.75rem",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+    fontWeight: "600",
+    transitionProperty: "transform, background-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    outline: "none",
+    borderWidth: 0,
+    cursor: "pointer",
+    ":focus-visible": {
+      boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.7)",
+    },
+    ":active": {
+      transform: "scale(0.96)",
+    },
+  },
+  kbd: {
+    fontSize: tokens.text2xs,
+    borderRadius: tokens.radiusSm,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: "rgba(255, 255, 255, 0.4)",
+    paddingLeft: "0.25rem",
+    paddingRight: "0.25rem",
+    lineHeight: "1rem",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
+  },
+  dismissButton: {
+    flexShrink: 0,
+    borderRadius: tokens.radiusFull,
+    paddingLeft: "0.375rem",
+    paddingRight: "0.375rem",
+    lineHeight: 1,
+    opacity: {
+      default: 0.8,
+      ":hover": 1,
+    },
+    outline: "none",
+    borderWidth: 0,
+    background: "none",
+    color: "inherit",
+    cursor: "pointer",
+    ":focus-visible": {
+      boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.7)",
+    },
+  },
+});
 
 /**
  * Toast stack, bottom-center (story beats 4–8). Success is X-blue; danger is
@@ -12,10 +126,7 @@ export function ToastHost({ store }: { store: ToastStore }) {
   const toasts = useSignalValue(store.toasts);
   if (toasts.length === 0) return null;
   return (
-    <div
-      class="fixed bottom-20 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2"
-      style={{ zIndex: UI_LAYER.app }}
-    >
+    <div {...stylex.props(styles.host)} style={{ zIndex: UI_LAYER.app }}>
       {toasts.map((t) => (
         <ToastView
           key={t.id}
@@ -28,12 +139,6 @@ export function ToastHost({ store }: { store: ToastStore }) {
   );
 }
 
-const KIND_CLASS: Record<ActiveToast["kind"], string> = {
-  success: "bg-primary text-primary-foreground",
-  info: "bg-foreground text-background",
-  danger: "bg-destructive text-primary-foreground",
-};
-
 export function ToastView({
   toast,
   onAct,
@@ -44,26 +149,27 @@ export function ToastView({
   onDismiss: () => void;
 }) {
   const persistent = toast.durationMs === null || toast.kind === "danger";
+  const kindStyle =
+    toast.kind === "danger" ? styles.danger : toast.kind === "info" ? styles.info : styles.success;
+
   return (
     <output
       role={toast.kind === "danger" ? "alert" : "status"}
-      class={`${KIND_CLASS[toast.kind]} shadow-elevated flex max-w-[420px] items-center gap-3 rounded-2xl px-4 py-2.5 text-sm tabular-nums transition-[opacity,transform] duration-300 ease-out starting:translate-y-2 starting:opacity-0`}
+      {...stylex.props(styles.toast, kindStyle)}
     >
-      <span class="flex min-w-0 flex-col">
-        <span class="font-semibold">{toast.title}</span>
-        {toast.line && <span class="opacity-90">{toast.line}</span>}
+      <span {...stylex.props(styles.content)}>
+        <span {...stylex.props(styles.title)}>{toast.title}</span>
+        {toast.line && <span {...stylex.props(styles.line)}>{toast.line}</span>}
       </span>
       {toast.actions?.map((a, i) => (
         <button
           key={a.label}
           type="button"
           onClick={() => onAct(i)}
-          class="flex shrink-0 items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 font-semibold transition-transform duration-150 ease-out outline-none hover:bg-white/30 focus-visible:ring-2 focus-visible:ring-white/70 active:scale-[0.96]"
+          {...stylex.props(styles.actionButton)}
         >
           {a.label}
-          {a.kbd && (
-            <kbd class="text-2xs rounded border border-white/40 px-1 leading-4">{a.kbd}</kbd>
-          )}
+          {a.kbd && <kbd {...stylex.props(styles.kbd)}>{a.kbd}</kbd>}
         </button>
       ))}
       {persistent && (
@@ -71,7 +177,7 @@ export function ToastView({
           type="button"
           aria-label="Dismiss"
           onClick={onDismiss}
-          class="shrink-0 rounded-full px-1.5 leading-none opacity-80 outline-none hover:opacity-100 focus-visible:ring-2 focus-visible:ring-white/70"
+          {...stylex.props(styles.dismissButton)}
         >
           ✕
         </button>
