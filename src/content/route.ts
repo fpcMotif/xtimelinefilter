@@ -12,11 +12,25 @@ const LIST_PATH = /^\/i\/lists\/(\d+)(?:\/|$)/;
 const BOOKMARKS_PATH = /^\/i\/bookmarks(?:\/\d+)?\/?$/;
 
 /**
+ * X's History hub (rolled out May 2026), which replaced the Bookmarks nav
+ * entry: `/i/bookmarks` now client-redirects here (live-verified via CDP
+ * 2026-08-23). The bare path is the Bookmarks tab; known sibling tabs are
+ * `likes` (live-verified) and `videos`/`articles` (announced but not yet
+ * live on web for any account checked so far — matched pre-emptively since
+ * an unmatched route is the harmful case, not an over-matched one: see the
+ * {@link RESERVED_ROOTS} doc). A trailing numeric segment is matched too on
+ * the same speculative-folder theory as {@link BOOKMARKS_PATH}, since no
+ * account checked so far has a real folder to confirm its shape under this
+ * path.
+ */
+const HISTORY_PATH = /^\/i\/history(?:\/(?:likes|videos|articles|\d+))?\/?$/;
+
+/**
  * Which timeline this path is, or null when the Filter must not run here — the
- * timelines of spec §3: Home, a List, Bookmarks, or a profile. Each uses the
- * same virtualized `cellInnerDiv` / `article[data-testid="tweet"]` structure
- * (research 03 §1), so the applier and facet extraction work unchanged — the
- * route is the only gate.
+ * timelines of spec §3: Home, a List, Bookmarks, History, or a profile. Each
+ * uses the same virtualized `cellInnerDiv` / `article[data-testid="tweet"]`
+ * structure (research 03 §1), so the applier and facet extraction work
+ * unchanged — the route is the only gate.
  *
  * Reading the path is content's job; what a scope *means* is the domain's, so
  * {@link FilterScope} and its binding key live in `core/`.
@@ -27,6 +41,7 @@ export function resolveScope(pathname: string): FilterScope | null {
   const list = LIST_PATH.exec(pathname);
   if (list) return { kind: "list", listId: list[1]! };
   if (BOOKMARKS_PATH.test(pathname)) return { kind: "bookmarks" };
+  if (HISTORY_PATH.test(pathname)) return { kind: "history" };
   const handle = profileHandle(pathname);
   return handle === null ? null : { kind: "profile", handle };
 }
@@ -53,6 +68,7 @@ const RESERVED_ROOTS = new Set([
   "settings",
   "i",
   "bookmarks",
+  "history",
   "lists",
   "communities",
   "hashtag",
