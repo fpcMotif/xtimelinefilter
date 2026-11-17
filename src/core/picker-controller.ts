@@ -175,7 +175,7 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
     }
   };
 
-  const view = computed<PickerView>(() => {
+  const projection = computed<Omit<PickerView, "activeIndex" | "active">>(() => {
     const owner = activeOwner.value;
     const active = activeCatalog.value;
     const catalogs = new Map<string, OwnerCatalog>();
@@ -274,10 +274,6 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
     const flat = groups.flatMap((group) => group.rows);
     // Each row is projected only after its target is recorded above.
     choiceTargets = new Map(flat.map((row) => [row.key, projectedTargets.get(row.key)!]));
-    const requestedIndex = activeRowKey.value
-      ? flat.findIndex((row) => row.key === activeRowKey.value)
-      : 0;
-    const activeIndex = clamp(requestedIndex < 0 ? 0 : requestedIndex, flat.length);
     const visibleStatus =
       status.value === "ready" && flat.length === 0 && q === "" ? "empty" : status.value;
     return {
@@ -302,9 +298,19 @@ export function createPickerController(deps: PickerControllerDeps): PickerContro
       scope: selectedScope,
       groups,
       flat,
-      activeIndex,
-      active: flat[activeIndex] ?? null,
       noMatch: visibleStatus === "ready" && q !== "" && flat.length === 0,
+    };
+  });
+
+  const view = computed<PickerView>(() => {
+    const projected = projection.value;
+    const key = activeRowKey.value;
+    const requestedIndex = key ? projected.flat.findIndex((row) => row.key === key) : 0;
+    const activeIndex = clamp(requestedIndex < 0 ? 0 : requestedIndex, projected.flat.length);
+    return {
+      ...projected,
+      activeIndex,
+      active: projected.flat[activeIndex] ?? null,
     };
   });
 
