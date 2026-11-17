@@ -200,6 +200,18 @@ describe("PickerController projection", () => {
     expect(controller.view.value.active?.list.id).toBe("3");
   });
 
+  it("keeps row objects across a highlight move", async () => {
+    const controller = picker(fakeCache({ cached: LISTS }));
+    await controller.open([{ screenName: "jane" }]);
+    const before = controller.view.value;
+    expect(before.status).toBe("ready");
+    controller.act({ type: "move", direction: "down" });
+    const after = controller.view.value;
+    expect(after.activeIndex).toBe(before.activeIndex + 1);
+    expect(after.flat[0]).toBe(before.flat[0]);
+    expect(after.groups).toBe(before.groups);
+  });
+
   it("filters fuzzily, resets the cursor, and exposes no-match", async () => {
     const controller = picker(fakeCache({ cached: LISTS }));
     await controller.open([{ screenName: "jane" }]);
