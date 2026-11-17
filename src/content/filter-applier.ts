@@ -195,6 +195,9 @@ export function createFilterApplier(deps: FilterApplierDeps): FilterApplier {
   const observeTarget: Element | null =
     "documentElement" in root ? (root as Document).body : (root as Element);
   const hydrationObserver = new MutationObserver((mutations) => {
+    const state = store.state.peek();
+    if (!inScope() || !state.enabled || store.revealed.peek() || activeCriteriaCount(state) === 0)
+      return;
     const touched = new Set<Element>();
     for (const m of mutations) {
       if (m.type === "attributes") {

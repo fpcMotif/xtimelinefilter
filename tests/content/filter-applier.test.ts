@@ -226,6 +226,24 @@ describe("createFilterApplier", () => {
     applier.dispose();
   });
 
+  it("does no selector work for added nodes while no criteria are armed", async () => {
+    const store = createFilterStore({ navLanguages: ["en"] });
+    const root = makeRoot();
+    const cell = addCell(root, "en");
+    const applier = createFilterApplier({ store, root, inScope: () => true });
+    const spy = vi.spyOn(Element.prototype, "querySelector");
+    try {
+      const added = document.createElement("div");
+      added.appendChild(document.createElement("span"));
+      articleOf(cell).appendChild(added);
+      await tick();
+      expect(spy).not.toHaveBeenCalledWith(FacetSelectors.VIDEO);
+    } finally {
+      spy.mockRestore();
+      applier.dispose();
+    }
+  });
+
   it("hides a 'video hide' post when X hydrates its video player after mount", async () => {
     const store = createFilterStore({ navLanguages: ["en"] });
     store.setMode("kind:video", "hide");
@@ -424,6 +442,7 @@ describe("createFilterApplier", () => {
     crash = true; // next classify throws → catch finds the cell and restores it
     expect(() => applier.classify(articleOf(cell))).not.toThrow();
     expect(applier.isStubbed(cell)).toBe(false);
+    applier.dispose();
   });
 
   it("fail-open catch no-ops when the throwing article has no closest()", () => {
