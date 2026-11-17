@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createSocialPostAdapter, socialPlatformForHost } from "@/content/social-posts";
 import { createTimelineCursor } from "@/content/social-posts";
@@ -151,6 +151,47 @@ describe("Timeline Cursor", () => {
     expect(cursor.move("previous")?.id).toBe("one");
     expect(cursor.observePointer(document.querySelector("#two p"))?.id).toBe("two");
     expect(cursor.current()?.id).toBe("two");
+  });
+
+  const pointerFixture = `
+      <main>
+        <div class="post" id="one"><a href="/@a/post/one"><time>1h</time></a><p>First post</p><span>More</span></div>
+        <div class="post" id="two"><a href="/@b/post/two"><time>2h</time></a><p>Second post</p></div>
+      </main>
+    `;
+
+  it("skips the post scan for pointer moves inside the current post", () => {
+    mount(pointerFixture);
+    const adapter = createSocialPostAdapter("threads");
+    const rootForTarget = vi.spyOn(adapter, "rootForTarget");
+    const cursor = createTimelineCursor(adapter, document);
+    const first = cursor.observePointer(document.querySelector("#one p"));
+    const second = cursor.observePointer(document.querySelector("#one span"));
+    expect(first?.id).toBe("one");
+    expect(second).toBe(first);
+    expect(rootForTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not rewrite the marker for pointer moves inside the current post", () => {
+    mount(pointerFixture);
+    const cursor = createTimelineCursor(createSocialPostAdapter("threads"), document);
+    const root = cursor.observePointer(document.querySelector("#one p"))!;
+    const write = vi.spyOn(root, "setAttribute");
+    cursor.observePointer(document.querySelector("#one span"));
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("does not trust a current post that left the document", () => {
+    mount(pointerFixture);
+    const adapter = createSocialPostAdapter("threads");
+    const rootForTarget = vi.spyOn(adapter, "rootForTarget");
+    const cursor = createTimelineCursor(adapter, document);
+    const target = document.querySelector("#one p");
+    const root = cursor.observePointer(target)!;
+    const detached = document.createElement("div");
+    detached.append(root);
+    cursor.observePointer(target);
+    expect(rootForTarget).toHaveBeenCalledTimes(2);
   });
 
   it("rebinds the cursor marker to a recycled post with the same identity", () => {
