@@ -1,6 +1,6 @@
 import type { ReadonlySignal } from "@preact/signals-core";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 
 import type { AppState } from "@/content/app-state";
 import type { LassoController } from "@/content/controller";
@@ -56,7 +56,11 @@ export function OverlayBinding({
   onToggle,
   onSave,
 }: OverlayBindingProps) {
-  useSignalValue(selection.count);
+  const selectedSignal = useMemo(
+    () => selection.selectedSignal(author.screenName),
+    [selection, author.screenName],
+  );
+  const selected = useSignalValue(selectedSignal);
   const isHovered = useSignalValue(hovered);
   const selectMode = useSignalValue(selection.selectMode);
   const [focused, setFocused] = useState(false);
@@ -79,7 +83,7 @@ export function OverlayBinding({
   return (
     <TweetOverlay
       screenName={author.screenName}
-      selected={selection.isSelected(author.screenName)}
+      selected={selected}
       visible={isHovered || selectMode || focused}
       onToggle={onToggle}
       onSave={onSave}

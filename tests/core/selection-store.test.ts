@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { TweetAuthor } from "@/core/selection-store";
 import { createSelectionStore } from "@/core/selection-store";
@@ -80,5 +80,19 @@ describe("createSelectionStore", () => {
     s.remove("alice");
     stop();
     expect(counts).toEqual([0, 1, 2, 1]);
+  });
+
+  it("selectedSignal notifies only when its own author flips, case-insensitively", () => {
+    const s = createSelectionStore();
+    const aliceSelected = s.selectedSignal("Alice");
+    const spy = vi.fn();
+    const stop = aliceSelected.subscribe(spy);
+    expect(spy).toHaveBeenCalledTimes(1);
+    s.toggle({ screenName: "bob" });
+    expect(spy).toHaveBeenCalledTimes(1);
+    s.toggle({ screenName: "alice" });
+    expect(aliceSelected.value).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(2);
+    stop();
   });
 });
