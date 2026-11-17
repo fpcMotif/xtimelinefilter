@@ -16,6 +16,7 @@ export interface SelectionStore {
   readonly count: ReadonlySignal<number>;
   readonly selectMode: ReadonlySignal<boolean>;
   isSelected(screenName: string): boolean;
+  selectedSignal(screenName: string): ReadonlySignal<boolean>;
   add(author: TweetAuthor): void;
   remove(screenName: string): void;
   toggle(author: TweetAuthor): void;
@@ -54,6 +55,10 @@ export function createSelectionStore(): SelectionStore {
     count,
     selectMode,
     isSelected: (screenName) => selected.value.has(keyOf(screenName)),
+    selectedSignal: (screenName) => {
+      const key = keyOf(screenName);
+      return computed(() => selected.value.has(key));
+    },
     add: (author) =>
       mutate((next) => {
         const key = keyOf(author.screenName);
