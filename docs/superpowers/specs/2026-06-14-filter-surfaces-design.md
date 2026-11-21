@@ -1,6 +1,6 @@
 # Filter Surfaces — Design
 
-> Historical planning record. It predates the shipped pill/palette implementation and profile scope. Use `../../CONTEXT.md`, ADR-0010, and the current modules as implementation truth.
+> Historical planning record. It predates the shipped pill/palette implementation and profile scope. Use `../../../GLOSSARY.md`, ADR-0010, and the current modules as implementation truth.
 
 - **Status:** Superseded planning record
 - **Date:** 2026-06-14

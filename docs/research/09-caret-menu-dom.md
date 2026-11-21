@@ -231,7 +231,7 @@ async function addRemoveFromLists(tweetEl, targetListName) {
 }
 ```
 
-Pacing invariants (CONTEXT.md): one gesture → one action; no `for`/`while`/`setInterval`; small `sleep`s are
+Pacing invariants (GLOSSARY.md): one gesture → one action; no `for`/`while`/`setInterval`; small `sleep`s are
 DOM-settle only; on timeout, abort and surface an error (don't retry-spam).
 
 ---
@@ -320,7 +320,7 @@ Project-internal corroboration:
   list picker → toggle → `confirmationSheetConfirm` / Done; selector-resilience guidance §B.4).
 - `docs/research/03-tweet-extraction.md` (tweet/article structure, `User-Name`, quoted-tweet handling).
 - `src/content/selectors.ts` (`DriverSelectors`, `ADD_TO_LISTS_TEXT`).
-- `docs/CONTEXT.md` (PageDriver seam; human-paced invariants).
+- `GLOSSARY.md` (PageDriver seam; human-paced invariants).
 
 Label-localization corroboration (from `04-x-lists-backends.md`): "Add/remove from Lists" label key
 `AddRemoveFromLists`, confirmed across X clients (TwidereProject/TwidereX-iOS

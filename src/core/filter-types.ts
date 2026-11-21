@@ -1,6 +1,6 @@
 /**
  * Shared contracts for the Filter capability (Lasso's second capability — see
- * docs/CONTEXT.md "Filter terms" and the design spec
+ * GLOSSARY.md "Filter terms" and the design spec
  * docs/superpowers/specs/2026-06-14-timeline-content-filter-design.md).
  *
  * Types only — no logic. The pure units (link-classifier, tweet-read,
@@ -103,17 +103,18 @@ export type FilterVerdict = "show" | "hide";
 
 /**
  * Which timeline the user is on, resolved from the path by `content/route.ts`.
- * Distinct from the *Filter scope* of docs/CONTEXT.md, which names the whole set
+ * Distinct from the *Filter scope* of GLOSSARY.md, which names the whole set
  * of timelines the Filter may run on; this is one member of that set, identified.
  *
  * Home, List, and profile are bindable — each can carry its own preset (spec
- * #31). Bookmarks runs the Filter but cannot yet be bound, so it has no
- * {@link FilterScopeKey}.
+ * #31). Bookmarks and History run the Filter but cannot yet be bound, so they
+ * have no {@link FilterScopeKey}.
  */
 export type FilterScope =
   | { readonly kind: "home" }
   | { readonly kind: "list"; readonly listId: string }
   | { readonly kind: "bookmarks" }
+  | { readonly kind: "history" }
   | { readonly kind: "profile"; readonly handle: string };
 
 /**
