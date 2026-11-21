@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex";
 import { useRef } from "preact/hooks";
 
 import type { CommandId, KeyBinding } from "@/content/keyboard";
@@ -5,6 +6,7 @@ import { keycaps, type Platform } from "@/core/keycaps";
 import { SHORTCUTS_FOOTER, SHORTCUTS_TITLE } from "@/core/strings";
 import { Kbd } from "@/ui/components";
 import { UI_LAYER } from "@/ui/layers";
+import { tokens } from "@/ui/tokens.stylex";
 import { useFocusTrap } from "@/ui/use-focus-trap";
 
 export const COMMAND_LABELS: Record<CommandId, string> = {
@@ -34,38 +36,117 @@ export interface ShortcutsSheetProps {
   onClose(): void;
 }
 
+const styles = stylex.create({
+  scrim: {
+    backgroundColor: tokens.scrim,
+    position: "fixed",
+    inset: 0,
+    display: "grid",
+    placeItems: "center",
+  },
+  dialog: {
+    backgroundColor: tokens.card,
+    color: tokens.cardForeground,
+    boxShadow: tokens.shadowElevated,
+    width: "380px",
+    maxWidth: "calc(100vw - 32px)",
+    borderRadius: tokens.radiusXl,
+    padding: "1.5rem",
+    boxSizing: "border-box",
+  },
+  header: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  title: {
+    fontSize: tokens.textXl,
+    fontWeight: "700",
+    margin: 0,
+  },
+  closeButton: {
+    color: tokens.mutedForeground,
+    borderRadius: tokens.radiusFull,
+    paddingLeft: "0.375rem",
+    paddingRight: "0.375rem",
+    lineHeight: 1,
+    outline: "none",
+    border: "none",
+    background: "none",
+    cursor: "pointer",
+    ":hover": {
+      color: tokens.foreground,
+    },
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+  },
+  table: {
+    marginTop: "1rem",
+    width: "100%",
+    borderCollapse: "collapse",
+  },
+  cellLabel: {
+    fontSize: tokens.textMd,
+    paddingTop: "0.375rem",
+    paddingBottom: "0.375rem",
+  },
+  cellKeys: {
+    paddingTop: "0.375rem",
+    paddingBottom: "0.375rem",
+    textAlign: "right",
+  },
+  keysWrap: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "0.125rem",
+  },
+  footer: {
+    color: tokens.mutedForeground,
+    fontSize: tokens.textCompact,
+    marginTop: "1rem",
+    borderTopWidth: "1px",
+    borderStyle: "solid",
+    borderColor: tokens.border,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    paddingTop: "0.75rem",
+  },
+});
+
 /** `?` sheet: rendered from the live keymap, closed by Esc/?, trust footer.
     A true modal: focus is trapped inside and returned on close. */
 export function ShortcutsSheet({ keymap, platform, onClose }: ShortcutsSheetProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
   return (
-    <div class="bg-scrim fixed inset-0 grid place-items-center" style={{ zIndex: UI_LAYER.modal }}>
+    <div {...stylex.props(styles.scrim)} style={{ zIndex: UI_LAYER.modal }}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={SHORTCUTS_TITLE}
-        class="bg-card text-card-foreground shadow-elevated w-[380px] max-w-[calc(100vw-32px)] rounded-2xl p-6 transition-[opacity,transform] duration-300 ease-out starting:translate-y-2 starting:opacity-0"
+        {...stylex.props(styles.dialog)}
       >
-        <div class="flex items-start justify-between">
-          <h2 class="text-[20px] font-bold">{SHORTCUTS_TITLE}</h2>
+        <div {...stylex.props(styles.header)}>
+          <h2 {...stylex.props(styles.title)}>{SHORTCUTS_TITLE}</h2>
           <button
             type="button"
             aria-label="Close"
             onClick={onClose}
-            class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/55 rounded-full px-1.5 leading-none outline-none focus-visible:ring-2"
+            {...stylex.props(styles.closeButton)}
           >
             ✕
           </button>
         </div>
-        <table class="mt-4 w-full">
+        <table {...stylex.props(styles.table)}>
           <tbody>
             {keymap.map((binding) => (
               <tr key={binding.combo}>
-                <td class="text-md py-1.5">{COMMAND_LABELS[binding.command]}</td>
-                <td class="py-1.5 text-right">
-                  <span class="inline-flex items-center gap-0.5">
+                <td {...stylex.props(styles.cellLabel)}>{COMMAND_LABELS[binding.command]}</td>
+                <td {...stylex.props(styles.cellKeys)}>
+                  <span {...stylex.props(styles.keysWrap)}>
                     {keycaps(binding.combo, platform).map((cap) => (
                       <Kbd key={cap}>{cap}</Kbd>
                     ))}
@@ -75,7 +156,7 @@ export function ShortcutsSheet({ keymap, platform, onClose }: ShortcutsSheetProp
             ))}
           </tbody>
         </table>
-        <p class="text-muted-foreground text-compact mt-4 border-t pt-3">{SHORTCUTS_FOOTER}</p>
+        <p {...stylex.props(styles.footer)}>{SHORTCUTS_FOOTER}</p>
       </div>
     </div>
   );

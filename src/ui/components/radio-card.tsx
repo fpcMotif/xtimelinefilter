@@ -1,6 +1,60 @@
+import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
 
 import { cn } from "@/lib/utils";
+import { tokens } from "@/ui/tokens.stylex";
+
+const styles = stylex.create({
+  label: {
+    display: "flex",
+    cursor: "pointer",
+    alignItems: "flex-start",
+    gap: "0.75rem",
+    borderRadius: tokens.radiusLg,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.border,
+    paddingInline: "0.875rem",
+    paddingBlock: "0.75rem",
+    fontSize: tokens.textSm,
+    lineHeight: "1.375",
+    transitionProperty: "border-color, background-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    boxSizing: "border-box",
+    ":hover": {
+      borderColor: tokens.faint,
+    },
+  },
+  labelChecked: {
+    borderColor: tokens.primary,
+    backgroundColor: tokens.secondary,
+  },
+  radio: {
+    borderColor: tokens.faint,
+    marginTop: "1px",
+    width: "18px",
+    height: "18px",
+    flexShrink: 0,
+    cursor: "pointer",
+    appearance: "none",
+    borderRadius: tokens.radiusFull,
+    borderWidth: 1.5,
+    borderStyle: "solid",
+    outline: "none",
+    boxSizing: "border-box",
+    transitionProperty: "border-width, border-color, box-shadow",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    ":checked": {
+      borderColor: tokens.primary,
+      borderWidth: 5,
+    },
+    ":focus-visible": {
+      boxShadow: `0 0 0 1px var(--background), 0 0 0 3px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+  },
+});
 
 export interface RadioCardProps {
   name: string;
@@ -11,14 +65,9 @@ export interface RadioCardProps {
   children: ComponentChildren;
   class?: string;
   className?: string;
+  sx?: stylex.StyleXStyles;
 }
 
-/**
- * A selectable card backed by a native `<input type="radio">`. The copy lives as
- * a direct text child so the whole card's accessible name is the copy and
- * `getByText(copy).querySelector("input")` resolves the control — the contract
- * the options page tests rely on. The card highlights via `has-[:checked]`.
- */
 export function RadioCard({
   name,
   value,
@@ -27,16 +76,13 @@ export function RadioCard({
   children,
   class: cls,
   className,
+  sx,
 }: RadioCardProps) {
+  const labelProps = stylex.props(styles.label, checked && styles.labelChecked, sx);
+  const radioProps = stylex.props(styles.radio);
+
   return (
-    <label
-      data-slot="radio-card"
-      class={cn(
-        "group border-border hover:border-faint has-[:checked]:border-primary has-[:checked]:bg-secondary flex cursor-pointer items-start gap-3 rounded-xl border px-3.5 py-3 text-sm leading-snug transition-colors",
-        cls,
-        className,
-      )}
-    >
+    <label data-slot="radio-card" {...labelProps} class={cn(labelProps.className, cls, className)}>
       <input
         type="radio"
         name={name}
@@ -44,7 +90,8 @@ export function RadioCard({
         {...(typeof children === "string" ? { "aria-label": children } : {})}
         checked={checked}
         onChange={() => onSelect()}
-        class="border-faint checked:border-primary focus-visible:ring-ring/55 mt-px size-[18px] shrink-0 cursor-pointer appearance-none rounded-full border-[1.5px] transition-[border-width,border-color] duration-150 outline-none checked:border-[5px] focus-visible:ring-2 focus-visible:ring-offset-1"
+        {...radioProps}
+        class={radioProps.className}
       />
       {children}
     </label>

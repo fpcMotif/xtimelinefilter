@@ -44,6 +44,8 @@ function isTipLimit(value: number): value is TipLimit {
 
 function coachWith(run: RunCommand): Coach {
   let tail = Promise.resolve<unknown>(undefined);
+  const declined = new Set<string>();
+  const tipFallback: CoachCommandResult = { kind: "try-show-tip", show: false };
   const command = (
     input: CoachCommand,
     fallback: CoachCommandResult,
@@ -82,11 +84,16 @@ function coachWith(run: RunCommand): Coach {
       if (!isTipLimit(max)) return false;
       const input = { kind: "try-show-tip" as const, tip, max };
       if (!isCoachCommand(input)) return false;
-      const result = await command(input, { kind: "try-show-tip", show: false });
-      return result.kind === "try-show-tip" ? result.show : false;
+      const key = `${tip}:${max}`;
+      if (declined.has(key)) return false;
+      const result = await command(input, tipFallback);
+      if (result.kind !== "try-show-tip") return false;
+      if (!result.show && result !== tipFallback) declined.add(key);
+      return result.show;
     },
     async replayIntro() {
       await command({ kind: "replay-intro" }, { kind: "ok" });
+      declined.clear();
     },
   };
 }

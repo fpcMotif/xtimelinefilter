@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
@@ -14,6 +15,7 @@ import {
   savedPostsCountLine,
 } from "@/core/strings";
 import { Badge, Button, Card, LassoMark, PresetApplyPill, Switch } from "@/ui/components";
+import { tokens } from "@/ui/tokens.stylex";
 import { useSignalValue } from "@/ui/use-signal-value";
 
 export type TabState = "active" | "asleep" | "off-x";
@@ -57,6 +59,245 @@ const STATUS: Record<TabState | "loading", { dot: string; label: string }> = {
  * The criteria chips themselves live where you can watch their effect: the
  * in-page funnel pill and the Options "Timeline filter" section.
  */
+
+const styles = stylex.create({
+  main: {
+    color: tokens.foreground,
+    display: "flex",
+    width: "320px",
+    flexDirection: "column",
+    gap: "0.625rem",
+    padding: "0.75rem",
+    boxSizing: "border-box",
+  },
+  masterCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.75rem",
+    padding: "0.875rem",
+    boxShadow: tokens.shadowPop,
+  },
+  headerRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  brandRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+  },
+  brandMark: {
+    color: tokens.primary,
+  },
+  brandTitle: {
+    fontSize: "16px",
+    fontWeight: "700",
+    letterSpacing: "-0.025em",
+    margin: 0,
+  },
+  statusBadge: {
+    color: tokens.mutedForeground,
+    paddingLeft: "0.625rem",
+    paddingRight: "0.625rem",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+  },
+  statusDot: {
+    height: "0.375rem",
+    width: "0.375rem",
+    borderRadius: tokens.radiusFull,
+    display: "inline-block",
+  },
+  dotGreen: {
+    backgroundColor: tokens.success,
+  },
+  dotAmber: {
+    backgroundColor: tokens.primary,
+  },
+  dotMuted: {
+    backgroundColor: tokens.mutedForeground,
+  },
+  dotDestructive: {
+    backgroundColor: tokens.destructive,
+  },
+  masterFilterLabel: {
+    display: "flex",
+    cursor: "pointer",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "0.75rem",
+  },
+  filterCountWrap: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "0.375rem",
+  },
+  filterCountNumber: {
+    fontSize: "26px",
+    lineHeight: 1,
+    fontWeight: "700",
+    fontVariantNumeric: "tabular-nums",
+    transitionProperty: "color",
+    transitionDuration: "150ms",
+  },
+  filterCountFaint: {
+    color: tokens.faint,
+  },
+  filterCountText: {
+    color: tokens.faint,
+    fontSize: tokens.text2xs,
+  },
+  mirrorButton: {
+    color: {
+      default: tokens.faint,
+      ":hover": tokens.foreground,
+    },
+    marginInline: "-0.25rem",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.375rem",
+    borderRadius: tokens.radiusMd,
+    paddingInline: "0.25rem",
+    paddingBlock: "0.125rem",
+    textAlign: "left",
+    fontSize: tokens.textXs,
+    transitionProperty: "color",
+    transitionDuration: "150ms",
+    outline: "none",
+    border: "none",
+    background: "none",
+    cursor: "pointer",
+    ":focus-visible": {
+      boxShadow: "0 0 0 2px oklch(from " + tokens.ring + " l c h / 0.55)",
+    },
+  },
+  statusText: {
+    color: tokens.faint,
+    fontSize: tokens.textXs,
+    margin: 0,
+  },
+  wFull: {
+    width: "100%",
+  },
+  dividerCard: {
+    gap: 0,
+    padding: 0,
+    overflow: "hidden",
+  },
+  presetsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    paddingInline: "0.875rem",
+    paddingBlock: "0.625rem",
+    borderColor: tokens.border,
+    borderTopWidth: "1px",
+    borderStyle: "solid",
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+  },
+  presetsLabel: {
+    color: tokens.faint,
+    fontSize: "10px",
+    fontWeight: "700",
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+  },
+  presetsApplied: {
+    color: tokens.success,
+    fontSize: tokens.text2xs,
+    fontWeight: "500",
+  },
+  presetChips: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "0.375rem",
+  },
+  bottomSettings: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.375rem",
+    paddingInline: "0.125rem",
+  },
+  allSettingsButton: {
+    width: "100%",
+    ":hover": {
+      borderColor: tokens.primary,
+      color: tokens.primary,
+    },
+  },
+  allSettingsHint: {
+    color: tokens.faint,
+    fontSize: tokens.text2xs,
+    textAlign: "center",
+    margin: 0,
+  },
+  toggleRow: {
+    display: "flex",
+    cursor: "pointer",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "0.75rem",
+    paddingInline: "0.875rem",
+    paddingBlock: "0.625rem",
+    borderColor: tokens.border,
+    borderTopWidth: "1px",
+    borderStyle: "solid",
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+  },
+  toggleLabelCol: {
+    display: "flex",
+    flexDirection: "column",
+  },
+  toggleLabelText: {
+    fontSize: tokens.textCompact,
+    fontWeight: "500",
+  },
+  toggleHintText: {
+    color: tokens.faint,
+    fontSize: tokens.text2xs,
+  },
+  savedRow: {
+    display: "flex",
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "0.75rem",
+    paddingInline: "0.875rem",
+    paddingBlock: "0.625rem",
+    textAlign: "left",
+    transitionProperty: "background-color",
+    transitionDuration: "150ms",
+    outline: "none",
+    borderWidth: 0,
+    borderTopWidth: "1px",
+    borderStyle: "solid",
+    borderColor: tokens.border,
+    backgroundColor: {
+      default: "transparent",
+      ":hover": "oklch(from " + tokens.secondary + " l c h / 0.5)",
+    },
+    cursor: "pointer",
+    ":focus-visible": {
+      boxShadow: "0 0 0 2px oklch(from " + tokens.ring + " l c h / 0.55)",
+    },
+  },
+  savedCountsCol: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+  },
+  savedCountNumber: {
+    fontSize: tokens.textCompact,
+    fontWeight: "600",
+    fontVariantNumeric: "tabular-nums",
+  },
+});
+
 export function PopupApp({
   queryState,
   wake,
@@ -208,32 +449,34 @@ export function PopupApp({
   const presetCount = filterState.presets.length;
 
   return (
-    <main class="text-foreground flex w-[320px] flex-col gap-2.5 p-3">
-      <Card class="gap-3 p-3.5 shadow-[var(--shadow-pop)]">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <LassoMark size={20} class="text-primary" />
-            <h1 class="text-[16px] font-bold tracking-tight">Lasso</h1>
+    <main {...stylex.props(styles.main)}>
+      <Card sx={styles.masterCard}>
+        <div {...stylex.props(styles.headerRow)}>
+          <div {...stylex.props(styles.brandRow)}>
+            <LassoMark size={20} sx={styles.brandMark} />
+            <h1 {...stylex.props(styles.brandTitle)}>Lasso</h1>
           </div>
-          <Badge variant="secondary" class="text-muted-foreground px-2.5 py-1">
-            <span class={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+          <Badge variant="secondary" sx={styles.statusBadge}>
+            <span
+              {...stylex.props(
+                styles.statusDot,
+                status.dot.includes("bg-success")
+                  ? styles.dotGreen
+                  : status.dot.includes("bg-primary")
+                    ? styles.dotAmber
+                    : styles.dotMuted,
+              )}
+            />
             {status.label}
           </Badge>
         </div>
 
-        <label
-          htmlFor="popup-master-filter"
-          class="flex cursor-pointer items-center justify-between gap-3"
-        >
-          <span id="popup-filter-count" class="flex items-baseline gap-1.5">
-            <span
-              class={`text-[26px] leading-none font-bold tabular-nums transition-colors ${
-                enabled ? "" : "text-faint"
-              }`}
-            >
+        <label htmlFor="popup-master-filter" {...stylex.props(styles.masterFilterLabel)}>
+          <span id="popup-filter-count" {...stylex.props(styles.filterCountWrap)}>
+            <span {...stylex.props(styles.filterCountNumber, !enabled && styles.filterCountFaint)}>
               {armed}
             </span>
-            <span class="text-faint text-2xs">
+            <span {...stylex.props(styles.filterCountText)}>
               {enabled ? (armed === 1 ? "filter armed" : "filters armed") : "filter off"}
             </span>
           </span>
@@ -247,26 +490,27 @@ export function PopupApp({
         </label>
 
         {mirrorConfigId && mirror?.configId === mirrorConfigId && (
-          <button
-            type="button"
-            onClick={openOptions}
-            class="text-faint hover:text-foreground focus-visible:ring-ring/55 -mx-1 flex items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs transition-colors outline-none focus-visible:ring-2"
-          >
+          <button type="button" onClick={openOptions} {...stylex.props(styles.mirrorButton)}>
             <span
-              class={`h-1.5 w-1.5 rounded-full ${mirror.ok ? "bg-success" : "bg-destructive"}`}
+              {...stylex.props(
+                styles.statusDot,
+                mirror.ok ? styles.dotGreen : styles.dotDestructive,
+              )}
             />
             {mirror.ok ? (
               `Last Mirror write succeeded ${mirrorAgeLabel(mirror.at, (now ?? Date.now)())}`
             ) : (
-              <span class="text-destructive">Last Mirror write failed — open settings</span>
+              <span {...stylex.props(styles.dotDestructive)}>
+                Last Mirror write failed — open settings
+              </span>
             )}
           </button>
         )}
 
-        {state === "active" && <p class="text-faint text-xs">{POPUP_ACTIVE}</p>}
+        {state === "active" && <p {...stylex.props(styles.statusText)}>{POPUP_ACTIVE}</p>}
         {state === "asleep" && (
           <Button
-            class="w-full"
+            sx={styles.wFull}
             onClick={() =>
               void wake()
                 .then((awake) => {
@@ -281,30 +525,30 @@ export function PopupApp({
           </Button>
         )}
         {state === "off-x" && (
-          <p role="status" class="text-faint text-xs">
+          <p role="status" {...stylex.props(styles.statusText)}>
             Open x.com to use Lasso
           </p>
         )}
       </Card>
 
-      <Card class="divide-border gap-0 divide-y p-0">
+      <Card sx={styles.dividerCard}>
         <ToggleRow
           label="Only my languages"
           checked={filterState.onlyMyLanguages}
           onChange={(on) => filter.setOnlyMyLanguages(on)}
         />
 
-        <div class="flex items-center gap-2 px-3.5 py-2.5">
-          <span class="text-faint text-[10px] font-bold tracking-wider uppercase">Presets</span>
+        <div {...stylex.props(styles.presetsRow)}>
+          <span {...stylex.props(styles.presetsLabel)}>Presets</span>
           {applied && (
-            <span aria-live="polite" class="text-success text-2xs font-medium">
+            <span aria-live="polite" {...stylex.props(styles.presetsApplied)}>
               Applied · {applied}
             </span>
           )}
           {presetCount === 0 ? (
-            <span class="text-faint text-xs">Save one from the funnel on x.com</span>
+            <span {...stylex.props(styles.statusText)}>Save one from the funnel on x.com</span>
           ) : (
-            <div class="flex flex-wrap gap-1.5">
+            <div {...stylex.props(styles.presetChips)}>
               {filterState.presets.map((preset) => (
                 <PresetApplyPill
                   key={preset.id}
@@ -329,15 +573,11 @@ export function PopupApp({
         {savedCounts && <SavedRow counts={savedCounts} onOpen={openOptions} />}
       </Card>
 
-      <div class="flex flex-col gap-1.5 px-0.5">
-        <Button
-          variant="outline"
-          class="hover:border-primary hover:text-primary w-full"
-          onClick={openOptions}
-        >
+      <div {...stylex.props(styles.bottomSettings)}>
+        <Button variant="outline" sx={styles.allSettingsButton} onClick={openOptions}>
           All settings
         </Button>
-        <p class="text-faint text-2xs text-center">Press ? on x.com for every shortcut</p>
+        <p {...stylex.props(styles.allSettingsHint)}>Press ? on x.com for every shortcut</p>
       </div>
     </main>
   );
@@ -358,13 +598,10 @@ function ToggleRow({
 }) {
   const id = `popup-${label.toLowerCase().replaceAll(/\W+/g, "-")}`;
   return (
-    <label
-      htmlFor={id}
-      class="flex cursor-pointer items-center justify-between gap-3 px-3.5 py-2.5"
-    >
-      <span class="flex flex-col">
-        <span class="text-compact font-medium">{label}</span>
-        {hint && <span class="text-faint text-2xs">{hint}</span>}
+    <label htmlFor={id} {...stylex.props(styles.toggleRow)}>
+      <span {...stylex.props(styles.toggleLabelCol)}>
+        <span {...stylex.props(styles.toggleLabelText)}>{label}</span>
+        {hint && <span {...stylex.props(styles.filterCountText)}>{hint}</span>}
       </span>
       <Switch id={id} label={label} checked={checked} onChange={onChange} />
     </label>
@@ -380,20 +617,16 @@ function ToggleRow({
  */
 function SavedRow({ counts, onOpen }: { counts: CollectionCounts; onOpen: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      class="hover:bg-secondary/50 focus-visible:ring-ring/55 flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors outline-none focus-visible:ring-2"
-    >
-      <span class="text-compact font-medium">Saved</span>
+    <button type="button" onClick={onOpen} {...stylex.props(styles.savedRow)}>
+      <span {...stylex.props(styles.toggleLabelText)}>Saved</span>
       {counts.savedPosts === 0 ? (
-        <span class="text-faint text-xs">{SAVED_EMPTY}</span>
+        <span {...stylex.props(styles.statusText)}>{SAVED_EMPTY}</span>
       ) : (
-        <span class="flex flex-col items-end">
-          <span class="text-compact font-semibold tabular-nums">
+        <span {...stylex.props(styles.savedCountsCol)}>
+          <span {...stylex.props(styles.savedCountNumber)}>
             {savedPostsCountLine(counts.savedPosts)}
           </span>
-          <span class="text-faint text-2xs">{folderCountLine(counts.folders)}</span>
+          <span {...stylex.props(styles.filterCountText)}>{folderCountLine(counts.folders)}</span>
         </span>
       )}
     </button>

@@ -65,9 +65,10 @@ describe("TweetOverlay", () => {
     const { container, rerender } = render(
       <TweetOverlay screenName="alice" selected={false} visible={false} onToggle={() => {}} />,
     );
-    expect(container.querySelector("button")?.className).toContain("opacity-0");
+    const hiddenClass = container.querySelector("button")?.className;
     rerender(<TweetOverlay screenName="alice" selected visible={false} onToggle={() => {}} />);
-    expect(container.querySelector("button")?.className).not.toContain("opacity-0");
+    const shownClass = container.querySelector("button")?.className;
+    expect(hiddenClass).not.toBe(shownClass);
   });
 
   it("renders the one-time first-hover tooltip when given", () => {

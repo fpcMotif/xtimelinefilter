@@ -1,5 +1,6 @@
 import type { ReadonlySignal } from "@preact/signals-core";
-import { useEffect, useState } from "preact/hooks";
+import * as stylex from "@stylexjs/stylex";
+import { useEffect, useMemo, useState } from "preact/hooks";
 
 import type { AppState } from "@/content/app-state";
 import type { LassoController } from "@/content/controller";
@@ -21,6 +22,16 @@ import { TweetOverlay } from "@/ui/TweetOverlay";
 import { useSignalValue } from "@/ui/use-signal-value";
 import { WelcomeCard } from "@/ui/WelcomeCard";
 
+const styles = stylex.create({
+  backdrop: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "transparent",
+  },
+  panel: {
+    position: "fixed",
+  },
+});
 export interface OverlayBindingProps {
   selection: SelectionStore;
   author: TweetAuthor;
@@ -45,7 +56,11 @@ export function OverlayBinding({
   onToggle,
   onSave,
 }: OverlayBindingProps) {
-  useSignalValue(selection.count);
+  const selectedSignal = useMemo(
+    () => selection.selectedSignal(author.screenName),
+    [selection, author.screenName],
+  );
+  const selected = useSignalValue(selectedSignal);
   const isHovered = useSignalValue(hovered);
   const selectMode = useSignalValue(selection.selectMode);
   const [focused, setFocused] = useState(false);
@@ -68,7 +83,7 @@ export function OverlayBinding({
   return (
     <TweetOverlay
       screenName={author.screenName}
-      selected={selection.isSelected(author.screenName)}
+      selected={selected}
       visible={isHovered || selectMode || focused}
       onToggle={onToggle}
       onSave={onSave}
@@ -158,7 +173,7 @@ export function App({
           <div
             aria-hidden="true"
             data-list-picker-backdrop
-            class="fixed inset-0 bg-transparent"
+            {...stylex.props(styles.backdrop)}
             style={{ zIndex: UI_LAYER.modal }}
             onPointerDown={(event) => {
               event.preventDefault();
@@ -169,7 +184,7 @@ export function App({
           />
           <div
             data-list-picker-panel
-            class="fixed"
+            {...stylex.props(styles.panel)}
             style={{
               zIndex: UI_LAYER.modal,
               ...(pickerAnchor
@@ -193,7 +208,7 @@ export function App({
           <div
             aria-hidden="true"
             data-folder-picker-backdrop
-            class="fixed inset-0 bg-transparent"
+            {...stylex.props(styles.backdrop)}
             style={{ zIndex: UI_LAYER.modal }}
             onPointerDown={(event) => {
               event.preventDefault();
@@ -204,7 +219,7 @@ export function App({
           />
           <div
             data-folder-picker-panel
-            class="fixed"
+            {...stylex.props(styles.panel)}
             style={{
               zIndex: UI_LAYER.modal,
               ...(pickerAnchor
