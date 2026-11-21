@@ -1,6 +1,6 @@
 # Lasso Redesign Brief
 
-> Historical redesign record. It is not implementation truth; use `../product-documentation.md`, `../CONTEXT.md`, and ADRs.
+> Historical redesign record. It is not implementation truth; use `../product-documentation.md`, `../../GLOSSARY.md`, and ADRs.
 
 **Direction:** Native Chameleon — "Shipped by X"
 **Tagline:** Indistinguishable from X. Faster than X.

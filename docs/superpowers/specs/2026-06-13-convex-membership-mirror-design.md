@@ -26,7 +26,7 @@ The Mirror is **additive and optional**: X stays the source of truth, the existi
 
 ## Domain terms
 
-Captured in [CONTEXT.md](../../CONTEXT.md): **Owner**, **Mirror**, **MembershipStore**, **Membership snapshot**, **Audit event**, **Reconcile**, **Cross-account catalog**, **Device key**. "Account/Author" stays reserved for the *member*.
+Captured in [GLOSSARY.md](../../../GLOSSARY.md): **Owner**, **Mirror**, **MembershipStore**, **Membership snapshot**, **Audit event**, **Reconcile**, **Cross-account catalog**, **Device key**. "Account/Author" stays reserved for the *member*.
 
 ## Architecture (Approach 1)
 

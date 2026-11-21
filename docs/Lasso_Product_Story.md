@@ -1,6 +1,6 @@
 # Lasso Product Story
 
-> Historical product-direction record. It predates the Mirror, current activation flow, and current keymap. For shipped behavior use `product-documentation.md`; for domain truth use `CONTEXT.md` and ADRs.
+> Historical product-direction record. It predates the Mirror, current activation flow, and current keymap. For shipped behavior use `product-documentation.md`; for domain truth use `GLOSSARY.md` and ADRs.
 
 **Direction:** Native Chameleon — "Shipped by X". The voice is X's own register: sentence case, terse, present tense, `·` separators, tabular numbers, X vocabulary — `List` capitalized, `people` not authors, `posts` not tweets, past-tense confirmations (`Muted @jane`). Every surface counts **people** (`3 people selected`, `Add 3 people to a List`) — the author-vs-post ambiguity is killed structurally. The name "Lasso" appears exactly twice on x.com (the shortcuts-sheet corner and a settings link): a native feature doesn't sign its work.
 
