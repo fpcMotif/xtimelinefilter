@@ -1,12 +1,88 @@
 /* oxlint-disable jsx-a11y/no-redundant-roles */
 // Explicit role keeps the ARIA 1.2 editable-combobox contract visible to assistive tech.
+import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { buildPaletteItems, type PaletteItem } from "@/core/filter-projection";
 import type { FilterStore } from "@/core/filter-store";
 import { UI_LAYER } from "@/ui/layers";
+import { tokens } from "@/ui/tokens.stylex";
 import { focusWithoutScroll, scrollIntoViewWithin, useFocusTrap } from "@/ui/use-focus-trap";
 import { useSignalValue } from "@/ui/use-signal-value";
+
+const styles = stylex.create({
+  scrim: {
+    backgroundColor: tokens.scrim,
+    position: "fixed",
+    inset: 0,
+    display: "grid",
+    placeItems: "start",
+    justifyContent: "center",
+    paddingTop: "12vh",
+  },
+  dialog: {
+    backgroundColor: tokens.card,
+    color: tokens.cardForeground,
+    boxShadow: tokens.shadowElevated,
+    width: "28rem",
+    maxWidth: "92vw",
+    overflow: "hidden",
+    borderRadius: tokens.radiusXl,
+    boxSizing: "border-box",
+  },
+  input: {
+    borderWidth: 0,
+    borderBottomWidth: "1px",
+    borderStyle: "solid",
+    borderColor: tokens.border,
+    backgroundColor: tokens.card,
+    color: tokens.foreground,
+    width: "100%",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.75rem",
+    paddingBottom: "0.75rem",
+    fontSize: tokens.textSm,
+    outline: "none",
+    boxSizing: "border-box",
+    "::placeholder": {
+      color: tokens.faint,
+    },
+  },
+  listbox: {
+    maxHeight: "50vh",
+    overflowY: "auto",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+    listStyleType: "none",
+    paddingLeft: 0,
+    margin: 0,
+  },
+  empty: {
+    color: tokens.mutedForeground,
+    fontSize: tokens.textCompact,
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.5rem",
+    paddingBottom: "0.5rem",
+  },
+  item: {
+    fontSize: tokens.textCompact,
+    cursor: "pointer",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.5rem",
+    paddingBottom: "0.5rem",
+    backgroundColor: {
+      default: "transparent",
+    },
+    color: tokens.foreground,
+  },
+  itemActive: {
+    backgroundColor: tokens.primary,
+    color: tokens.primaryForeground,
+  },
+});
 
 const LISTBOX_ID = "lasso-filter-palette-options";
 
@@ -138,7 +214,7 @@ export function FilterPalette({
   return (
     <div
       role="presentation"
-      class="bg-scrim fixed inset-0 grid place-items-start justify-center pt-[12vh]"
+      {...stylex.props(styles.scrim)}
       style={{ zIndex: UI_LAYER.modal }}
       onMouseDown={(e) => {
         if (e.target !== e.currentTarget) return;
@@ -152,7 +228,7 @@ export function FilterPalette({
         role="dialog"
         aria-modal="true"
         aria-label="Filter command palette"
-        class="bg-card text-card-foreground shadow-elevated w-[28rem] max-w-[92vw] overflow-hidden rounded-2xl"
+        {...stylex.props(styles.dialog)}
       >
         <input
           ref={inputRef}
@@ -170,18 +246,16 @@ export function FilterPalette({
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          class="border-border bg-card text-foreground placeholder:text-faint w-full border-b px-4 py-3 text-sm outline-none"
+          {...stylex.props(styles.input)}
         />
         <ul
           ref={listboxRef}
           id={LISTBOX_ID}
           role="listbox"
-          class="max-h-[50vh] overflow-y-auto py-1"
           aria-label="Commands"
+          {...stylex.props(styles.listbox)}
         >
-          {matches.length === 0 && (
-            <li class="text-muted-foreground text-compact px-4 py-2">No matching commands</li>
-          )}
+          {matches.length === 0 && <li {...stylex.props(styles.empty)}>No matching commands</li>}
           {matches.map((item, i) => (
             <li
               key={item.id}
@@ -199,9 +273,7 @@ export function FilterPalette({
                 event.stopPropagation();
                 run(item);
               }}
-              class={`text-compact cursor-pointer px-4 py-2 ${
-                i === active ? "bg-primary text-primary-foreground" : "text-foreground"
-              }`}
+              {...stylex.props(styles.item, i === active && styles.itemActive)}
             >
               {item.label}
             </li>

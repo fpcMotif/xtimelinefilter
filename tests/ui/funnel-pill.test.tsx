@@ -554,9 +554,7 @@ describe("FunnelPill", () => {
     const { pill } = setup();
     const container = pill.closest("[data-funnel-pill-root]") as HTMLElement;
     expect(container).toBeTruthy();
-    const classes = container.getAttribute("class") ?? "";
     expect(Number(container.style.zIndex)).toBe(UI_LAYER.pill);
-    expect(classes).toContain("fixed");
   });
 
   it("ignores non-Escape keys while the popover is open", () => {

@@ -8,5 +8,5 @@
   "sortImports": true,
   "sortTailwindcss": true,
   "insertFinalNewline": true,
-  "ignorePatterns": ["dist", "reference", "*.md"]
+  "ignorePatterns": ["dist", "reference", "*.md", "env.d.ts"]
 }
