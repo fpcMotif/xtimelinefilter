@@ -1,4 +1,66 @@
+import * as stylex from "@stylexjs/stylex";
+
 import { cn } from "@/lib/utils";
+import { tokens } from "@/ui/tokens.stylex";
+
+const styles = stylex.create({
+  root: {
+    position: "relative",
+    display: "inline-flex",
+    height: "22px",
+    width: "38px",
+    flexShrink: 0,
+    boxSizing: "border-box",
+  },
+  input: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 10,
+    margin: 0,
+    cursor: "pointer",
+    appearance: "none",
+    borderRadius: tokens.radiusFull,
+    outline: "none",
+    ":focus-visible": {
+      boxShadow: `0 0 0 1px var(--background), 0 0 0 3px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+  },
+  track: {
+    pointerEvents: "none",
+    position: "absolute",
+    inset: 0,
+    borderRadius: tokens.radiusFull,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.border,
+    backgroundColor: tokens.secondary,
+    transitionProperty: "background-color, border-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+  },
+  trackChecked: {
+    borderColor: tokens.primary,
+    backgroundColor: tokens.primary,
+  },
+  thumb: {
+    pointerEvents: "none",
+    position: "absolute",
+    top: 3,
+    left: 3,
+    width: 16,
+    height: 16,
+    borderRadius: tokens.radiusFull,
+    backgroundColor: "rgba(255, 255, 255, 0.75)",
+    boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.1)",
+    transitionProperty: "transform, background-color",
+    transitionDuration: "200ms",
+    transitionTimingFunction: tokens.easeOut,
+  },
+  thumbChecked: {
+    transform: "translateX(16px)",
+    backgroundColor: "#ffffff",
+  },
+});
 
 export interface SwitchProps {
   checked: boolean;
@@ -10,6 +72,7 @@ export interface SwitchProps {
   id?: string;
   class?: string;
   className?: string;
+  sx?: stylex.StyleXStyles;
 }
 
 /**
@@ -25,12 +88,15 @@ export function Switch({
   id,
   class: cls,
   className,
+  sx,
 }: SwitchProps) {
+  const rootProps = stylex.props(styles.root, sx);
+  const inputProps = stylex.props(styles.input);
+  const trackProps = stylex.props(styles.track, checked && styles.trackChecked);
+  const thumbProps = stylex.props(styles.thumb, checked && styles.thumbChecked);
+
   return (
-    <span
-      data-slot="switch"
-      class={cn("relative inline-flex h-[22px] w-[38px] shrink-0", cls, className)}
-    >
+    <span data-slot="switch" {...rootProps} class={cn(rootProps.className, cls, className)}>
       <input
         id={id}
         type="checkbox"
@@ -38,16 +104,11 @@ export function Switch({
         {...(describedBy ? { "aria-describedby": describedBy } : {})}
         checked={checked}
         onChange={(e) => onChange((e.currentTarget as HTMLInputElement).checked)}
-        class="peer focus-visible:ring-ring/55 absolute inset-0 z-10 m-0 cursor-pointer appearance-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+        {...inputProps}
+        class={inputProps.className}
       />
-      <span
-        aria-hidden="true"
-        class="border-border bg-secondary peer-checked:border-primary peer-checked:bg-primary pointer-events-none absolute inset-0 rounded-full border transition-colors"
-      />
-      <span
-        aria-hidden="true"
-        class="pointer-events-none absolute top-[3px] left-[3px] size-4 rounded-full bg-white/75 shadow-sm transition-transform duration-200 ease-out peer-checked:translate-x-4 peer-checked:bg-white"
-      />
+      <span aria-hidden="true" {...trackProps} class={trackProps.className} />
+      <span aria-hidden="true" {...thumbProps} class={thumbProps.className} />
     </span>
   );
 }
