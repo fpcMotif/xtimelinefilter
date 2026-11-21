@@ -1,18 +1,14 @@
-@import "tailwindcss";
+@layer theme, base, components, utilities, stylex;
 
-/* Make sure Tailwind scans our components for class usage. */
-@source "../**/*.{ts,tsx}";
-
-/* ── Lasso "Lariat" identity · shadcn-style tokens on Tailwind v4 ─────────────
+/* ── Lasso "Lariat" identity · StyleX & semantic tokens ───────────────────────
    A distinct, ownable look: a warm rope-amber primary on a cool near-black
    canvas. Dark-first — the dark theme is the hero; light is the paper variant,
    and both carry the amber so Lasso reads as Lasso in either system theme.
 
    The token architecture follows shadcn/ui: semantic CSS variables (--primary,
-   --card, --muted-foreground …) declared on :root, mapped to Tailwind color
-   tokens through `@theme inline` so runtime overrides (dark, high-contrast)
-   take effect without rebuilding. mount.tsx rewrites :root → :host at injection
-   time so the same vars resolve inside the Shadow DOM overlays on x.com.
+   --card, --muted-foreground …) declared on :root, mapped to StyleX tokens.
+   mount.tsx rewrites :root → :host at injection time so the same vars resolve
+   inside the Shadow DOM overlays on x.com.
 
    Dark is driven by prefers-color-scheme (no `.dark` class) — the right default
    for an extension that should track the user's system/X theme. accent-ink /
@@ -51,6 +47,13 @@
   --shadow-pop: 0 0 0 1px oklch(0 0 0 / 0.04), 0 18px 48px oklch(0 0 0 / 0.18);
 
   --scrim: oklch(0 0 0 / 0.4);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -83,61 +86,13 @@
   }
 }
 
-/* Strong ease-out (Emil): stronger than the CSS default. Static across themes.
-   Redeclaring Tailwind's own token name means every `ease-out` utility in the
-   app already renders with this curve. Type scale: the three sizes the app
-   actually repeats (11/13/15px); 12px and 14px use Tailwind's text-xs/text-sm.
-   Font-size only (no paired line-height) to match the arbitrary-value classes
-   they replace. */
-@theme {
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --text-2xs: 11px;
-  --text-compact: 13px;
-  --text-md: 15px;
-}
-
-/* Elevation utilities. These MUST be explicit box-shadow utilities: a
-   `--color-elevated` token exists, so Tailwind otherwise reads `shadow-elevated`
-   as a shadow-*color* utility and emits no box-shadow at all (and `shadow-pop`
-   matches nothing). A direct box-shadow also sidesteps Tailwind's @property-based
-   shadow composition, which collapses to `none` inside our Shadow-DOM overlays. */
-@utility shadow-elevated {
-  box-shadow: var(--shadow-elevated);
-}
-@utility shadow-pop {
-  box-shadow: var(--shadow-pop);
-}
-
-/* Map semantic vars → Tailwind color/radius tokens. `inline` keeps the utilities
-   referencing the live var(), so the dark / high-contrast overrides above win. */
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-faint: var(--faint);
-  --color-destructive: var(--destructive);
-  --color-success: var(--success);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-scrim: var(--scrim);
-
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-}
-
 @layer base {
-  * {
+  *,
+  ::before,
+  ::after {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
     border-color: var(--border);
   }
 
@@ -145,6 +100,7 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     color: var(--foreground);
+    line-height: 1.5;
   }
 
   /* Extension pages (popup + options) are NOT Shadow DOM, so paint the canvas
@@ -156,6 +112,62 @@
     color: var(--foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+
+  button,
+  input,
+  optgroup,
+  select,
+  textarea {
+    font-family: inherit;
+    font-size: 100%;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+    margin: 0;
+    padding: 0;
+  }
+
+  button,
+  select {
+    text-transform: none;
+  }
+
+  button,
+  input:where([type="button"]),
+  input:where([type="reset"]),
+  input:where([type="submit"]) {
+    -webkit-appearance: button;
+    background-color: transparent;
+    background-image: none;
+  }
+
+  ol,
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p {
+    margin: 0;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    opacity: 1;
+    color: var(--faint);
   }
 
   /* Accessibility (Settings → Higher-contrast buttons): deepen the amber so the
@@ -184,6 +196,28 @@
   :root[data-hc] {
     --primary: oklch(0.849 0.123 72.1);
     --ring: oklch(0.849 0.123 72.1);
+  }
+}
+
+@layer utilities {
+  .shadow-elevated {
+    box-shadow: var(--shadow-elevated);
+  }
+
+  .shadow-pop {
+    box-shadow: var(--shadow-pop);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 }
 

@@ -1,13 +1,90 @@
+import * as stylex from "@stylexjs/stylex";
+
 import { CRITERIA_GROUPS } from "@/core/filter-criteria";
 import type { FilterStore } from "@/core/filter-store";
 import type { FilterMode } from "@/core/filter-types";
+import { tokens } from "@/ui/tokens.stylex";
 import { useSignalValue } from "@/ui/use-signal-value";
-const CHIP_BASE =
-  "focus-visible:ring-ring/55 rounded-full border px-2.5 py-1 text-xs font-medium transition-[transform,background-color,border-color,color] duration-150 ease-out outline-none focus-visible:ring-2 active:scale-[0.96]";
-const CHIP_BY_MODE: Record<FilterMode, string> = {
-  off: "border-border text-muted-foreground hover:text-foreground hover:border-faint",
-  only: "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
-  hide: "border-destructive/50 text-destructive line-through hover:bg-destructive/10",
+
+const styles = stylex.create({
+  legend: {
+    color: tokens.faint,
+    fontSize: tokens.text2xs,
+    letterSpacing: "0.025em",
+  },
+  groupRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "0.375rem",
+  },
+  groupLabel: {
+    color: tokens.faint,
+    width: "3rem",
+    flexShrink: 0,
+    fontSize: "10px",
+    fontWeight: "700",
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+  },
+  chipBase: {
+    borderRadius: tokens.radiusFull,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "0.625rem",
+    paddingRight: "0.625rem",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+    fontSize: tokens.textXs,
+    fontWeight: "500",
+    transitionProperty: "transform, background-color, border-color, color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+    outline: "none",
+    cursor: "pointer",
+    boxSizing: "border-box",
+    ":focus-visible": {
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.55)`,
+    },
+    ":active": {
+      transform: "scale(0.96)",
+    },
+  },
+  chipOff: {
+    borderColor: {
+      default: tokens.border,
+      ":hover": tokens.faint,
+    },
+    color: {
+      default: tokens.mutedForeground,
+      ":hover": tokens.foreground,
+    },
+    backgroundColor: "transparent",
+  },
+  chipOnly: {
+    borderColor: tokens.primary,
+    backgroundColor: {
+      default: tokens.primary,
+      ":hover": `oklch(from ${tokens.primary} l c h / 0.9)`,
+    },
+    color: tokens.primaryForeground,
+    boxShadow: "0 1px 2px 0 oklch(0 0 0 / 0.05)",
+  },
+  chipHide: {
+    borderColor: `oklch(from ${tokens.destructive} l c h / 0.5)`,
+    color: tokens.destructive,
+    textDecorationLine: "line-through",
+    backgroundColor: {
+      default: "transparent",
+      ":hover": `oklch(from ${tokens.destructive} l c h / 0.1)`,
+    },
+  },
+});
+
+const CHIP_STYLE_BY_MODE: Record<FilterMode, stylex.StyleXStyles> = {
+  off: styles.chipOff,
+  only: styles.chipOnly,
+  hide: styles.chipHide,
 };
 
 /** The chip modes in cycle order — the slider's 0 → 2 scale. */
@@ -47,16 +124,13 @@ export interface CriteriaMatrixProps {
 
 /**
  * The Filter's family-grouped tri-state chip grid (Type / Links / Source) plus
- * its legend — the one criteria editor shared by the in-page <FilterPanel> and
- * the Options "Timeline filter" section, so the chip catalog, the cycle
- * semantics, and the mode styling live in exactly one place. A Fragment, not a
- * box: the host supplies the column spacing. No innerHTML of page data
- * (ADR-0003) — every label is a static catalog string.
+ * the "off · show only · hide" legend. Shared across:
  *
- * Each chip is an ARIA slider over the ordered off → only → hide scale: the
- * mode is a programmatic *value* (valuenow/valuetext), the accessible name
- * stays stable, and arrow keys/Home/End move along the scale. Clicking still
- * cycles forward, as mouse users expect.
+ *   1. The in-page filter popover (funnel pill, story beat 4).
+ *   2. The Options → Filter workshop (story beat 6).
+ *
+ * Operates purely on `FilterStore` — changing a chip cycles through the three
+ * states and immediately writes to chrome.storage.
  */
 export function CriteriaMatrix({ store, conduct, show = true }: CriteriaMatrixProps) {
   // Commands route through the conductor's fail-open wall in-page; with no
@@ -66,13 +140,11 @@ export function CriteriaMatrix({ store, conduct, show = true }: CriteriaMatrixPr
 
   return (
     <>
-      <span class="text-faint text-2xs tracking-wide">off · show only · hide</span>
+      <span {...stylex.props(styles.legend)}>off · show only · hide</span>
       {show &&
         CRITERIA_GROUPS.map(({ group, criteria }) => (
-          <div key={group} class="flex flex-wrap items-center gap-1.5">
-            <span class="text-faint w-12 shrink-0 text-[10px] font-bold tracking-wider uppercase">
-              {group}
-            </span>
+          <div key={group} {...stylex.props(styles.groupRow)}>
+            <span {...stylex.props(styles.groupLabel)}>{group}</span>
             {criteria.map((chip) => {
               const mode: FilterMode = state.criteria[chip.id] ?? "off";
               // One conducted command per key press, however many forward
@@ -103,7 +175,7 @@ export function CriteriaMatrix({ store, conduct, show = true }: CriteriaMatrixPr
                     event.preventDefault();
                     cycleTo(target);
                   }}
-                  class={`${CHIP_BASE} ${CHIP_BY_MODE[mode]}`}
+                  {...stylex.props(styles.chipBase, CHIP_STYLE_BY_MODE[mode])}
                 >
                   {chip.label}
                 </button>

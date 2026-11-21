@@ -1,8 +1,21 @@
 import { resolve } from "node:path";
 
+import stylexRollup from "@stylexjs/unplugin/rollup";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  plugins: [
+    stylexRollup({
+      useCSSLayers: true,
+      unstable_moduleResolution: {
+        type: "commonJS",
+        rootDir: resolve(__dirname),
+      },
+      aliases: {
+        "@/*": [resolve(__dirname, "src/*")],
+      },
+    }),
+  ],
   resolve: {
     alias: { "@": resolve(__dirname, "src") },
   },

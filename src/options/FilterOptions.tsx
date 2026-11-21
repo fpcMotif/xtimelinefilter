@@ -1,18 +1,134 @@
+import * as stylex from "@stylexjs/stylex";
 import { useState } from "preact/hooks";
 
 import { LINK_DEST_LABELS } from "@/core/filter-criteria";
 import type { FilterStore } from "@/core/filter-store";
 import type { LinkDest } from "@/core/filter-types";
 import { Button, Input } from "@/ui/components";
+import { tokens } from "@/ui/tokens.stylex";
 import { useSignalValue } from "@/ui/use-signal-value";
 
 const DEST_LABELS = LINK_DEST_LABELS;
 const DESTS = Object.keys(DEST_LABELS) as LinkDest[];
 
-const CHIP =
-  "border-border bg-secondary flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-compact font-medium";
-const SELECT =
-  "border-input bg-secondary text-foreground focus-visible:border-primary focus-visible:ring-ring/40 h-9 rounded-lg border px-3 text-sm outline-none transition-[color,box-shadow,border-color] focus-visible:ring-2";
+const styles = stylex.create({
+  container: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.75rem",
+  },
+  chipList: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "0.375rem",
+  },
+  chip: {
+    borderColor: tokens.border,
+    backgroundColor: tokens.secondary,
+    display: "flex",
+    alignItems: "center",
+    gap: "0.375rem",
+    borderRadius: tokens.radiusFull,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "0.625rem",
+    paddingRight: "0.625rem",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+    fontSize: tokens.textCompact,
+    fontWeight: "500",
+  },
+  chipRemoveButton: {
+    color: {
+      default: tokens.faint,
+      ":hover": tokens.destructive,
+    },
+    transitionProperty: "color",
+    transitionDuration: "150ms",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    lineHeight: 1,
+  },
+  emptyText: {
+    color: tokens.faint,
+    fontSize: tokens.textCompact,
+  },
+  inputRow: {
+    display: "flex",
+    gap: "0.5rem",
+  },
+  inputRowWrap: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "0.5rem",
+  },
+  ruleInput: {
+    flex: 1,
+  },
+  ruleList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.25rem",
+    listStyleType: "none",
+    padding: 0,
+    margin: 0,
+  },
+  ruleItem: {
+    borderColor: tokens.border,
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    borderRadius: tokens.radiusXl,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "0.875rem",
+    paddingRight: "0.875rem",
+    paddingTop: "0.5rem",
+    paddingBottom: "0.5rem",
+    fontSize: tokens.textSm,
+  },
+  ruleHost: {
+    fontFamily: tokens.fontMono,
+  },
+  ruleDest: {
+    color: tokens.mutedForeground,
+  },
+  ruleRemoveButton: {
+    color: {
+      default: tokens.faint,
+      ":hover": tokens.destructive,
+    },
+    marginLeft: "auto",
+    transitionProperty: "color",
+    transitionDuration: "150ms",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    lineHeight: 1,
+  },
+  select: {
+    borderColor: tokens.input,
+    backgroundColor: tokens.secondary,
+    color: tokens.foreground,
+    height: "2.25rem",
+    borderRadius: tokens.radiusMd,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingLeft: "0.75rem",
+    paddingRight: "0.75rem",
+    fontSize: tokens.textSm,
+    outline: "none",
+    transitionProperty: "color, box-shadow, border-color",
+    transitionDuration: "150ms",
+    ":focus-visible": {
+      borderColor: tokens.primary,
+      boxShadow: `0 0 0 2px oklch(from ${tokens.ring} l c h / 0.4)`,
+    },
+  },
+});
 
 /** BCP-47 allowlist editor for the "only my languages" gate. */
 export function MyLanguagesEditor({ store }: { store: FilterStore }) {
@@ -25,26 +141,26 @@ export function MyLanguagesEditor({ store }: { store: FilterStore }) {
   };
 
   return (
-    <div class="flex flex-col gap-3">
-      <div class="flex flex-wrap gap-1.5">
+    <div {...stylex.props(styles.container)}>
+      <div {...stylex.props(styles.chipList)}>
         {myLanguages.map((lang) => (
-          <span key={lang} class={CHIP}>
+          <span key={lang} {...stylex.props(styles.chip)}>
             {lang}
             <button
               type="button"
               aria-label={`Remove ${lang}`}
               onClick={() => store.setMyLanguages(myLanguages.filter((l) => l !== lang))}
-              class="text-faint hover:text-destructive transition-colors"
+              {...stylex.props(styles.chipRemoveButton)}
             >
               ✕
             </button>
           </span>
         ))}
         {myLanguages.length === 0 && (
-          <span class="text-faint text-compact">No languages — gate shows everything.</span>
+          <span {...stylex.props(styles.emptyText)}>No languages — gate shows everything.</span>
         )}
       </div>
-      <div class="flex gap-2">
+      <div {...stylex.props(styles.inputRow)}>
         <Input
           aria-label="Language to add (BCP-47)"
           placeholder="e.g. ja"
@@ -78,40 +194,37 @@ export function LinkRulesEditor({ store }: { store: FilterStore }) {
   };
 
   return (
-    <div class="flex flex-col gap-3">
-      <ul class="flex flex-col gap-1">
+    <div {...stylex.props(styles.container)}>
+      <ul {...stylex.props(styles.ruleList)}>
         {linkRules.map((rule) => (
-          <li
-            key={`${rule.host}:${rule.dest}`}
-            class="border-border flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm"
-          >
-            <span class="font-mono">{rule.host}</span>
-            <span class="text-muted-foreground">→ {DEST_LABELS[rule.dest]}</span>
+          <li key={`${rule.host}:${rule.dest}`} {...stylex.props(styles.ruleItem)}>
+            <span {...stylex.props(styles.ruleHost)}>{rule.host}</span>
+            <span {...stylex.props(styles.ruleDest)}>→ {DEST_LABELS[rule.dest]}</span>
             <button
               type="button"
               aria-label={`Remove rule ${rule.host}`}
               onClick={() => store.setLinkRules(linkRules.filter((r) => r !== rule))}
-              class="text-faint hover:text-destructive ml-auto transition-colors"
+              {...stylex.props(styles.ruleRemoveButton)}
             >
               ✕
             </button>
           </li>
         ))}
-        {linkRules.length === 0 && <li class="text-faint text-compact">No link rules yet.</li>}
+        {linkRules.length === 0 && <li {...stylex.props(styles.emptyText)}>No link rules yet.</li>}
       </ul>
-      <div class="flex flex-wrap gap-2">
+      <div {...stylex.props(styles.inputRowWrap)}>
         <Input
           aria-label="Rule host"
           placeholder="e.g. lobste.rs"
           value={host}
           onInput={(e) => setHost((e.currentTarget as HTMLInputElement).value)}
-          class="flex-1"
+          sx={styles.ruleInput}
         />
         <select
           aria-label="Rule destination"
           value={dest}
           onChange={(e) => setDest((e.currentTarget as HTMLSelectElement).value as LinkDest)}
-          class={SELECT}
+          {...stylex.props(styles.select)}
         >
           {DESTS.map((d) => (
             <option key={d} value={d}>
