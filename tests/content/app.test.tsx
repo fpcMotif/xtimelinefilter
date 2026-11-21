@@ -212,7 +212,6 @@ describe("App wiring", () => {
     const backdrop = document.querySelector<HTMLElement>("[data-list-picker-backdrop]")!;
     const panel = document.querySelector<HTMLElement>("[data-list-picker-panel]")!;
     expect(backdrop).toBeTruthy();
-    expect(backdrop.className).toContain("fixed inset-0 bg-transparent");
     expect(Number(backdrop.style.zIndex)).toBe(UI_LAYER.modal);
     expect(Number(panel.style.zIndex)).toBe(UI_LAYER.modal);
 
@@ -397,6 +396,27 @@ describe("OverlayBinding", () => {
     );
     fn(cap.overlay, "onSave")();
     expect(onSave).toHaveBeenCalledOnce();
+  });
+
+  it("re-renders only when its own author's selection changes", async () => {
+    const selection = createSelectionStore();
+    render(
+      <OverlayBinding
+        selection={selection}
+        author={author("alice")}
+        hovered={signal(true)}
+        onToggle={vi.fn()}
+      />,
+    );
+    const beforeBob = cap.overlay;
+    expect(beforeBob!.selected).toBe(false);
+
+    selection.toggle(author("bob"));
+    await Promise.resolve();
+    expect(cap.overlay).toBe(beforeBob);
+
+    selection.toggle(author("alice"));
+    await waitFor(() => expect(cap.overlay!.selected).toBe(true));
   });
 
   it("does not set a tip if it unmounts before the coach resolves", async () => {

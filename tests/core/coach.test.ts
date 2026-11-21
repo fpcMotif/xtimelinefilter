@@ -51,6 +51,64 @@ describe("createCoach", () => {
     }
   });
 
+  it("asks the worker once about a declined tip", async () => {
+    const previous = globalThis.chrome;
+    const sendMessage = vi.fn(async () => ({
+      ok: true,
+      result: { kind: "try-show-tip", show: false },
+    }));
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const coach = createCoach();
+      await expect(coach.tryShowTip("first-hover")).resolves.toBe(false);
+      await expect(coach.tryShowTip("first-hover")).resolves.toBe(false);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("does not remember a tip that failed to reach the worker", async () => {
+    const previous = globalThis.chrome;
+    const sendMessage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Extension context invalidated"))
+      .mockResolvedValueOnce({ ok: true, result: { kind: "try-show-tip", show: true } });
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const coach = createCoach();
+      await expect(coach.tryShowTip("first-hover")).resolves.toBe(false);
+      await expect(coach.tryShowTip("first-hover")).resolves.toBe(true);
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
+  it("asks the worker again about a declined tip after replayIntro", async () => {
+    const previous = globalThis.chrome;
+    const sendMessage = vi.fn(async (request: { command: { kind: string } }) => ({
+      ok: true,
+      result:
+        request.command.kind === "try-show-tip"
+          ? { kind: "try-show-tip", show: false }
+          : { kind: "ok" },
+    }));
+    globalThis.chrome = { ...previous, runtime: { sendMessage } } as unknown as typeof chrome;
+
+    try {
+      const coach = createCoach();
+      await coach.tryShowTip("first-hover");
+      await coach.replayIntro();
+      await coach.tryShowTip("first-hover");
+      expect(sendMessage).toHaveBeenCalledTimes(3);
+    } finally {
+      globalThis.chrome = previous;
+    }
+  });
+
   it("submits worker commands in caller order when an assign and tip race", async () => {
     const previous = globalThis.chrome;
     const assigned = deferred<{ ok: true; result: { kind: "ok" } }>();

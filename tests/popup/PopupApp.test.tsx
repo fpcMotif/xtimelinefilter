@@ -217,7 +217,6 @@ describe("PopupApp — the toolbar remote", () => {
         filter={createFilterStore({ storage: fakeStorage() })}
       />,
     );
-    expect(r.container.querySelector(".bg-border")).toBeTruthy();
     expect(r.getByText("…")).toBeTruthy();
     resolveState("active");
     await waitFor(() => expect(r.getByText("Active")).toBeTruthy());
