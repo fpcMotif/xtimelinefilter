@@ -1,6 +1,6 @@
 # PRD — Lasso (X List Assigner)
 
-> Status: draft for review · 2026-06-07 · Owner: f · Companion docs: [blueprint](blueprint/2026-06-07-lasso-blueprint.md), [ADRs](adr/), [CONTEXT](CONTEXT.md), [research](research/README.md)
+> Status: draft for review · 2026-06-07 · Owner: f · Companion docs: [blueprint](blueprint/2026-06-07-lasso-blueprint.md), [ADRs](adr/), [CONTEXT](../GLOSSARY.md), [research](research/README.md)
 
 ## 1. Summary
 A Manifest V3 Chrome extension that lets a user, while browsing the x.com timeline / explore / search, select one or many tweets and assign their **authors** to one of the user's X **Lists** — without leaving the feed. Minimalist, extensible, swift. Built test-first in strict TypeScript.
