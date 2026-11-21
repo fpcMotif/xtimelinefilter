@@ -272,7 +272,7 @@ scope ("Works on your Bookmarks page"). OS/AT collisions are checked live (§10)
 | 17 | `src/content/app.tsx` / `surface-mount` | mount the overlay beside the picker |
 | 18 | `src/options/folders-client.ts`, `FoldersOptions.tsx` | Recall box, facet chips, tag/note editors |
 | 19 | `src/core/strings.ts` + `tests/core/strings.test.ts` | all new copy, pinned |
-| 20 | `docs/adr/0005-policy-invariants.md`, `docs/adr/0013-…md`, `docs/CONTEXT.md`, `docs/product-documentation.md` | amendments (§7), glossary (Recall, Batch file), shortcuts table |
+| 20 | `docs/adr/0005-policy-invariants.md`, `docs/adr/0013-…md`, `GLOSSARY.md`, `docs/product-documentation.md` | amendments (§7), glossary (Recall, Batch file), shortcuts table |
 | 21 | `docs/research/verify-bookmark-recall-dom.md` (new) | §10 record |
 | 22 | `scripts/design-cards/generate.test.tsx` | four proposed cards (done on this branch) |
 

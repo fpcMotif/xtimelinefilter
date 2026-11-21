@@ -3,7 +3,7 @@
 > Status: **historical — fully SUPERSEDED** · Date: 2026-06-07 · Owner: f
 > A Manifest V3 Chrome extension to assign tweet **authors** to your X (Twitter) **Lists**, in bulk, from the timeline — minimalist, extensible, swift.
 >
-> Do not use this file as the current implementation spec. It preserves the first-pass decision history. The [blueprint](../../blueprint/2026-06-07-lasso-blueprint.md), [domain context](../../CONTEXT.md), and [ADRs](../../adr/) own current backend, host, module, toolchain, and data-topology decisions. The problem framing below still holds.
+> Do not use this file as the current implementation spec. It preserves the first-pass decision history. The [blueprint](../../blueprint/2026-06-07-lasso-blueprint.md), [domain context](../../../GLOSSARY.md), and [ADRs](../../adr/) own current backend, host, module, toolchain, and data-topology decisions. The problem framing below still holds.
 
 ---
 

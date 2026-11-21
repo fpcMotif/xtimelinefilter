@@ -1,7 +1,7 @@
 # Owner-aware Picker deepening
 
 Status: approved by the autonomous architecture-loop directive · 2026-07-18  
-Domain source: [`docs/CONTEXT.md`](../../CONTEXT.md)  
+Domain source: [`GLOSSARY.md`](../../../GLOSSARY.md)  
 Decision source: [ADR-0009](../../adr/0009-convex-membership-mirror.md)
 
 ## Problem

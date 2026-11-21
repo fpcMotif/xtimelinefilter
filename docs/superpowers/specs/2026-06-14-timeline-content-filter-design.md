@@ -1,11 +1,11 @@
 # Timeline Content Filter — Design
 
-> Historical planning record. It predates the shipped `tweet-read` boundary and pill/palette surfaces. Use `../../CONTEXT.md`, ADR-0010, and the current modules as implementation truth.
+> Historical planning record. It predates the shipped `tweet-read` boundary and pill/palette surfaces. Use `../../../GLOSSARY.md`, ADR-0010, and the current modules as implementation truth.
 
 - **Date:** 2026-06-14
 - **Status:** Superseded planning record
 - **Author:** f + Claude
-- **Related:** ADR-0003 (UI in Shadow DOM), ADR-0004 (centralized selectors), ADR-0006 (UI activation), ADR-0009 (Mirror posture), ADR-0010 (reversible-stub hide), CONTEXT.md (domain language), MISSION.md (verify-by-effect)
+- **Related:** ADR-0003 (UI in Shadow DOM), ADR-0004 (centralized selectors), ADR-0006 (UI activation), ADR-0009 (Mirror posture), ADR-0010 (reversible-stub hide), GLOSSARY.md (domain language), MISSION.md (verify-by-effect)
 
 ## 1. Intent
 
@@ -13,7 +13,7 @@ Give the user a client-side **Filter** over the x.com timeline: while reading Ho
 
 Concretely, the user can, in one pass: keep only posts in their languages, hide native video, and surface only arXiv / Hacker News links — the dimensions named in the original request, generalized.
 
-## 2. New domain language (to fold into CONTEXT.md / GLOSSARY.md)
+## 2. New domain language (to fold into GLOSSARY.md)
 
 - **Facet** — a classifiable property of a **Tweet**, read purely from its `article` in the page. Facets are **independent predicates**, not one enum: a post can be `photo` *and* `quote` *and* carry a `link` at once. The set is `{hasText, hasPhoto, hasVideo, hasQuote, hasLink}` + `linkDest` (a set of hosts) + `role` (repost) + author flags + `lang`. `text-only` is the derived predicate "has text and none of photo/video/quote/link". DOM-derived, isolated-world-safe, no network. Sibling concept to the author that `tweet-extractor` pulls out.
 - **Criterion** — one filterable facet value the user can switch (e.g. `kind:video`, `linkDest:arxiv`).
@@ -137,7 +137,7 @@ master toggle off  ->  filter-applier.restoreAll()  (native feed returns instant
 
 ## 11. Resolved in grill (2026-06-14)
 
-- **Tweet is a first-class subject for the Filter capability** (Q1) — CONTEXT.md updated; the "never saves a tweet" line now scopes to List-assign.
+- **Tweet is a first-class subject for the Filter capability** (Q1) — GLOSSARY.md updated; the "never saves a tweet" line now scopes to List-assign.
 - **Hide mechanic = reversible collapse-to-stub**, not `display:none` (Q2) — ADR-0010. Full `display:none` is a future upgrade behind a live-virtualization verification note. *(Reaffirmed in session 2.)*
 - **Only-semantics = AND-across-families / OR-within-family** (Q3) — see §4 truth table. *(Reaffirmed in session 2.)*
 - **Hidden cell is inert for List-assign** (Q4) — no overlay, not selectable.

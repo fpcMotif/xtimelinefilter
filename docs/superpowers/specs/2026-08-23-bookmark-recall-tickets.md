@@ -121,12 +121,12 @@ mints **one** fence token for the gesture and reuses it for file and undo. The t
 "Filed N posts into F · k already there · t filed this visit" with an Undo action; the visit
 tally is in-memory only. Off the Bookmarks scope the command shows an info toast and does
 nothing. Ships only with the dated ADR-0005 amendment in spec §7 (it is a decision, not a
-formality) and the `docs/CONTEXT.md` glossary entry for "Batch file". Out of scope: any sticky
+formality) and the `GLOSSARY.md` glossary entry for "Batch file". Out of scope: any sticky
 or scroll-driven mode; inline tagging; evidence rows.
 
 ### Acceptance criteria
 
-- [ ] `docs/adr/0005-policy-invariants.md` carries the dated "filing a screen of the user's own Bookmarks" amendment (spec §7) and `docs/CONTEXT.md` defines **Batch file**; the amendment's "unchanged" clause is present verbatim.
+- [ ] `docs/adr/0005-policy-invariants.md` carries the dated "filing a screen of the user's own Bookmarks" amendment (spec §7) and `GLOSSARY.md` defines **Batch file**; the amendment's "unchanged" clause is present verbatim.
 - [ ] `file-visible-to-folder` is bound to `Alt+Shift+f`, passes `combosCollide()`, and is a no-op with the pinned info toast when `resolveScope(location.pathname).kind !== "bookmarks"` — tested on Home, a List and a profile.
 - [ ] A controller test with a fixture page holding a plain post, a quote tweet (host + nested article), a promoted unit and an article with no permalink files exactly two posts: the plain post and the quote host; the nested article and the promoted unit are never captured; the no-id article is counted in the toast, not filed.
 - [ ] `CollectionStore.filePosts` and `unfilePosts` exist on both implementations, are pinned in `account-freedom.test.ts`, and a `local-store.test.ts` case proves atomicity: a batch whose last item throws leaves zero new rows.
@@ -185,7 +185,7 @@ strings; `#tag` recall (R1) matches them exactly after trim and case-fold.
 ### What to build
 
 Close the loop the way #26/#78 do. `docs/adr/0013-…md` gains the "Recall" amendment (spec §7);
-`docs/CONTEXT.md` defines **Recall** and **Recall query**; `docs/product-documentation.md` lists
+`GLOSSARY.md` defines **Recall** and **Recall query**; `docs/product-documentation.md` lists
 `Alt+Shift+F` and `Alt+Shift+R` in the shortcuts table with one-line honest descriptions
 ("files what's loaded", "searches posts Lasso has filed"); `verify-bookmark-recall-dom.md` holds
 the §10 record including the v2→v3 in-place upgrade check and the hotkey collision check. The
@@ -194,7 +194,7 @@ stale state of #25/#26 (landed in `f1c7028`, still open) is resolved in passing.
 ### Acceptance criteria
 
 - [ ] ADR-0013 Recall amendment present, dated, with the popup-grant sentence.
-- [ ] CONTEXT.md entries for Recall, Recall query and Batch file; product-documentation shortcuts table updated; a `strings.test.ts`-style pin is not needed for docs.
+- [ ] GLOSSARY.md entries for Recall, Recall query and Batch file; product-documentation shortcuts table updated; a `strings.test.ts`-style pin is not needed for docs.
 - [ ] `verify-bookmark-recall-dom.md` follows the `verify-*.md` skeleton (Status, AMBER table, How to verify, Verdicts, Known traps, Promotion) and records §10 cases 1–7 with dates and the account used (human-produced; not tickable by the implementing agent).
 - [ ] #25 and #26 are closed with a comment pointing at `f1c7028`.
 
