@@ -33,6 +33,8 @@ const ASSERT_CATALOG: Assignable<
 void ASSERT_LISTS_CONTAINING;
 void ASSERT_CATALOG;
 
+const IDLE_CLOSE_MS = 30_000;
+
 /**
  * Builds the real Mirror over a Convex HTTP client. HTTP (not the reactive
  * WebSocket) is deliberate for the record/reconcile path: no persistent
@@ -49,41 +51,68 @@ export function buildConvexMembershipStore(cfg: {
     mutation: (ref, args) => http.mutation(ref as FunctionReference<"mutation">, args),
     query: (ref, args) => http.query(ref as FunctionReference<"query">, args),
   };
+  let shared: ConvexClient | null = null;
+  let observers = 0;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const acquire = (): ConvexClient => {
+    clearTimeout(idleTimer);
+    idleTimer = undefined;
+    shared ??= new ConvexClient(cfg.url);
+    observers += 1;
+    return shared;
+  };
+  const release = (): void => {
+    observers -= 1;
+    if (observers > 0) return;
+    idleTimer = setTimeout(() => {
+      const idle = shared;
+      shared = null;
+      idleTimer = undefined;
+      void idle?.close();
+    }, IDLE_CLOSE_MS);
+  };
   const observe: MirrorObserver = (subject, emit) => {
-    const client = new ConvexClient(cfg.url);
+    const client = acquire();
     let catalog: ReturnType<typeof catalogGroups> = [];
     let memberships: MembershipHit[] = [];
     let active = true;
     const publish = (): void => {
       if (active) emit({ catalog, memberships });
     };
-    const stopCatalog = client.onUpdate(
-      api.membership.catalog,
-      { deviceKey: cfg.deviceKey },
-      (groups) => {
-        catalog = catalogGroups(groups);
-        publish();
-      },
-      () => {},
-    );
-    const stopMemberships =
-      subject.kind === "single"
-        ? client.onUpdate(
-            api.membership.listsContaining,
-            { deviceKey: cfg.deviceKey, memberIdentity: subject.identity },
-            (hits) => {
-              memberships = hits;
-              publish();
-            },
-            () => {},
-          )
-        : () => {};
+    let stopCatalog: () => void = () => {};
+    let stopMemberships: () => void = () => {};
+    try {
+      stopCatalog = client.onUpdate(
+        api.membership.catalog,
+        { deviceKey: cfg.deviceKey },
+        (groups) => {
+          catalog = catalogGroups(groups);
+          publish();
+        },
+        () => {},
+      );
+      if (subject.kind === "single") {
+        stopMemberships = client.onUpdate(
+          api.membership.listsContaining,
+          { deviceKey: cfg.deviceKey, memberIdentity: subject.identity },
+          (hits) => {
+            memberships = hits;
+            publish();
+          },
+          () => {},
+        );
+      }
+    } catch (error) {
+      stopCatalog();
+      release();
+      throw error;
+    }
     return () => {
       if (!active) return;
       active = false;
       stopCatalog();
       stopMemberships();
-      void client.close();
+      release();
     };
   };
   return new ConvexMembershipStore(calls, api.membership, cfg.deviceKey, observe);

@@ -34,9 +34,9 @@ These terms define the product. Architecture lives in
 ## Filter
 
 - **Filter** — a local, display-only timeline narrowing feature. It never calls or acts on X and never carries List-assignment correctness.
-- **Filter scope** — the set of timelines the Filter may run on: Home, List, Bookmark, and profile. `content/route.ts` rechecks scope after SPA navigation.
-- **Resolved scope** — which of those timelines the user is on right now, identified: Home, one List, Bookmarks, or one profile. `content/route.ts` reads it from the path; what it means is domain, so the type lives in `core/`.
-- **Bindable** — a Resolved scope that may carry its own Filter preference. Home, List, and profile are bindable; Bookmarks runs the Filter but is deliberately not bindable yet.
+- **Filter scope** — the set of timelines the Filter may run on: Home, List, Bookmarks, History, and profile. `content/route.ts` rechecks scope after SPA navigation.
+- **Resolved scope** — which of those timelines the user is on right now, identified: Home, one List, Bookmarks, History, or one profile. `content/route.ts` reads it from the path; what it means is domain, so the type lives in `core/`.
+- **Bindable** — a Resolved scope that may carry its own Filter preference. Home, List, and profile are bindable; Bookmarks and History run the Filter but are deliberately not bindable yet. History is X's post-May-2026 hub (`/i/history`) that replaced the Bookmarks nav entry, tabbing Bookmarks/Likes/Videos/Articles under one root — it folds to the same non-bindable scope regardless of tab, same as a Bookmarks folder.
 - **Preset** — a named snapshot of the active filter *selection*: tri-state criteria plus the language gate. Never link rules — applying a Preset leaves the user's host→destination mappings alone.
 - **Binding** — the link from one bindable scope to one Preset. Arriving at that scope applies the Preset; it is a pointer, never a second copy of the criteria.
 - **Binding key** — the stable string a Binding is stored under: `home`, `list:<listId>`, or `profile:<handle>` with the handle case-folded, so `@Jack` and `@jack` are one scope. A non-bindable scope has no key.
@@ -100,3 +100,9 @@ These terms define the product. Architecture lives in
 - **Folder Picker controller** — cache-first Folder list for one pending capture, with holding marks and choose/close effects the Controller executes.
 - **Folders workshop** — the Options section for full Folder management, replica status, and Sync now: create, rename, reorder, delete (with a disposition confirmation) and default-Folder nomination. It renders its local cache first, then refreshes a configured Convex Folder Replica and repeats its normal Folder/page reads. It remains usable with no x.com tab, no X session, no List catalog read, or no Convex connection — Folders belong to the installation's local replica, never an X account. A failed Folder or replica read leaves cached data visible with an honest error and Retry rather than an empty list.
 - **Canonical strings** — shared user-facing copy in `core/strings.ts`, pinned by tests.
+
+## Presentation & Styling
+
+- **StyleX** — the primary styling engine (`@stylexjs/stylex`). Compiles atomic CSS rules at build time, eliminating runtime class resolution, specificity races, and class-clobbering bugs inside open Shadow DOM overlays. See ADR-0014.
+- **Design tokens** — typed token definitions in `src/ui/tokens.stylex.ts` (`tokens.*`) referencing semantic CSS variables declared on `:root` and mirrored to `:host` in `src/ui/mount.tsx`.
+- **Styling rollback contract** — the standing rollback design described in ADR-0014. Should future product requirements demand returning to Tailwind CSS v4, the architecture preserves backwards compatibility across component APIs (`class`/`className` via zero-dependency `cn`), shared CSS variables in `src/ui/styles.css`, and an isolated commit history tracked by bookmark `baseline/tailwindcss`.

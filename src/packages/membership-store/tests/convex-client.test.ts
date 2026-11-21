@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Stub the only true external boundary: the Convex HTTP client. Shared spies are
 // hoisted so the (hoisted) vi.mock factory can close over them, letting us assert
@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
     stop: ReturnType<typeof vi.fn>;
   }>,
   closes: 0,
+  clientConstructions: 0,
 }));
 
 vi.mock("convex/browser", () => ({
@@ -27,6 +28,7 @@ vi.mock("convex/browser", () => ({
   ConvexClient: class {
     constructor(url: string) {
       h.ctorUrls.push(url);
+      h.clientConstructions++;
     }
     onUpdate(
       _ref: unknown,
@@ -52,6 +54,10 @@ import {
 import { api } from "../../../../convex/_generated/api";
 
 describe("buildConvexMembershipStore", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("constructs a ConvexHttpClient at the configured url", () => {
     buildConvexMembershipStore({ url: "https://silent-crab-355.convex.cloud", deviceKey: "dk" });
     expect(h.ctorUrls).toContain("https://silent-crab-355.convex.cloud");
@@ -105,6 +111,7 @@ describe("buildConvexMembershipStore", () => {
   it("uses reactive queries for observe and closes them on dispose", () => {
     h.subscriptions.length = 0;
     h.closes = 0;
+    vi.useFakeTimers();
     const store = buildConvexMembershipStore({ url: "https://x.convex.cloud", deviceKey: "dk" });
     const emit = vi.fn();
     const stop = store.observe({ kind: "single", identity: "user:10" }, emit);
@@ -132,7 +139,45 @@ describe("buildConvexMembershipStore", () => {
     expect(h.subscriptions.every((subscription) => subscription.stop.mock.calls.length === 1)).toBe(
       true,
     );
+    expect(h.closes).toBe(0);
+    vi.advanceTimersByTime(60_000);
     expect(h.closes).toBe(1);
+  });
+
+  it("shares one client between two observers", () => {
+    h.clientConstructions = 0;
+    const store = buildConvexMembershipStore({ url: "https://x.convex.cloud", deviceKey: "dk" });
+    const stopA = store.observe({ kind: "bulk" }, vi.fn());
+    const stopB = store.observe({ kind: "bulk" }, vi.fn());
+    expect(h.clientConstructions).toBe(1);
+    stopA();
+    stopB();
+  });
+
+  it("keeps the client through a quick reopen", () => {
+    vi.useFakeTimers();
+    h.clientConstructions = 0;
+    h.closes = 0;
+    const store = buildConvexMembershipStore({ url: "https://x.convex.cloud", deviceKey: "dk" });
+    store.observe({ kind: "bulk" }, vi.fn())();
+    vi.advanceTimersByTime(10_000);
+    const stop = store.observe({ kind: "bulk" }, vi.fn());
+    expect(h.clientConstructions).toBe(1);
+    expect(h.closes).toBe(0);
+    stop();
+  });
+
+  it("closes the client after the idle period", () => {
+    vi.useFakeTimers();
+    h.clientConstructions = 0;
+    h.closes = 0;
+    const store = buildConvexMembershipStore({ url: "https://x.convex.cloud", deviceKey: "dk" });
+    store.observe({ kind: "bulk" }, vi.fn())();
+    vi.advanceTimersByTime(60_000);
+    expect(h.closes).toBe(1);
+    const stop = store.observe({ kind: "bulk" }, vi.fn());
+    expect(h.clientConstructions).toBe(2);
+    stop();
   });
 
   it("observes only the catalog for a bulk subject", () => {

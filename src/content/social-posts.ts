@@ -346,9 +346,11 @@ export function createTimelineCursor(
       return next.root;
     },
     observePointer(target) {
+      if (currentRoot?.isConnected && target instanceof Node && currentRoot.contains(target))
+        return currentRoot;
       const root = adapter.rootForTarget(target, doc);
       if (!root) return null;
-      mark(root);
+      if (root !== currentRoot) mark(root);
       return root;
     },
     release(root) {
