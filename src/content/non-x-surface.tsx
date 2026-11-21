@@ -1,3 +1,5 @@
+import * as stylex from "@stylexjs/stylex";
+
 import type { AppState } from "@/content/app-state";
 import type { LassoController } from "@/content/controller";
 import type { FolderPickerController } from "@/core/folder-picker-controller";
@@ -6,6 +8,17 @@ import { FolderPicker } from "@/ui/FolderPicker";
 import { UI_LAYER } from "@/ui/layers";
 import { ToastHost } from "@/ui/Toast";
 import { useSignalValue } from "@/ui/use-signal-value";
+
+const styles = stylex.create({
+  backdrop: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "transparent",
+  },
+  panel: {
+    position: "fixed",
+  },
+});
 
 export interface NonXSurfaceProps {
   app: AppState;
@@ -23,7 +36,7 @@ export function NonXSurface({ app, folderPicker, controller, toasts }: NonXSurfa
           <div
             aria-hidden="true"
             data-folder-picker-backdrop
-            class="fixed inset-0 bg-transparent"
+            {...stylex.props(styles.backdrop)}
             style={{ zIndex: UI_LAYER.modal }}
             onPointerDown={(event) => {
               event.preventDefault();
@@ -34,7 +47,7 @@ export function NonXSurface({ app, folderPicker, controller, toasts }: NonXSurfa
           />
           <div
             data-folder-picker-panel
-            class="fixed"
+            {...stylex.props(styles.panel)}
             style={{
               zIndex: UI_LAYER.modal,
               bottom: "88px",

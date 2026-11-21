@@ -1079,6 +1079,346 @@ ${section(
       );
     }
 
+    /* oxlint-disable jsx-a11y/no-redundant-roles -- mirrors FolderPicker.tsx, whose combobox input carries the explicit role */
+    /* ── proposed: Bookmark Recall (spec 2026-08-23, tickets R2/R3) ───────
+       DESIGN MOCKUPS, not shipping components — the spec requires these
+       reviewed before any Recall code lands (house rule: design review before
+       code). Composed from the real Button/Input/Badge/Kbd primitives, the
+       real ToastView, and FolderPicker.tsx's / SavedPostRow's own class
+       strings verbatim, so what gets reviewed is what implementation will
+       produce. Recall searches posts Lasso has FILED — never X, never the
+       page — and the batch gesture files only what X has rendered. */
+    {
+      // FolderPicker.tsx verbatim: dialog shell, combobox input, option row.
+      const PICKER =
+        "bg-card shadow-elevated flex max-h-[460px] w-80 flex-col overflow-hidden rounded-2xl";
+      const PICKER_HEADER = "text-foreground text-md px-4 pt-3 pb-2 font-bold";
+      const PICKER_INPUT =
+        "border-border bg-card text-foreground placeholder:text-faint text-md border-0 border-b px-4 py-3 outline-none";
+      const PICKER_FOOTER =
+        "border-border text-muted-foreground border-t px-4 py-2 text-xs tabular-nums";
+      const optionRow = (active: boolean) =>
+        `text-md flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 ${active ? "bg-secondary" : ""}`;
+
+      const batchRow = (opts: { name: string; held: number; of: number; active?: boolean }) => (
+        <div
+          key={opts.name}
+          role="option"
+          aria-selected={!!opts.active}
+          class={optionRow(!!opts.active)}
+        >
+          <span class="text-foreground min-w-0 flex-1 truncate">{opts.name}</span>
+          {opts.held > 0 && (
+            <span class="text-primary text-compact shrink-0 tabular-nums">
+              holds {opts.held} of {opts.of}
+            </span>
+          )}
+        </div>
+      );
+
+      await card(
+        {
+          group: "Recall surfaces",
+          name: "Folder Picker — batch mode (proposed, Recall R3)",
+          file: "recall-picker-batch.html",
+          minHeight: 420,
+        },
+        () =>
+          snap(
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="File 22 posts into a Folder"
+              class={PICKER}
+            >
+              <header class={PICKER_HEADER}>File 22 posts into a Folder</header>
+              <input
+                type="text"
+                role="combobox"
+                aria-label="Search Folders"
+                aria-controls="recall-batch-listbox"
+                aria-expanded
+                placeholder="Search Folders"
+                class={PICKER_INPUT}
+              />
+              <div
+                id="recall-batch-listbox"
+                role="listbox"
+                aria-label="Your Folders"
+                class="min-h-0 flex-1 overflow-y-auto p-1"
+              >
+                {batchRow({ name: "Research", held: 4, of: 22, active: true })}
+                {batchRow({ name: "Design refs", held: 0, of: 22 })}
+                {batchRow({ name: "Saved", held: 22, of: 22 })}
+                {batchRow({ name: "Read later", held: 1, of: 22 })}
+              </div>
+              <footer class={PICKER_FOOTER}>↑↓ Navigate · Enter File · Esc Dismiss</footer>
+            </div>,
+          ),
+      );
+
+      const recallRow = (opts: {
+        handle: string;
+        date: string;
+        text: string;
+        folders: string[];
+        active?: boolean;
+      }) => (
+        <div
+          key={opts.handle + opts.date}
+          role="option"
+          aria-selected={!!opts.active}
+          class={`flex cursor-pointer flex-col gap-1 rounded-lg px-3 py-2.5 ${opts.active ? "bg-secondary" : ""}`}
+        >
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="text-foreground text-sm font-semibold">@{opts.handle}</span>
+            <span class="text-faint text-compact shrink-0 tabular-nums">{opts.date}</span>
+          </div>
+          <p class="text-foreground line-clamp-2 text-sm">{opts.text}</p>
+          <div class="flex flex-wrap gap-1">
+            {opts.folders.map((f) => (
+              <Badge key={f} variant="secondary">
+                {f}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      );
+
+      await card(
+        {
+          group: "Recall surfaces",
+          name: "Recall overlay — Alt+Shift+R (proposed, Recall R2)",
+          file: "recall-overlay.html",
+          minHeight: 520,
+        },
+        async () => {
+          const ready = await snap(
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Find a saved post"
+              class={`${PICKER} max-h-[560px] w-[420px]`}
+            >
+              <header class={PICKER_HEADER}>Find a saved post</header>
+              <input
+                type="text"
+                role="combobox"
+                aria-label="Search saved posts"
+                aria-controls="recall-listbox-ready"
+                aria-expanded
+                placeholder="Search saved posts — words, @handle, #tag, after:2026-05"
+                value="rust lifetimes #learning"
+                class={PICKER_INPUT}
+              />
+              <div
+                id="recall-listbox-ready"
+                role="listbox"
+                aria-label="Saved posts"
+                class="min-h-0 flex-1 overflow-y-auto p-1"
+              >
+                {recallRow({
+                  handle: "jonhoo",
+                  date: "May 14, 2026",
+                  text: "Lifetimes aren't about memory, they're about proving to the compiler that a reference can't outlive what it points at. Thread:",
+                  folders: ["Research", "Read later"],
+                  active: true,
+                })}
+                {recallRow({
+                  handle: "fasterthanlime",
+                  date: "Mar 2, 2026",
+                  text: "The 'lifetime elision' rules are three sentences long and most people never read them. Here they are, with examples.",
+                  folders: ["Research"],
+                })}
+                {recallRow({
+                  handle: "rustlang",
+                  date: "Jan 22, 2026",
+                  text: "Rust 1.93 stabilises precise capturing in traits — what it means for lifetimes in async fn return types.",
+                  folders: ["Saved"],
+                })}
+                <div
+                  role="option"
+                  aria-selected={false}
+                  class="text-muted-foreground px-3 py-2 text-center text-sm"
+                >
+                  more…
+                </div>
+              </div>
+              <footer class={PICKER_FOOTER}>
+                Searches posts Lasso has filed · ↑↓ Navigate · Enter Open in new tab · Esc Dismiss
+              </footer>
+            </div>,
+          );
+          const empty = await snap(
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Find a saved post"
+              class={`${PICKER} w-[420px]`}
+            >
+              <header class={PICKER_HEADER}>Find a saved post</header>
+              <input
+                type="text"
+                role="combobox"
+                aria-label="Search saved posts"
+                aria-controls="recall-listbox-empty"
+                aria-expanded
+                placeholder="Search saved posts — words, @handle, #tag, after:2026-05"
+                value="@nobody"
+                class={PICKER_INPUT}
+              />
+              <div
+                id="recall-listbox-empty"
+                role="listbox"
+                aria-label="Saved posts"
+                class="min-h-0 flex-1 overflow-y-auto p-1"
+              >
+                <div class="flex flex-col items-center gap-2 px-4 py-5 text-center">
+                  <p class="text-muted-foreground text-md">No saved posts match "@nobody"</p>
+                  <p class="text-faint text-compact">
+                    Recall only finds posts you've filed — on your Bookmarks page, press{" "}
+                    <Kbd>Alt</Kbd>+<Kbd>Shift</Kbd>+<Kbd>F</Kbd> to file what's loaded.
+                  </p>
+                </div>
+              </div>
+              <footer class={PICKER_FOOTER}>Searches posts Lasso has filed · Esc Dismiss</footer>
+            </div>,
+          );
+          return (
+            section("ready — three hits", ready) + section("empty — honest about coverage", empty)
+          );
+        },
+      );
+
+      await card(
+        {
+          group: "Recall surfaces",
+          name: "Toast — batch filed (proposed, Recall R3)",
+          file: "recall-toast.html",
+          minHeight: 260,
+        },
+        async () => {
+          const t = (toast: ActiveToast) =>
+            snap(<ToastView toast={toast} onAct={noop} onDismiss={noop} />);
+          const filed = await t({
+            id: 1,
+            kind: "success",
+            title: "Filed 18 posts into Research",
+            line: "4 already there · 140 filed this visit",
+            actions: [{ label: "Undo", kbd: "Z", run: noop }],
+          } as unknown as ActiveToast);
+          const partial = await t({
+            id: 2,
+            kind: "success",
+            title: "Filed 9 posts into Read later",
+            line: "2 couldn't be read and were skipped",
+            actions: [{ label: "Undo", kbd: "Z", run: noop }],
+          } as unknown as ActiveToast);
+          const offScope = await t({
+            id: 3,
+            kind: "info",
+            title: "File what's loaded works on your Bookmarks page",
+          } as unknown as ActiveToast);
+          return (
+            section("success", filed) +
+            section("success — some skipped", partial) +
+            section("info — pressed off the Bookmarks page", offScope)
+          );
+        },
+      );
+
+      // SavedPostRow verbatim (FoldersOptions.tsx) plus the proposed tags/note editors.
+      const savedRow = (opts: { handle: string; date: string; text: string; tags: string[] }) => (
+        <li
+          key={opts.handle + opts.date}
+          class="border-border flex gap-3 rounded-xl border px-3.5 py-3 text-sm"
+        >
+          <span
+            aria-hidden="true"
+            class="bg-secondary text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+          >
+            {opts.handle[0]}
+          </span>
+          <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="text-foreground truncate font-semibold">@{opts.handle}</span>
+              <span class="text-faint text-compact shrink-0">{opts.date}</span>
+            </div>
+            <p class="text-foreground whitespace-pre-wrap">{opts.text}</p>
+            <div class="flex flex-wrap items-center gap-1">
+              {opts.tags.map((tag) => (
+                <Badge key={tag} variant="secondary">
+                  #{tag}
+                  <button type="button" aria-label={`Remove tag ${tag}`} class="ml-1 opacity-60">
+                    ×
+                  </button>
+                </Badge>
+              ))}
+              <Input aria-label="Add tag" placeholder="Add tag" class="h-7 max-w-[120px] text-xs" />
+            </div>
+            <Input aria-label="Note" placeholder="Add a note…" class="h-8 text-xs" />
+            <a
+              href="https://x.com/i/status/1"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-primary text-compact hover:underline"
+            >
+              Open on X
+            </a>
+          </div>
+        </li>
+      );
+
+      await card(
+        {
+          group: "Recall surfaces",
+          name: "Folders workshop — Recall box + tags/notes (proposed, Recall R2/R4)",
+          file: "page-options-folders-recall.html",
+          minHeight: 560,
+        },
+        () =>
+          snap(
+            <div class="flex max-w-[560px] flex-col gap-4">
+              <div class="flex flex-col gap-2">
+                <Input
+                  aria-label="Find a saved post"
+                  placeholder="Find a saved post — words, @handle, #tag, after:2026-05"
+                  value="lifetimes"
+                />
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <Badge variant="outline">Folder: Research ×</Badge>
+                  <Badge variant="outline">after: May 2026 ×</Badge>
+                  <Button variant="ghost" size="sm">
+                    + author
+                  </Button>
+                  <Button variant="ghost" size="sm">
+                    + tag
+                  </Button>
+                  <span class="text-faint text-compact ml-auto tabular-nums">2 of 2 posts</span>
+                </div>
+              </div>
+              <ul class="flex flex-col gap-2">
+                {savedRow({
+                  handle: "jonhoo",
+                  date: "May 14, 2026",
+                  text: "Lifetimes aren't about memory, they're about proving to the compiler that a reference can't outlive what it points at. Thread:",
+                  tags: ["learning", "rust"],
+                })}
+                {savedRow({
+                  handle: "fasterthanlime",
+                  date: "Mar 2, 2026",
+                  text: "The 'lifetime elision' rules are three sentences long and most people never read them.",
+                  tags: ["rust"],
+                })}
+              </ul>
+            </div>,
+            (r) => r.getAllByText("Open on X"),
+          ),
+      );
+    }
+
+    /* oxlint-enable jsx-a11y/no-redundant-roles */
+
     console.log(`cards written: ${made.length}\n${made.join("\n")}`);
     if (failures.length) console.log(`FAILED:\n${failures.join("\n")}`);
     expect(failures).toEqual([]);
